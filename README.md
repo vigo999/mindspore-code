@@ -36,8 +36,36 @@ In TUI input, use slash commands:
 
 - `/roadmap status [path]` (default: `roadmap.yaml`)
 - `/weekly status [path]` (default: `weekly.md`)
+- `/model list`
+- `/model show`
+- `/model use <provider>/<model>` (provider: `openai` or `openrouter`)
+- `/perm status`
+- `/perm yolo on|off`
+- `/perm whitelist list|add|remove <tool>`
+- `/perm blacklist list|add|remove <tool>`
+- `/approve once|session`
+- `/reject`
+- `/compact [keep]` (compact chat history, default keep=12)
+- `/clear` (clear chat panel)
+- `/exit` (exit TUI)
 
 Any non-slash input is treated as a normal task prompt and routed to the engine.
+
+When input starts with `/`, the hint bar shows slash-command candidates. Use `up/down` to cycle and `tab` to apply the selected command.
+
+## Model Provider Setup
+
+`ms-cli` supports OpenAI and OpenRouter.
+
+- Set API key env vars as needed:
+  - `OPENAI_API_KEY`
+  - `OPENROUTER_API_KEY`
+- Optional runtime overrides:
+  - `MSCLI_MODEL_PROVIDER`
+  - `MSCLI_MODEL_NAME`
+  - `MSCLI_MODEL_ENDPOINT`
+- Base config lives in `configs/mscli.yaml`.
+- Session state is persisted in `.mscli/session.yaml` (model selection and provider API keys).
 
 ## Keybindings
 
@@ -114,7 +142,8 @@ ms-cli/
 
 ## Known Limitations
 
-- The real-mode engine flow is still minimal/stub-oriented.
+- Planner currently depends on model-generated JSON; malformed model outputs can degrade task quality.
+- No provider-level automatic failover (OpenAI/OpenRouter switch is manual via `/model use`).
 - Running Bubble Tea in non-interactive shells may fail with `/dev/tty` errors.
 
 ## Architecture Rule

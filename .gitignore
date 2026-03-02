@@ -9,3 +9,5 @@ ms-cli
 
 # Go workspace and cache files
 *.coverprofile
+.cache/
+.mscli/

@@ -8,6 +8,7 @@ type TaskInfo struct {
 
 // ModelInfo holds LLM model metadata for the top bar.
 type ModelInfo struct {
+	Provider   string
 	Name       string
 	CtxUsed    int
 	CtxMax     int
@@ -18,7 +19,7 @@ type ModelInfo struct {
 type MessageKind int
 
 const (
-	MsgUser     MessageKind = iota
+	MsgUser MessageKind = iota
 	MsgAgent
 	MsgThinking
 	MsgTool
@@ -60,19 +61,25 @@ const (
 	ToolEdit      EventType = "ToolEdit"
 	ToolWrite     EventType = "ToolWrite"
 	ToolError     EventType = "ToolError"
+	ModelUpdate   EventType = "ModelUpdate"
+	ClearChat     EventType = "ClearChat"
+	CompactChat   EventType = "CompactChat"
 	Done          EventType = "Done"
 )
 
 // Event is sent from the agent loop to the TUI.
 // Implements tea.Msg so Bubble Tea can route it.
 type Event struct {
-	Type       EventType
-	Task       string
-	Message    string
-	ToolName   string
-	Summary    string
-	CtxUsed    int
-	TokensUsed int
+	Type          EventType
+	Task          string
+	Message       string
+	ToolName      string
+	Summary       string
+	CtxUsed       int
+	TokensUsed    int
+	ModelProvider string
+	ModelName     string
+	KeepMessages  int
 }
 
 // State is the central UI state.
@@ -88,13 +95,14 @@ type State struct {
 }
 
 // NewState returns an initial empty state.
-func NewState(version, workDir, repoURL string) State {
+func NewState(version, workDir, repoURL, modelProvider, modelName string) State {
 	return State{
 		Version: version,
 		Tasks:   []TaskInfo{},
 		Model: ModelInfo{
-			Name:   "deepseek-r1",
-			CtxMax: 128000,
+			Provider: modelProvider,
+			Name:     modelName,
+			CtxMax:   128000,
 		},
 		WorkDir: workDir,
 		RepoURL: repoURL,

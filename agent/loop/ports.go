@@ -2,7 +2,17 @@ package loop
 
 import "context"
 
-// ExecPort executes shell commands.
-type ExecPort interface {
-	Run(ctx context.Context, cmd string) error
+type FSTool interface {
+	Read(path string) (string, error)
+	Grep(path, pattern string, maxMatches int) ([]string, error)
+	Edit(path, oldText, newText string) (string, error)
+	Write(path, content string) (int, error)
+}
+
+type ShellTool interface {
+	Run(ctx context.Context, command string) (string, int, error)
+}
+
+type TraceWriter interface {
+	Write(eventType string, payload any) error
 }

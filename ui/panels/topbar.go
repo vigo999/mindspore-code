@@ -41,12 +41,19 @@ var (
 // When showBanner is true, a second line with workdir + repo is shown.
 func RenderTopBar(s model.State, width int) string {
 	sep := sepStyle.Render("│")
+	modelName := strings.TrimSpace(s.Model.Name)
+	if strings.TrimSpace(s.Model.Provider) != "" {
+		modelName = s.Model.Provider + "/" + modelName
+	}
+	if strings.TrimSpace(modelName) == "" {
+		modelName = "n/a"
+	}
 
 	// Line 1: brand + model info (always shown)
 	left := brandStyle.Render(s.Version)
 	right := strings.Join([]string{
 		infoStyle.Render("model:"),
-		infoStyle.Render(s.Model.Name),
+		infoStyle.Render(modelName),
 		sep,
 		infoStyle.Render(fmt.Sprintf("ctx: %s/%s", formatTokens(s.Model.CtxUsed), formatTokens(s.Model.CtxMax))),
 		sep,

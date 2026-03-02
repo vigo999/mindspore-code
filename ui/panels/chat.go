@@ -68,7 +68,7 @@ var (
 )
 
 // RenderMessages converts messages into styled text for the viewport.
-func RenderMessages(messages []model.Message, spinnerView string) string {
+func RenderMessages(messages []model.Message, spinnerView string, width int) string {
 	var parts []string
 
 	for _, m := range messages {
@@ -84,7 +84,11 @@ func RenderMessages(messages []model.Message, spinnerView string) string {
 		}
 	}
 
-	return strings.Join(parts, "\n\n")
+	out := strings.Join(parts, "\n\n")
+	if width <= 0 {
+		return out
+	}
+	return lipgloss.NewStyle().Inline(false).Width(width).Render(out)
 }
 
 func renderUserMsg(content string) string {

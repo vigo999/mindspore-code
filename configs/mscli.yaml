@@ -1,6 +1,13 @@
 model:
-  provider: openai
-  endpoint: https://api.openai.com/v1
+  default_provider: openai
+  default_model: gpt-4o-mini
+providers:
+  openai:
+    endpoint: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+  openrouter:
+    endpoint: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
 budget:
   max_tokens: 32768
   max_cost_usd: 10
@@ -16,3 +23,10 @@ memory:
   max_items: 200
   max_bytes: 2097152
   ttl_hours: 168
+engine:
+  max_steps: 0
+  shell_timeout_sec: 120
+  max_output_lines: 200
+trace:
+  enabled: true
+  path: .cache/mscli/trace.jsonl

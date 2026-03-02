@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -23,12 +25,21 @@ func (a *Application) Run() error {
 // channel, dispatches to the engine, and sends resulting events back.
 func (a *Application) runReal() error {
 	userCh := make(chan string, 8)
-	tui := ui.New(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL)
-	p := tea.NewProgram(tui, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	tui := ui.New(
+		a.EventCh,
+		userCh,
+		Version,
+		a.WorkDir,
+		a.RepoURL,
+		a.SessionModel.Provider,
+		a.SessionModel.Name,
+	)
+	p := tea.NewProgram(tui, tea.WithAltScreen())
 
 	go a.inputLoop(userCh)
 
 	_, err := p.Run()
+	a.cancelActiveTask()
 	close(userCh)
 	return err
 }
@@ -44,6 +55,11 @@ func (a *Application) inputLoop(userCh <-chan string) {
 // processInput handles a single user input string: either a slash command
 // or a free-form task sent to the engine.
 func (a *Application) processInput(input string) {
+	if input == ui.InterruptSignal {
+		a.pauseActiveTask()
+		return
+	}
+
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
 		return
@@ -55,35 +71,142 @@ func (a *Application) processInput(input string) {
 		return
 	}
 
-	// Free-form: send to engine
-	a.EventCh <- model.Event{Type: model.AgentThinking}
+	a.startTask(trimmed)
+}
 
-	events, err := a.Engine.Run(loop.Task{Description: trimmed})
-	if err != nil {
+func (a *Application) startTask(input string) {
+	taskID, ctx, ok := a.claimTaskSlot()
+	if !ok {
 		a.EventCh <- model.Event{
-			Type:     model.ToolError,
-			ToolName: "Engine",
-			Message:  err.Error(),
+			Type:    model.AgentReply,
+			Message: "已有任务在执行，按一次 Ctrl+C 可暂停当前任务。",
 		}
 		return
 	}
 
-	for _, ev := range events {
-		a.EventCh <- model.Event{
-			Type:    model.AgentReply,
-			Message: ev.Message,
+	go func(id int64, taskText string, taskCtx context.Context) {
+		defer a.releaseTaskSlot(id)
+
+		err := a.Engine.RunWithContextStream(taskCtx, loop.Task{
+			Description: taskText,
+			MaxSteps:    a.Config.Engine.MaxSteps,
+			Model: loop.ModelSpec{
+				Provider: a.SessionModel.Provider,
+				Name:     a.SessionModel.Name,
+				Endpoint: a.SessionModel.Endpoint,
+			},
+		}, func(ev loop.Event) {
+			a.EventCh <- mapLoopEvent(ev)
+		})
+		if err != nil && !errors.Is(err, context.Canceled) {
+			a.EventCh <- model.Event{
+				Type:     model.ToolError,
+				ToolName: "Engine",
+				Message:  err.Error(),
+			}
 		}
+	}(taskID, input, ctx)
+}
+
+func (a *Application) claimTaskSlot() (int64, context.Context, bool) {
+	a.taskMu.Lock()
+	defer a.taskMu.Unlock()
+
+	if a.activeTask != 0 {
+		return 0, nil, false
 	}
+
+	a.nextTaskID++
+	id := a.nextTaskID
+	ctx, cancel := context.WithCancel(context.Background())
+	a.activeTask = id
+	a.activeCancel = cancel
+	return id, ctx, true
+}
+
+func (a *Application) releaseTaskSlot(id int64) {
+	a.taskMu.Lock()
+	defer a.taskMu.Unlock()
+	if a.activeTask != id {
+		return
+	}
+	a.activeTask = 0
+	a.activeCancel = nil
+}
+
+func (a *Application) pauseActiveTask() bool {
+	a.taskMu.Lock()
+	cancel := a.activeCancel
+	running := a.activeTask != 0 && cancel != nil
+	a.taskMu.Unlock()
+
+	if !running {
+		return false
+	}
+	cancel()
+	return true
+}
+
+func (a *Application) cancelActiveTask() {
+	_ = a.pauseActiveTask()
 }
 
 // runDemo starts the TUI with fake events for preview/testing.
 func (a *Application) runDemo() error {
 	go a.fakeAgentLoop()
 
-	tui := ui.New(a.EventCh, nil, Version, a.WorkDir, a.RepoURL)
-	p := tea.NewProgram(tui, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	tui := ui.New(
+		a.EventCh,
+		nil,
+		Version,
+		a.WorkDir,
+		a.RepoURL,
+		a.SessionModel.Provider,
+		a.SessionModel.Name,
+	)
+	p := tea.NewProgram(tui, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
+}
+
+func mapLoopEvent(ev loop.Event) model.Event {
+	out := model.Event{
+		Message:    ev.Message,
+		ToolName:   ev.ToolName,
+		Summary:    ev.Summary,
+		CtxUsed:    ev.CtxUsed,
+		TokensUsed: ev.TokensUsed,
+	}
+	switch ev.Type {
+	case loop.EventThinking:
+		out.Type = model.AgentThinking
+	case loop.EventReply:
+		out.Type = model.AgentReply
+	case loop.EventToolRead:
+		out.Type = model.ToolRead
+	case loop.EventToolGrep:
+		out.Type = model.ToolGrep
+	case loop.EventToolEdit:
+		out.Type = model.ToolEdit
+	case loop.EventToolWrite:
+		out.Type = model.ToolWrite
+	case loop.EventCmdStarted:
+		out.Type = model.CmdStarted
+	case loop.EventCmdOutput:
+		out.Type = model.CmdOutput
+	case loop.EventCmdFinish:
+		out.Type = model.CmdFinished
+	case loop.EventToolError:
+		out.Type = model.ToolError
+		if out.ToolName == "" {
+			out.ToolName = "Engine"
+		}
+	case loop.EventTokenUsage:
+		out.Type = model.TokenUpdate
+	default:
+		out.Type = model.AgentReply
+	}
+	return out
 }
 
 // fakeAgentLoop simulates agent events for preview.

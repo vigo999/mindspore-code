@@ -31,6 +31,12 @@ func (t TextInput) Reset() TextInput {
 	return t
 }
 
+// SetValue replaces the input text.
+func (t TextInput) SetValue(v string) TextInput {
+	t.Model.SetValue(v)
+	return t
+}
+
 // Focus gives the input focus.
 func (t TextInput) Focus() (TextInput, tea.Cmd) {
 	cmd := t.Model.Focus()

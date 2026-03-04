@@ -144,9 +144,13 @@ func initProvider(cfg configs.ModelConfig) (llm.Provider, error) {
 			return nil, fmt.Errorf("OpenAI API key not found (set OPENAI_API_KEY or api_key in config)")
 		}
 
-		// Determine endpoint: use config if explicitly set to OpenAI, otherwise use default
+		// Determine endpoint: use config if set, otherwise use default
+		// Supports both 'endpoint' and 'base_url' config fields
 		endpoint := cfg.Endpoint
-		if endpoint == "" || strings.Contains(endpoint, "openrouter.ai") {
+		if endpoint == "" {
+			endpoint = cfg.BaseURL
+		}
+		if endpoint == "" {
 			endpoint = "https://api.openai.com/v1"
 		}
 
@@ -170,9 +174,12 @@ func initProvider(cfg configs.ModelConfig) (llm.Provider, error) {
 			return nil, fmt.Errorf("OpenRouter API key not found (set OPENROUTER_API_KEY or api_key in config)")
 		}
 
-		// Determine endpoint: use config if explicitly set to OpenRouter, otherwise use default
+		// Determine endpoint: use config if set, otherwise use default
 		endpoint := cfg.Endpoint
-		if endpoint == "" || strings.Contains(endpoint, "openai.com") {
+		if endpoint == "" {
+			endpoint = cfg.BaseURL
+		}
+		if endpoint == "" {
 			endpoint = "https://openrouter.ai/api/v1"
 		}
 

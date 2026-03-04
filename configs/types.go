@@ -21,6 +21,7 @@ type Config struct {
 type ModelConfig struct {
 	Provider    string            `yaml:"provider"`
 	Endpoint    string            `yaml:"endpoint,omitempty"`
+	BaseURL     string            `yaml:"base_url,omitempty"`
 	APIKey      string            `yaml:"api_key,omitempty"`
 	Model       string            `yaml:"model"`
 	Temperature float64           `yaml:"temperature"`
@@ -203,6 +204,9 @@ func (c *Config) Merge(other *Config) {
 	}
 	if other.Model.Endpoint != "" {
 		c.Model.Endpoint = other.Model.Endpoint
+	}
+	if other.Model.BaseURL != "" {
+		c.Model.BaseURL = other.Model.BaseURL
 	}
 	if other.Model.APIKey != "" {
 		c.Model.APIKey = other.Model.APIKey

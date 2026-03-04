@@ -1,5 +1,7 @@
 model:
   provider: openai
+  # OpenAI API endpoint - can also use 'base_url' for compatibility
+  # Environment variables: MSCLI_ENDPOINT, MSCLI_BASE_URL, or OPENAI_BASE_URL
   endpoint: https://api.openai.com/v1
 budget:
   max_tokens: 32768

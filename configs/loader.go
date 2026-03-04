@@ -120,6 +120,12 @@ func applyEnvOverrides(cfg *Config) {
 	if v := os.Getenv("MSCLI_ENDPOINT"); v != "" {
 		cfg.Model.Endpoint = v
 	}
+	if v := os.Getenv("MSCLI_BASE_URL"); v != "" {
+		cfg.Model.BaseURL = v
+	}
+	if v := os.Getenv("OPENAI_BASE_URL"); v != "" && cfg.Model.BaseURL == "" {
+		cfg.Model.BaseURL = v
+	}
 	if v := os.Getenv("MSCLI_TEMPERATURE"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			cfg.Model.Temperature = f

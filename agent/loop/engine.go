@@ -8,6 +8,8 @@ import (
 	"time"
 
 	ctxmanager "github.com/vigo999/ms-cli/agent/context"
+	"github.com/vigo999/ms-cli/agent/permission"
+	"github.com/vigo999/ms-cli/agent/plan"
 	"github.com/vigo999/ms-cli/integrations/llm"
 	"github.com/vigo999/ms-cli/tools"
 	"github.com/vigo999/ms-cli/trace"
@@ -22,7 +24,7 @@ type EngineConfig struct {
 	SystemPrompt   string
 
 	// Plan Mode 配置
-	ModeConfig ModeConfig
+	ModeConfig plan.ModeConfig
 }
 
 // Engine drives task execution and emits events.
@@ -31,13 +33,13 @@ type Engine struct {
 	provider   llm.Provider
 	tools      *tools.Registry
 	ctxManager *ctxmanager.Manager
-	permission PermissionService
+	permission permission.PermissionService
 	trace      trace.Writer
 
 	// Plan Mode 组件
-	planner      *Planner
-	planExecutor *PlanExecutor
-	modeCallback ModeCallback
+	planner      *plan.Planner
+	planExecutor *plan.PlanExecutor
+	modeCallback plan.ModeCallback
 }
 
 // NewEngine creates a new engine.
@@ -50,14 +52,14 @@ func NewEngine(cfg EngineConfig, provider llm.Provider, tools *tools.Registry) *
 		cfg.SystemPrompt = defaultSystemPrompt()
 	}
 	if cfg.ModeConfig.Mode == 0 && cfg.ModeConfig.PlanConfig.MaxSteps == 0 {
-		cfg.ModeConfig = DefaultModeConfig()
+		cfg.ModeConfig = plan.DefaultModeConfig()
 	}
 
 	engine := &Engine{
 		config:       cfg,
 		provider:     provider,
 		tools:        tools,
-		modeCallback: &DefaultModeCallback{},
+		modeCallback: &plan.DefaultModeCallback{},
 	}
 
 	// Initialize context manager if not set
@@ -68,11 +70,12 @@ func NewEngine(cfg EngineConfig, provider llm.Provider, tools *tools.Registry) *
 	engine.ctxManager.SetSystemPrompt(cfg.SystemPrompt)
 
 	// Default permission service
-	engine.permission = NewNoOpPermissionService()
+	engine.permission = permission.NewNoOpPermissionService()
 
 	// Initialize Plan Mode components
-	engine.planner = NewPlanner(provider, DefaultPlannerConfig())
-	engine.planExecutor = NewPlanExecutor(&toolRegistryAdapter{tools: tools}, engine.modeCallback, DefaultExecutionConfig())
+	engine.planner = plan.NewPlanner(provider, plan.DefaultPlannerConfig())
+	engine.planExecutor = plan.NewPlanExecutor(&toolRegistryAdapter{tools: tools}, engine.modeCallback, plan.DefaultExecutionConfig())
+	engine.planExecutor.SetPermissionService(engine.permission)
 
 	return engine
 }
@@ -96,18 +99,21 @@ func (e *Engine) SetContextManager(cm *ctxmanager.Manager) {
 }
 
 // SetPermissionService sets the permission service.
-func (e *Engine) SetPermissionService(ps PermissionService) {
+func (e *Engine) SetPermissionService(ps permission.PermissionService) {
 	e.permission = ps
+	if e.planExecutor != nil {
+		e.planExecutor.SetPermissionService(ps)
+	}
 }
 
 // SetModeCallback sets the mode callback.
-func (e *Engine) SetModeCallback(cb ModeCallback) {
+func (e *Engine) SetModeCallback(cb plan.ModeCallback) {
 	e.modeCallback = cb
-	e.planExecutor.callback = cb
+	e.planExecutor.SetCallback(cb)
 }
 
 // SetRunMode sets the run mode.
-func (e *Engine) SetRunMode(mode RunMode) {
+func (e *Engine) SetRunMode(mode plan.RunMode) {
 	e.config.ModeConfig.Mode = mode
 }
 
@@ -141,9 +147,9 @@ func (e *Engine) RunWithContext(ctx context.Context, task Task) ([]Event, error)
 		err    error
 	)
 	switch e.config.ModeConfig.Mode {
-	case ModePlan:
+	case plan.ModePlan:
 		events, err = e.runWithPlanMode(ctx, task)
-	case ModeReview:
+	case plan.ModeReview:
 		events, err = e.runWithReviewMode(ctx, task)
 	default:
 		events, err = e.runStandard(ctx, task)
@@ -186,43 +192,43 @@ func (e *Engine) runWithPlanMode(ctx context.Context, task Task) ([]Event, error
 
 	// 1. 生成计划
 	appendEvent(NewEvent(EventAgentThinking, "Generating plan..."))
-	plan, err := e.planner.GeneratePlan(ctx, task.Description, e.getAvailableTools())
+	p, err := e.planner.GeneratePlan(ctx, task.Description, e.getAvailableTools())
 	if err != nil {
 		appendEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Failed to generate plan: %v", err)))
 		return events, fmt.Errorf("generate plan: %w", err)
 	}
-	e.writeTrace("plan_generated", plan)
+	e.writeTrace("plan_generated", p)
 
-	appendEvent(NewEvent(EventLLMResponse, fmt.Sprintf("Plan created with %d steps", len(plan.Steps))))
+	appendEvent(NewEvent(EventLLMResponse, fmt.Sprintf("Plan created with %d steps", len(p.Steps))))
 
 	// 2. 通知计划创建
-	if err := e.modeCallback.OnPlanCreated(plan); err != nil {
+	if err := e.modeCallback.OnPlanCreated(p); err != nil {
 		appendEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Plan callback error: %v", err)))
 		return events, err
 	}
 
 	// 3. 等待批准（如果需要）
 	if e.config.ModeConfig.PlanConfig.RequireApproval {
-		plan.Status = PlanStatusPendingApproval
+		p.Status = plan.PlanStatusPendingApproval
 		// 这里应该有一个阻塞调用等待用户批准
 		// 简化实现：直接批准
-		plan.Approve()
-		if err := e.modeCallback.OnPlanApproved(plan); err != nil {
+		p.Approve()
+		if err := e.modeCallback.OnPlanApproved(p); err != nil {
 			appendEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Plan approval error: %v", err)))
 			return events, err
 		}
 	} else {
-		plan.Approve()
+		p.Approve()
 	}
 
 	// 4. 执行计划
-	if err := e.planExecutor.Execute(ctx, plan); err != nil {
+	if err := e.planExecutor.Execute(ctx, p); err != nil {
 		appendEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Plan execution failed: %v", err)))
 		return events, err
 	}
 
 	// 5. 生成结果
-	report := e.planExecutor.GenerateReport(plan)
+	report := e.planExecutor.GenerateReport(p)
 	e.writeTrace("plan_report", report)
 	appendEvent(NewEvent(EventTaskCompleted, report.ToMarkdown()))
 
@@ -242,13 +248,13 @@ func (e *Engine) runWithReviewMode(ctx context.Context, task Task) ([]Event, err
 	appendEvent(NewEvent(EventTaskStarted, fmt.Sprintf("Task (Review Mode): %s", task.Description)))
 
 	// 生成单步计划
-	plan := NewPlan(task.Description)
-	plan.AddStep(task.Description)
-	plan.Approve()
-	e.writeTrace("review_plan_generated", plan)
+	p := plan.NewPlan(task.Description)
+	p.AddStep(task.Description)
+	p.Approve()
+	e.writeTrace("review_plan_generated", p)
 
 	// 执行并确认
-	for _, step := range plan.Steps {
+	for _, step := range p.Steps {
 		// 请求确认
 		confirmed, err := e.modeCallback.OnStepNeedsConfirmation(step, step.Index)
 		if err != nil {
@@ -272,7 +278,7 @@ func (e *Engine) runWithReviewMode(ctx context.Context, task Task) ([]Event, err
 		e.writeTrace("review_step_completed", step)
 	}
 
-	plan.Complete()
+	p.Complete()
 	appendEvent(NewEvent(EventTaskCompleted, "Task completed with review"))
 
 	return events, nil
@@ -296,13 +302,13 @@ func (e *Engine) getAvailableTools() []string {
 }
 
 // GeneratePlan 生成计划（公开方法）
-func (e *Engine) GeneratePlan(ctx context.Context, goal string) (*Plan, error) {
+func (e *Engine) GeneratePlan(ctx context.Context, goal string) (*plan.Plan, error) {
 	return e.planner.GeneratePlan(ctx, goal, e.getAvailableTools())
 }
 
 // ExecutePlan 执行计划（公开方法）
-func (e *Engine) ExecutePlan(ctx context.Context, plan *Plan) error {
-	return e.planExecutor.Execute(ctx, plan)
+func (e *Engine) ExecutePlan(ctx context.Context, p *plan.Plan) error {
+	return e.planExecutor.Execute(ctx, p)
 }
 
 // executor manages execution of a single task.
@@ -464,7 +470,8 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 			}
 		}
 	}
-	granted, err := ex.engine.permission.Request(ctx, toolName, action, "")
+	path := extractPathArg(tc.Function.Arguments)
+	granted, err := ex.engine.permission.Request(ctx, toolName, action, path)
 	if err != nil {
 		return err
 	}
@@ -475,6 +482,7 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 		ex.engine.writeTrace("tool_permission_denied", map[string]any{
 			"tool":    toolName,
 			"action":  action,
+			"path":    path,
 			"call_id": tc.ID,
 		})
 		return nil
@@ -585,6 +593,19 @@ IMPORTANT: When you have gathered enough information to answer the user's questi
 When making edits, ensure the old_string matches exactly (including whitespace and newlines).`
 }
 
+func extractPathArg(raw json.RawMessage) string {
+	var params map[string]any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return ""
+	}
+	for _, key := range []string{"path", "file_path"} {
+		if v, ok := params[key].(string); ok {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // SetExecutorRun sets the executor run function (for backward compatibility).
 var executorRun = func(task Task) string {
 	return "Executed: " + task.Description
@@ -603,7 +624,7 @@ type toolRegistryAdapter struct {
 }
 
 // Get 获取工具
-func (a *toolRegistryAdapter) Get(name string) (Tool, bool) {
+func (a *toolRegistryAdapter) Get(name string) (plan.Tool, bool) {
 	t, ok := a.tools.Get(name)
 	if !ok {
 		return nil, false
@@ -612,9 +633,9 @@ func (a *toolRegistryAdapter) Get(name string) (Tool, bool) {
 }
 
 // List 列出所有工具
-func (a *toolRegistryAdapter) List() []Tool {
+func (a *toolRegistryAdapter) List() []plan.Tool {
 	toolList := a.tools.List()
-	result := make([]Tool, len(toolList))
+	result := make([]plan.Tool, len(toolList))
 	for i, t := range toolList {
 		result[i] = &toolAdapter{tool: t}
 	}

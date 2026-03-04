@@ -1,4 +1,4 @@
-package loop
+package permission
 
 import (
 	"regexp"
@@ -168,30 +168,40 @@ var defaultDangerousCommands = []DangerousCommand{
 
 // DangerousCommandChecker 危险命令检查器
 type DangerousCommandChecker struct {
-	commands []DangerousCommand
+	commands []compiledCommand
+}
+
+type compiledCommand struct {
+	cmd DangerousCommand
+	re  *regexp.Regexp
 }
 
 // NewDangerousCommandChecker 创建危险命令检查器
 func NewDangerousCommandChecker() *DangerousCommandChecker {
-	return &DangerousCommandChecker{
-		commands: defaultDangerousCommands,
+	c := &DangerousCommandChecker{
+		commands: make([]compiledCommand, 0, len(defaultDangerousCommands)),
 	}
+	for _, cmd := range defaultDangerousCommands {
+		c.AddCommand(cmd)
+	}
+	return c
 }
 
 // AddCommand 添加危险命令
 func (c *DangerousCommandChecker) AddCommand(cmd DangerousCommand) {
-	c.commands = append(c.commands, cmd)
+	re, err := regexp.Compile(cmd.Pattern)
+	if err != nil {
+		return
+	}
+	c.commands = append(c.commands, compiledCommand{cmd: cmd, re: re})
 }
 
 // Check 检查命令是否危险
 func (c *DangerousCommandChecker) Check(command string) *DangerousCommand {
 	for _, cmd := range c.commands {
-		re, err := regexp.Compile(cmd.Pattern)
-		if err != nil {
-			continue // 跳过无效的正则
-		}
-		if re.MatchString(command) {
-			return &cmd
+		if cmd.re.MatchString(command) {
+			found := cmd.cmd
+			return &found
 		}
 	}
 	return nil
@@ -255,10 +265,10 @@ func Categories() []CommandCategory {
 
 // SafeCommand 安全命令包装器
 type SafeCommand struct {
-	Command      string
-	Sanitized    string
-	IsDangerous  bool
-	Warning      string
+	Command        string
+	Sanitized      string
+	IsDangerous    bool
+	Warning        string
 	SuggestedLevel PermissionLevel
 }
 

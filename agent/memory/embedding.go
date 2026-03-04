@@ -69,39 +69,6 @@ func hashString(s string) int64 {
 	return hash
 }
 
-// OpenAIEmbedder OpenAI 向量化器（预留）
-type OpenAIEmbedder struct {
-	apiKey   string
-	model    string
-	dimension int
-}
-
-// NewOpenAIEmbedder 创建 OpenAI 向量化器
-func NewOpenAIEmbedder(apiKey string) *OpenAIEmbedder {
-	return &OpenAIEmbedder{
-		apiKey:    apiKey,
-		model:     "text-embedding-ada-002",
-		dimension: 1536,
-	}
-}
-
-// Embed 调用 OpenAI API 进行向量化
-func (o *OpenAIEmbedder) Embed(text string) ([]float64, error) {
-	// TODO: 实现 OpenAI API 调用
-	return nil, fmt.Errorf("not implemented")
-}
-
-// EmbedBatch 批量向量化
-func (o *OpenAIEmbedder) EmbedBatch(texts []string) ([][]float64, error) {
-	// TODO: 实现 OpenAI API 批量调用
-	return nil, fmt.Errorf("not implemented")
-}
-
-// Dimension 返回维度
-func (o *OpenAIEmbedder) Dimension() int {
-	return o.dimension
-}
-
 // EmbeddingService 向量化服务
 type EmbeddingService struct {
 	embedder Embedder
@@ -176,9 +143,9 @@ func sqrtFloat64(x float64) float64 {
 
 // EmbeddingCache 向量缓存
 type EmbeddingCache struct {
-	mu       sync.RWMutex
-	cache    map[string][]float64
-	maxSize  int
+	mu      sync.RWMutex
+	cache   map[string][]float64
+	maxSize int
 }
 
 // NewEmbeddingCache 创建向量缓存

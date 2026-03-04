@@ -1,4 +1,4 @@
-package loop
+package plan
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 type PlanExecutor struct {
 	toolRegistry ToolRegistry
 	callback     ModeCallback
+	permission   PermissionService
 	config       ExecutionConfig
 }
 
@@ -24,6 +25,11 @@ type ToolRegistry interface {
 type Tool interface {
 	Name() string
 	Execute(ctx context.Context, params map[string]any) (string, error)
+}
+
+// PermissionService is a minimal permission port for plan execution.
+type PermissionService interface {
+	Request(ctx context.Context, tool, action, path string) (bool, error)
 }
 
 // ExecutionConfig 执行配置
@@ -52,6 +58,20 @@ func NewPlanExecutor(registry ToolRegistry, callback ModeCallback, cfg Execution
 		callback:     callback,
 		config:       cfg,
 	}
+}
+
+// SetCallback updates the callback used by the executor.
+func (e *PlanExecutor) SetCallback(cb ModeCallback) {
+	if cb == nil {
+		e.callback = &DefaultModeCallback{}
+		return
+	}
+	e.callback = cb
+}
+
+// SetPermissionService configures permission checks for tool-executing steps.
+func (e *PlanExecutor) SetPermissionService(ps PermissionService) {
+	e.permission = ps
 }
 
 // Execute 执行计划
@@ -158,6 +178,25 @@ func (e *PlanExecutor) executeTool(ctx context.Context, toolName string, params 
 	tool, ok := e.toolRegistry.Get(toolName)
 	if !ok {
 		return "", fmt.Errorf("tool not found: %s", toolName)
+	}
+
+	if e.permission != nil {
+		action := toolName
+		if toolName == "shell" {
+			if cmd, ok := params["command"].(string); ok {
+				action = strings.TrimSpace(cmd)
+			}
+		} else if b, err := json.Marshal(params); err == nil {
+			action = string(b)
+		}
+		path, _ := params["path"].(string)
+		granted, err := e.permission.Request(ctx, toolName, action, path)
+		if err != nil {
+			return "", err
+		}
+		if !granted {
+			return "", fmt.Errorf("permission denied for tool: %s", toolName)
+		}
 	}
 
 	return tool.Execute(ctx, params)

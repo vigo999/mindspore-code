@@ -1,4 +1,4 @@
-package loop
+package plan
 
 import (
 	"fmt"
@@ -64,9 +64,9 @@ type PlanStep struct {
 	ID          string
 	Index       int
 	Description string
-	Tool        string          // 可选：指定工具
-	ToolParams  map[string]any  // 工具参数
-	DependsOn   []string        // 依赖的其他步骤 ID
+	Tool        string         // 可选：指定工具
+	ToolParams  map[string]any // 工具参数
+	DependsOn   []string       // 依赖的其他步骤 ID
 	Status      StepStatus
 	Result      string
 	Error       string

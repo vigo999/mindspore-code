@@ -1,4 +1,4 @@
-package loop
+package permission
 
 import (
 	"encoding/json"
@@ -11,8 +11,8 @@ import (
 
 // FilePermissionStore 基于文件的权限存储
 type FilePermissionStore struct {
-	mu       sync.RWMutex
-	filepath string
+	mu        sync.RWMutex
+	filepath  string
 	decisions []PermissionDecision
 }
 
@@ -202,17 +202,17 @@ func (s *MemoryPermissionStore) ClearDecisions() error {
 
 // PermissionStoreConfig 权限存储配置
 type PermissionStoreConfig struct {
-	Type      string        // "file" or "memory"
-	Path      string        // for file store
-	MaxAge    time.Duration // 决策最大有效期
+	Type   string        // "file" or "memory"
+	Path   string        // for file store
+	MaxAge time.Duration // 决策最大有效期
 }
 
 // DefaultPermissionStoreConfig 返回默认配置
 func DefaultPermissionStoreConfig() PermissionStoreConfig {
 	return PermissionStoreConfig{
-		Type:      "file",
-		Path:      ".ms-cli/permissions.json",
-		MaxAge:    7 * 24 * time.Hour, // 7 days
+		Type:   "file",
+		Path:   ".ms-cli/permissions.json",
+		MaxAge: 7 * 24 * time.Hour, // 7 days
 	}
 }
 
@@ -230,11 +230,11 @@ func NewPermissionStore(cfg PermissionStoreConfig) (PermissionStore, error) {
 
 // PermissionStats 权限统计
 type PermissionStats struct {
-	TotalDecisions   int
-	ByLevel          map[PermissionLevel]int
-	ByTool           map[string]int
-	OldestDecision   time.Time
-	NewestDecision   time.Time
+	TotalDecisions int
+	ByLevel        map[PermissionLevel]int
+	ByTool         map[string]int
+	OldestDecision time.Time
+	NewestDecision time.Time
 }
 
 // GetStats 获取权限决策统计

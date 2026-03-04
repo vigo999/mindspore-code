@@ -1,4 +1,4 @@
-package loop
+package plan
 
 import (
 	"context"
@@ -82,8 +82,8 @@ func (p *Planner) parsePlan(goal, content string) (*Plan, error) {
 
 	// 解析 JSON
 	var steps []struct {
-		Description string `json:"description"`
-		Tool        string `json:"tool"`
+		Description string         `json:"description"`
+		Tool        string         `json:"tool"`
 		Params      map[string]any `json:"params,omitempty"`
 	}
 
@@ -140,9 +140,9 @@ func (p *Planner) parsePlanFromLines(goal, content string) (*Plan, error) {
 func parseStepLine(line string) string {
 	// 匹配 "1. Description" 或 "1) Description" 或 "- Description"
 	patterns := []string{
-		`^\d+[.\)]\s*(.+)$`, // "1. Description" or "1) Description"
-		`^-\s*(.+)$`,        // "- Description"
-		`^\*\s*(.+)$`,       // "* Description"
+		`^\d+[.\)]\s*(.+)$`,         // "1. Description" or "1) Description"
+		`^-\s*(.+)$`,                // "- Description"
+		`^\*\s*(.+)$`,               // "* Description"
 		`^Step\s+\d+[:\.]?\s*(.+)$`, // "Step 1: Description"
 	}
 

@@ -1,4 +1,4 @@
-package loop
+package permission
 
 import (
 	"context"
@@ -11,58 +11,6 @@ import (
 
 	"github.com/vigo999/ms-cli/configs"
 )
-
-// PermissionLevel represents the permission level for a tool.
-type PermissionLevel int
-
-const (
-	// PermissionDeny always denies the tool.
-	PermissionDeny PermissionLevel = iota
-	// PermissionAsk asks user for permission each time.
-	PermissionAsk
-	// PermissionAllowOnce allows once without asking.
-	PermissionAllowOnce
-	// PermissionAllowSession allows for the current session.
-	PermissionAllowSession
-	// PermissionAllowAlways always allows.
-	PermissionAllowAlways
-)
-
-// String returns the string representation.
-func (p PermissionLevel) String() string {
-	switch p {
-	case PermissionDeny:
-		return "deny"
-	case PermissionAsk:
-		return "ask"
-	case PermissionAllowOnce:
-		return "allow_once"
-	case PermissionAllowSession:
-		return "allow_session"
-	case PermissionAllowAlways:
-		return "allow_always"
-	default:
-		return "unknown"
-	}
-}
-
-// ParsePermissionLevel parses a permission level string.
-func ParsePermissionLevel(s string) PermissionLevel {
-	switch strings.ToLower(s) {
-	case "deny":
-		return PermissionDeny
-	case "ask":
-		return PermissionAsk
-	case "allow_once":
-		return PermissionAllowOnce
-	case "allow_session":
-		return PermissionAllowSession
-	case "allow_always", "allow":
-		return PermissionAllowAlways
-	default:
-		return PermissionAsk
-	}
-}
 
 // PermissionService controls tool-call permissions.
 type PermissionService interface {
@@ -159,16 +107,37 @@ func (s *DefaultPermissionService) SetUI(ui PermissionUI) {
 // SetStore sets the permission store.
 func (s *DefaultPermissionService) SetStore(store PermissionStore) {
 	s.store = store
+	if s.store == nil {
+		return
+	}
+	decisions, err := s.store.LoadDecisions()
+	if err != nil {
+		return
+	}
+	for _, d := range decisions {
+		if d.Action != "" && d.Tool == "shell" {
+			s.GrantCommand(d.Action, d.Level)
+			continue
+		}
+		if d.Path != "" {
+			s.GrantPath(d.Path, d.Level)
+			continue
+		}
+		s.Grant(d.Tool, d.Level)
+	}
 }
 
 // Request requests permission.
 func (s *DefaultPermissionService) Request(ctx context.Context, tool, action, path string) (bool, error) {
 	// 1. 检查工具级别权限
-	level := s.Check(tool, action)
+	toolLevel := s.Check(tool, action)
+	level := toolLevel
+	cmdLevel := PermissionAllowAlways
+	pathLevel := PermissionAllowAlways
 
 	// 2. 检查命令级别权限（如果是 shell 工具）
 	if tool == "shell" && action != "" {
-		cmdLevel := s.CheckCommand(action)
+		cmdLevel = s.CheckCommand(action)
 		if cmdLevel < level {
 			level = cmdLevel
 		}
@@ -176,7 +145,7 @@ func (s *DefaultPermissionService) Request(ctx context.Context, tool, action, pa
 
 	// 3. 检查路径级别权限
 	if path != "" {
-		pathLevel := s.CheckPath(path)
+		pathLevel = s.CheckPath(path)
 		if pathLevel < level {
 			level = pathLevel
 		}
@@ -190,8 +159,17 @@ func (s *DefaultPermissionService) Request(ctx context.Context, tool, action, pa
 		return true, nil
 
 	case PermissionAllowOnce:
-		// Grant once then revert to ask
-		s.Grant(tool, PermissionAsk)
+		// Consume "allow once" on the scope that granted it.
+		switch {
+		case tool == "shell" && action != "" && cmdLevel == PermissionAllowOnce:
+			s.GrantCommand(action, PermissionAsk)
+		case path != "" && pathLevel == PermissionAllowOnce:
+			s.GrantPath(path, PermissionAsk)
+		case toolLevel == PermissionAllowOnce:
+			s.Grant(tool, PermissionAsk)
+		default:
+			s.Grant(tool, PermissionAsk)
+		}
 		return true, nil
 
 	case PermissionAsk:
@@ -207,10 +185,17 @@ func (s *DefaultPermissionService) Request(ctx context.Context, tool, action, pa
 			}
 
 			if granted && remember {
-				s.Grant(tool, PermissionAllowSession)
+				switch {
+				case tool == "shell" && action != "":
+					s.GrantCommand(action, PermissionAllowSession)
+				case path != "":
+					s.GrantPath(path, PermissionAllowSession)
+				default:
+					s.Grant(tool, PermissionAllowSession)
+				}
 				// 持久化决策
 				if s.store != nil {
-					s.store.SaveDecision(PermissionDecision{
+					_ = s.store.SaveDecision(PermissionDecision{
 						Tool:      tool,
 						Action:    action,
 						Path:      path,
@@ -487,15 +472,6 @@ func (s *NoOpPermissionService) RevokeCommand(command string) {}
 
 // RevokePath is a no-op.
 func (s *NoOpPermissionService) RevokePath(pattern string) {}
-
-// PermissionDecision 权限决策记录
-type PermissionDecision struct {
-	Tool      string
-	Action    string
-	Path      string
-	Level     PermissionLevel
-	Timestamp time.Time
-}
 
 // PermissionStore 权限存储接口
 type PermissionStore interface {

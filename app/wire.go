@@ -6,6 +6,7 @@ import (
 
 	"github.com/vigo999/ms-cli/agent/context"
 	"github.com/vigo999/ms-cli/agent/loop"
+	"github.com/vigo999/ms-cli/agent/permission"
 	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/tools"
 	"github.com/vigo999/ms-cli/trace"
@@ -24,7 +25,7 @@ type Application struct {
 	Config       *configs.Config
 	toolRegistry *tools.Registry
 	ctxManager   *context.Manager
-	permService  loop.PermissionService
+	permService  permission.PermissionService
 	stateManager *configs.StateManager
 	traceWriter  trace.Writer
 }

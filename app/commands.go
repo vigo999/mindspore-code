@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/agent/loop"
+	"github.com/vigo999/ms-cli/agent/permission"
 	"github.com/vigo999/ms-cli/internal/project"
 	"github.com/vigo999/ms-cli/ui/model"
 )
@@ -320,7 +320,7 @@ Testing connectivity...`, url, modelName, apiKeyStatus)
 
 // cmdPermission handles "/permission [tool] [level]".
 func (a *Application) cmdPermission(args []string) {
-	permSvc, ok := a.permService.(*loop.DefaultPermissionService)
+	permSvc, ok := a.permService.(*permission.DefaultPermissionService)
 	if !ok {
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
@@ -367,7 +367,7 @@ func (a *Application) cmdPermission(args []string) {
 
 	tool := args[0]
 	levelStr := args[1]
-	level := loop.ParsePermissionLevel(levelStr)
+	level := permission.ParsePermissionLevel(levelStr)
 
 	permSvc.Grant(tool, level)
 
@@ -379,7 +379,7 @@ func (a *Application) cmdPermission(args []string) {
 
 // cmdYolo handles "/yolo" - toggles auto-approve mode.
 func (a *Application) cmdYolo() {
-	permSvc, ok := a.permService.(*loop.DefaultPermissionService)
+	permSvc, ok := a.permService.(*permission.DefaultPermissionService)
 	if !ok {
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
@@ -390,23 +390,23 @@ func (a *Application) cmdYolo() {
 
 	// Check current state by looking at shell permission
 	current := permSvc.Check("shell", "")
-	if current == loop.PermissionAllowAlways {
+	if current == permission.PermissionAllowAlways {
 		// Disable yolo mode
-		permSvc.Grant("shell", loop.PermissionAsk)
-		permSvc.Grant("write", loop.PermissionAsk)
-		permSvc.Grant("edit", loop.PermissionAsk)
+		permSvc.Grant("shell", permission.PermissionAsk)
+		permSvc.Grant("write", permission.PermissionAsk)
+		permSvc.Grant("edit", permission.PermissionAsk)
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: "🔒 YOLO mode disabled. Will ask for confirmation on destructive operations.",
 		}
 	} else {
 		// Enable yolo mode
-		permSvc.Grant("shell", loop.PermissionAllowAlways)
-		permSvc.Grant("write", loop.PermissionAllowAlways)
-		permSvc.Grant("edit", loop.PermissionAllowAlways)
-		permSvc.Grant("read", loop.PermissionAllowAlways)
-		permSvc.Grant("grep", loop.PermissionAllowAlways)
-		permSvc.Grant("glob", loop.PermissionAllowAlways)
+		permSvc.Grant("shell", permission.PermissionAllowAlways)
+		permSvc.Grant("write", permission.PermissionAllowAlways)
+		permSvc.Grant("edit", permission.PermissionAllowAlways)
+		permSvc.Grant("read", permission.PermissionAllowAlways)
+		permSvc.Grant("grep", permission.PermissionAllowAlways)
+		permSvc.Grant("glob", permission.PermissionAllowAlways)
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: "⚡ YOLO mode enabled! All operations will be auto-approved. Use with caution!",

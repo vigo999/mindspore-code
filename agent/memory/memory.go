@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -448,16 +450,28 @@ func (m *Manager) Backup(filepath string) error {
 		return err
 	}
 
-	// 序列化为 JSON
-	// TODO: 实现备份逻辑
-	_ = items
-	_ = filepath
+	data, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal backup: %w", err)
+	}
+
+	if err := os.WriteFile(filepath, data, 0600); err != nil {
+		return fmt.Errorf("write backup: %w", err)
+	}
 	return nil
 }
 
 // Restore 从文件恢复记忆
 func (m *Manager) Restore(filepath string) error {
-	// TODO: 实现恢复逻辑
-	_ = filepath
-	return nil
+	data, err := os.ReadFile(filepath)
+	if err != nil {
+		return fmt.Errorf("read backup: %w", err)
+	}
+
+	var items []*MemoryItem
+	if err := json.Unmarshal(data, &items); err != nil {
+		return fmt.Errorf("unmarshal backup: %w", err)
+	}
+
+	return m.ImportMemories(items)
 }

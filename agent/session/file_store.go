@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -23,7 +24,7 @@ func NewFileStore(basePath string) (*FileStore, error) {
 	}
 
 	// 确保目录存在
-	if err := os.MkdirAll(basePath, 0755); err != nil {
+	if err := os.MkdirAll(basePath, 0700); err != nil {
 		return nil, fmt.Errorf("create session directory: %w", err)
 	}
 
@@ -52,7 +53,7 @@ func (fs *FileStore) Save(session *Session) error {
 
 	// 写入文件
 	filepath := fs.getFilePath(session.ID)
-	if err := os.WriteFile(filepath, data, 0644); err != nil {
+	if err := os.WriteFile(filepath, data, 0600); err != nil {
 		return fmt.Errorf("write session file: %w", err)
 	}
 
@@ -142,14 +143,13 @@ func (fs *FileStore) ListFiltered(filter Filter) ([]Info, error) {
 		infos = append(infos, session.ToInfo())
 	}
 
-	// 按更新时间排序（最新的在前）
-	for i := 0; i < len(infos); i++ {
-		for j := i + 1; j < len(infos); j++ {
-			if infos[j].UpdatedAt.After(infos[i].UpdatedAt) {
-				infos[i], infos[j] = infos[j], infos[i]
-			}
+	// 按更新时间排序（最新的在前）；并用 ID 做稳定 tie-break。
+	sort.Slice(infos, func(i, j int) bool {
+		if infos[i].UpdatedAt.Equal(infos[j].UpdatedAt) {
+			return string(infos[i].ID) < string(infos[j].ID)
 		}
-	}
+		return infos[i].UpdatedAt.After(infos[j].UpdatedAt)
+	})
 
 	return infos, nil
 }
@@ -231,7 +231,7 @@ func (fs *FileStore) Export(id ID, exportPath string) error {
 		return fmt.Errorf("marshal session: %w", err)
 	}
 
-	return os.WriteFile(exportPath, data, 0644)
+	return os.WriteFile(exportPath, data, 0600)
 }
 
 // Import 从指定路径导入会话

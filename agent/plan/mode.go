@@ -1,4 +1,4 @@
-package loop
+package plan
 
 import (
 	"strings"
@@ -46,27 +46,27 @@ func ParseRunMode(s string) RunMode {
 
 // ModeConfig 模式配置
 type ModeConfig struct {
-	Mode          RunMode
-	PlanConfig    PlanModeConfig
-	ReviewConfig  ReviewModeConfig
+	Mode         RunMode
+	PlanConfig   PlanModeConfig
+	ReviewConfig ReviewModeConfig
 }
 
 // DefaultModeConfig 返回默认模式配置
 func DefaultModeConfig() ModeConfig {
 	return ModeConfig{
-		Mode: ModeStandard,
-		PlanConfig: DefaultPlanModeConfig(),
+		Mode:         ModeStandard,
+		PlanConfig:   DefaultPlanModeConfig(),
 		ReviewConfig: DefaultReviewModeConfig(),
 	}
 }
 
 // PlanModeConfig 计划模式配置
 type PlanModeConfig struct {
-	RequireApproval bool   // 是否需要用户批准计划
-	MaxSteps        int    // 最大计划步骤数
-	AllowEdit       bool   // 允许用户编辑计划
-	AutoExecute     bool   // 批准后自动执行
-	ShowProgress    bool   // 显示执行进度
+	RequireApproval bool // 是否需要用户批准计划
+	MaxSteps        int  // 最大计划步骤数
+	AllowEdit       bool // 允许用户编辑计划
+	AutoExecute     bool // 批准后自动执行
+	ShowProgress    bool // 显示执行进度
 }
 
 // DefaultPlanModeConfig 返回默认计划模式配置
@@ -82,10 +82,10 @@ func DefaultPlanModeConfig() PlanModeConfig {
 
 // ReviewModeConfig 审核模式配置
 type ReviewModeConfig struct {
-	ConfirmEachStep bool           // 每步确认
-	ConfirmTools    []string       // 需要确认的工具
-	AutoConfirmRead bool           // 自动确认读操作
-	TimeoutSec      int            // 确认超时时间
+	ConfirmEachStep bool     // 每步确认
+	ConfirmTools    []string // 需要确认的工具
+	AutoConfirmRead bool     // 自动确认读操作
+	TimeoutSec      int      // 确认超时时间
 }
 
 // DefaultReviewModeConfig 返回默认审核模式配置
@@ -148,7 +148,9 @@ func (d *DefaultModeCallback) OnPlanRejected(plan *Plan, reason string) error { 
 func (d *DefaultModeCallback) OnStepStarted(step *PlanStep, index int) error { return nil }
 
 // OnStepCompleted implements ModeCallback
-func (d *DefaultModeCallback) OnStepCompleted(step *PlanStep, index int, result string) error { return nil }
+func (d *DefaultModeCallback) OnStepCompleted(step *PlanStep, index int, result string) error {
+	return nil
+}
 
 // OnStepNeedsConfirmation implements ModeCallback
 func (d *DefaultModeCallback) OnStepNeedsConfirmation(step *PlanStep, index int) (bool, error) {

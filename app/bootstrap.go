@@ -9,6 +9,7 @@ import (
 
 	"github.com/vigo999/ms-cli/agent/context"
 	"github.com/vigo999/ms-cli/agent/loop"
+	"github.com/vigo999/ms-cli/agent/permission"
 	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/executor"
 	"github.com/vigo999/ms-cli/integrations/llm"
@@ -122,7 +123,7 @@ func Bootstrap(cfg BootstrapConfig) (*Application, error) {
 	engine.SetTraceWriter(traceWriter)
 
 	// Initialize permission service (default allow for now)
-	permService := loop.NewDefaultPermissionService(config.Permissions)
+	permService := permission.NewDefaultPermissionService(config.Permissions)
 	engine.SetPermissionService(permService)
 
 	return &Application{

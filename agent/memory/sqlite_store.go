@@ -4,9 +4,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
-	"unsafe"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -524,8 +524,7 @@ func serializeEmbedding(embedding []float32) []byte {
 	// 简单实现：每个 float32 占 4 字节
 	data := make([]byte, len(embedding)*4)
 	for i, v := range embedding {
-		// 将 float32 转换为字节
-		bits := *(*uint32)(unsafe.Pointer(&v))
+		bits := math.Float32bits(v)
 		data[i*4] = byte(bits)
 		data[i*4+1] = byte(bits >> 8)
 		data[i*4+2] = byte(bits >> 16)
@@ -545,7 +544,7 @@ func deserializeEmbedding(data []byte) []float32 {
 			uint32(data[i*4+1])<<8 |
 			uint32(data[i*4+2])<<16 |
 			uint32(data[i*4+3])<<24
-		embedding[i] = *(*float32)(unsafe.Pointer(&bits))
+		embedding[i] = math.Float32frombits(bits)
 	}
 	return embedding
 }

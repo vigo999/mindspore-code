@@ -8,6 +8,7 @@ import (
 	"github.com/vigo999/ms-cli/ui/components"
 	"github.com/vigo999/ms-cli/ui/model"
 	"github.com/vigo999/ms-cli/ui/panels"
+	"github.com/vigo999/ms-cli/ui/slash"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -22,28 +23,47 @@ const (
 
 var chatLineStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("237"))
 
+type appViewMode int
+
+const (
+	viewModeChat appViewMode = iota
+	viewModeTrain
+)
+
 // App is the TUI root model.
 type App struct {
-	state         model.State
-	viewport      components.Viewport
-	input         components.TextInput
-	thinking      components.ThinkingSpinner
-	width         int
-	height        int
-	eventCh       <-chan model.Event
-	userCh        chan<- string // sends user input to the engine bridge
-	lastInterrupt time.Time     // track last ctrl+c for double-press exit
+	state          model.State
+	train          model.TrainDashboard
+	trainChatStart int
+	trainCopyMode  bool
+	trainSnapshot  string
+	viewMode       appViewMode
+	viewport       components.Viewport
+	trainViewport  components.Viewport
+	input          components.TextInput
+	thinking       components.ThinkingSpinner
+	width          int
+	height         int
+	eventCh        <-chan model.Event
+	userCh         chan<- string // sends user input to the engine bridge
+	lastInterrupt  time.Time     // track last ctrl+c for double-press exit
+	trainSlash     *slash.Registry
 }
 
 // New creates a new App driven by the given event channel.
 // userCh may be nil (demo mode) — user input won't be forwarded.
 func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
 	return App{
-		state:    model.NewState(version, workDir, repoURL, modelName, ctxMax),
-		input:    components.NewTextInput(),
-		thinking: components.NewThinkingSpinner(),
-		eventCh:  ch,
-		userCh:   userCh,
+		state:         model.NewState(version, workDir, repoURL, modelName, ctxMax),
+		train:         model.NewTrainDashboard(),
+		viewMode:      viewModeChat,
+		viewport:      components.NewViewport(1, 1),
+		trainViewport: components.NewViewport(1, 1),
+		input:         components.NewTextInput(),
+		thinking:      components.NewThinkingSpinner(),
+		eventCh:       ch,
+		userCh:        userCh,
+		trainSlash:    slash.DefaultRegistry.Without("/train"),
 	}
 }
 
@@ -75,6 +95,59 @@ func (a App) chatHeight() int {
 	return h
 }
 
+func (a App) trainBodyHeight() int {
+	h := a.height - topBarHeight - hintBarHeight
+	if h < 8 {
+		return 8
+	}
+	return h
+}
+
+func (a App) trainChatLayout() panels.TrainEmbeddedChatLayout {
+	return panels.ResolveTrainEmbeddedChatLayout(a.train, a.width, a.trainBodyHeight(), a.trainCopyMode)
+}
+
+func (a App) isTrainChatActive() bool {
+	return a.viewMode == viewModeTrain && !a.trainCopyMode && a.trainChatLayout().Active
+}
+
+func (a App) trainChatViewportSize(layout panels.TrainEmbeddedChatLayout) (int, bool) {
+	if !layout.Active {
+		return 0, false
+	}
+	inputH := a.input.Height()
+	if layout.Height <= inputH {
+		return 0, false
+	}
+	remaining := layout.Height - inputH
+	if remaining >= 2 {
+		return remaining - 1, true
+	}
+	return remaining, false
+}
+
+func (a *App) syncInputMode() {
+	registry := slash.DefaultRegistry
+	inputWidth := a.width - 6
+	if inputWidth < 12 {
+		inputWidth = 12
+	}
+
+	if a.viewMode == viewModeTrain {
+		layout := a.trainChatLayout()
+		if layout.Active && !a.trainCopyMode {
+			registry = a.trainSlash
+			inputWidth = layout.Width
+			if inputWidth < 12 {
+				inputWidth = 12
+			}
+		}
+	}
+
+	a.input = a.input.WithSlashRegistry(registry)
+	a.input.Model.Width = inputWidth
+}
+
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -94,7 +167,8 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
+		a.syncInputMode()
+		a.updateViewport()
 		return a, nil
 
 	case model.Event:
@@ -114,6 +188,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.viewMode == viewModeTrain {
+		return a.handleTrainKey(msg)
+	}
+
 	// Check if we're in slash suggestion mode
 	if a.input.IsSlashMode() {
 		switch msg.String() {
@@ -121,8 +199,8 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Let input handle these for suggestion navigation
 			var cmd tea.Cmd
 			a.input, cmd = a.input.Update(msg)
-			// Recalculate chat height if suggestions changed
-			a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
+			a.syncInputMode()
+			a.updateViewport()
 			return a, cmd
 		}
 	}
@@ -149,7 +227,8 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.input.IsSlashMode() {
 			var cmd tea.Cmd
 			a.input, cmd = a.input.Update(msg)
-			a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
+			a.syncInputMode()
+			a.updateViewport()
 			return a, cmd
 		}
 
@@ -157,20 +236,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if val == "" {
 			return a, nil
 		}
-		// Reset stats for new task
-		a.state = a.state.ResetStats()
-		a.state = a.state.WithThinking(false)
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
-		a.input = a.input.Reset()
-		a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
-		a.updateViewport()
-		if a.userCh != nil {
-			select {
-			case a.userCh <- val:
-			default:
-				// drop if buffer full — avoids freezing the UI
-			}
-		}
+		a.submitInput(val, false)
 		return a, nil
 
 	case "pgup", "pgdown", "home", "end":
@@ -187,10 +253,169 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		a.input, cmd = a.input.Update(msg)
-		// Recalculate chat height if suggestions appeared/disappeared
-		a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
+		a.syncInputMode()
+		a.updateViewport()
 		return a, cmd
 	}
+}
+
+func (a App) handleTrainKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		now := time.Now()
+		if now.Sub(a.lastInterrupt) < time.Second {
+			return a, tea.Quit
+		}
+		a.lastInterrupt = now
+		return a, nil
+	case "ctrl+y":
+		a.trainCopyMode = !a.trainCopyMode
+		if a.trainCopyMode {
+			a.trainSnapshot = a.renderTrainView()
+		} else {
+			a.trainSnapshot = ""
+		}
+		a.syncInputMode()
+		a.updateViewport()
+		return a, nil
+	case "ctrl+r":
+		if a.train.Status != "failed" {
+			return a, nil
+		}
+		a.trainCopyMode = false
+		a.trainSnapshot = ""
+		a.syncInputMode()
+		a.updateViewport()
+		if a.userCh != nil {
+			select {
+			case a.userCh <- "/train retry":
+			default:
+			}
+		}
+		return a, nil
+	}
+
+	if a.trainCopyMode {
+		switch msg.String() {
+		case "esc":
+			return a.leaveTrainView()
+		default:
+			return a, nil
+		}
+	}
+
+	if a.isTrainChatActive() {
+		return a.handleTrainChatKey(msg)
+	}
+
+	switch msg.String() {
+	case "esc":
+		return a.leaveTrainView()
+	default:
+		return a, nil
+	}
+}
+
+func (a App) handleTrainChatKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if a.input.IsSlashMode() {
+		switch msg.String() {
+		case "up", "down", "tab", "enter", "esc":
+			var cmd tea.Cmd
+			a.input, cmd = a.input.Update(msg)
+			a.syncInputMode()
+			a.updateViewport()
+			return a, cmd
+		}
+	}
+
+	switch msg.String() {
+	case "enter":
+		if a.input.IsSlashMode() {
+			var cmd tea.Cmd
+			a.input, cmd = a.input.Update(msg)
+			a.syncInputMode()
+			a.updateViewport()
+			return a, cmd
+		}
+		val := a.input.Value()
+		if val == "" {
+			return a, nil
+		}
+		a.submitInput(val, true)
+		return a, nil
+
+	case "pgup", "pgdown", "home", "end", "up", "down":
+		var cmd tea.Cmd
+		a.trainViewport, cmd = a.trainViewport.Update(msg)
+		return a, cmd
+
+	case "esc":
+		if strings.TrimSpace(a.input.Value()) == "" {
+			return a.leaveTrainView()
+		}
+		return a, nil
+
+	default:
+		var cmd tea.Cmd
+		a.input, cmd = a.input.Update(msg)
+		a.syncInputMode()
+		a.updateViewport()
+		return a, cmd
+	}
+}
+
+func (a *App) submitInput(raw string, trainChat bool) {
+	val := strings.TrimRight(raw, "\n")
+	if strings.TrimSpace(val) == "" {
+		return
+	}
+
+	a.state = a.state.ResetStats()
+	a.state = a.state.WithThinking(false)
+	a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
+	a.input = a.input.Reset()
+	a.syncInputMode()
+	a.updateViewport()
+
+	routed, ok := a.routeSubmittedInput(val, trainChat)
+	if !ok || a.userCh == nil {
+		return
+	}
+	select {
+	case a.userCh <- routed:
+	default:
+	}
+}
+
+func (a *App) routeSubmittedInput(val string, trainChat bool) (string, bool) {
+	trimmed := strings.TrimSpace(val)
+	if !trainChat {
+		return val, true
+	}
+	if strings.HasPrefix(trimmed, "/train") {
+		a.state = a.state.WithMessage(model.Message{
+			Kind:    model.MsgAgent,
+			Content: "Embedded /train chat does not accept `/train` slash commands. Ask in natural language to rerun or stop training, or press Esc to return to the main chat.",
+		})
+		a.updateViewport()
+		return "", false
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		return trimmed, true
+	}
+	return model.TrainChatInputPrefix + trimmed, true
+}
+
+func (a App) leaveTrainView() (tea.Model, tea.Cmd) {
+	a.trainCopyMode = false
+	a.trainSnapshot = ""
+	a.viewMode = viewModeChat
+	a.syncInputMode()
+	a.updateViewport()
+	if a.state.MouseEnabled {
+		return a, tea.EnableMouseCellMotion
+	}
+	return a, nil
 }
 
 func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
@@ -343,10 +568,32 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			eventCmd = tea.DisableMouse
 		}
 
+	case model.TrainUpdateEvent:
+		if ev.Train != nil {
+			a.train.Apply(*ev.Train)
+			if ev.Train.Kind == model.TrainUpdateOpen {
+				a.trainCopyMode = false
+				a.trainSnapshot = ""
+				a.trainChatStart = len(a.state.Messages)
+				a.viewMode = viewModeTrain
+				eventCmd = tea.DisableMouse
+			}
+			if ev.Train.Kind == model.TrainUpdateClose {
+				a.trainCopyMode = false
+				a.trainSnapshot = ""
+				a.trainChatStart = len(a.state.Messages)
+				a.viewMode = viewModeChat
+				if a.state.MouseEnabled {
+					eventCmd = tea.EnableMouseCellMotion
+				}
+			}
+		}
+
 	case model.Done:
 		return a, tea.Quit
 	}
 
+	a.syncInputMode()
 	a.updateViewport()
 	if eventCmd != nil {
 		return a, tea.Batch(eventCmd, a.waitForEvent)
@@ -390,7 +637,44 @@ func (a App) appendToLastTool(line string) model.State {
 
 func (a *App) updateViewport() {
 	content := panels.RenderMessages(a.state, a.thinking.View())
+	if a.width > 0 {
+		a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
+	}
 	a.viewport = a.viewport.SetContent(content)
+
+	layout := a.trainChatLayout()
+	if !layout.Active {
+		a.trainViewport = a.trainViewport.SetSize(1, 1)
+		a.trainViewport = a.trainViewport.SetContent(content)
+		return
+	}
+
+	viewportHeight, _ := a.trainChatViewportSize(layout)
+	if viewportHeight <= 0 {
+		viewportHeight = 1
+	}
+	a.trainViewport = a.trainViewport.SetSize(layout.Width, viewportHeight)
+	a.trainViewport = a.trainViewport.SetContent(panels.RenderMessages(a.trainChatState(), a.thinking.View()))
+}
+
+func (a App) trainChatState() model.State {
+	start := a.trainChatStart
+	if start < 0 {
+		start = 0
+	}
+	if start > len(a.state.Messages) {
+		start = len(a.state.Messages)
+	}
+
+	next := a.state
+	next.Messages = make([]model.Message, 0, len(a.state.Messages)-start)
+	for _, msg := range a.state.Messages[start:] {
+		switch msg.Kind {
+		case model.MsgUser, model.MsgAgent, model.MsgThinking:
+			next.Messages = append(next.Messages, msg)
+		}
+	}
+	return next
 }
 
 func (a App) chatLine() string {
@@ -398,6 +682,13 @@ func (a App) chatLine() string {
 }
 
 func (a App) View() string {
+	if a.viewMode == viewModeTrain {
+		if a.trainCopyMode && a.trainSnapshot != "" {
+			return a.trainSnapshot
+		}
+		return a.renderTrainView()
+	}
+
 	topBar := panels.RenderTopBar(a.state, a.width)
 	line := a.chatLine()
 	chat := a.viewport.View()
@@ -412,4 +703,37 @@ func (a App) View() string {
 		input,
 		hintBar,
 	)
+}
+
+func (a App) renderTrainView() string {
+	topBar := panels.RenderTopBar(a.state, a.width)
+	bodyHeight := a.trainBodyHeight()
+	var lowerPanel *panels.TrainLowerPanel
+	layout := a.trainChatLayout()
+	if layout.Active && !a.trainCopyMode {
+		lowerPanel = &panels.TrainLowerPanel{
+			Title: layout.Title,
+			Body:  a.renderTrainChatBody(layout),
+		}
+	}
+	dashboard := panels.RenderTrainDashboard(a.train, a.width, bodyHeight, a.trainCopyMode, lowerPanel)
+	hintBar := panels.RenderTrainHintBar(a.width, a.trainCopyMode, a.train.Status == "failed", layout.Active && !a.trainCopyMode)
+	return lipgloss.JoinVertical(lipgloss.Left,
+		topBar,
+		dashboard,
+		hintBar,
+	)
+}
+
+func (a App) renderTrainChatBody(layout panels.TrainEmbeddedChatLayout) string {
+	viewportHeight, showDivider := a.trainChatViewportSize(layout)
+	parts := make([]string, 0, 3)
+	if viewportHeight > 0 {
+		parts = append(parts, a.trainViewport.View())
+	}
+	if showDivider {
+		parts = append(parts, chatLineStyle.Render(strings.Repeat("─", layout.Width)))
+	}
+	parts = append(parts, a.input.View())
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }

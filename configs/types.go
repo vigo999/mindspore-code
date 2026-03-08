@@ -15,6 +15,7 @@ type Config struct {
 	Memory      MemoryConfig      `yaml:"memory"`
 	Skills      SkillsConfig      `yaml:"skills"`
 	Execution   ExecutionConfig   `yaml:"execution"`
+	Training    TrainingConfig    `yaml:"training"`
 }
 
 // ModelConfig holds the LLM model configuration.
@@ -94,6 +95,37 @@ type DockerConfig struct {
 	Env     map[string]string `yaml:"env,omitempty"`
 }
 
+// TrainingConfig holds distributed training workflow configuration for /train.
+type TrainingConfig struct {
+	Enabled               bool                 `yaml:"enabled"`
+	LocalPath             string               `yaml:"local_path"`
+	TrainScript           string               `yaml:"train_script,omitempty"`
+	StartupCommand        string               `yaml:"startup_command,omitempty"`
+	RemoteCodePath        string               `yaml:"remote_code_path"`
+	RunBaseDir            string               `yaml:"run_base_dir"`
+	TrainCommand          string               `yaml:"train_command"`
+	Exclude               []string             `yaml:"exclude"`
+	SSHControlPersist     string               `yaml:"ssh_control_persist"`
+	RsyncCompress         bool                 `yaml:"rsync_compress"`
+	RsyncRespectGitIgnore bool                 `yaml:"rsync_respect_gitignore"`
+	SyncParallelism       int                  `yaml:"sync_parallelism"`
+	HostsFile             string               `yaml:"hosts_file,omitempty"`
+	Hosts                 []TrainingHostConfig `yaml:"hosts"`
+}
+
+// TrainingHostConfig holds a single host config for /train workflow.
+type TrainingHostConfig struct {
+	Name           string `yaml:"name"`
+	User           string `yaml:"user"`
+	Address        string `yaml:"address"`
+	LocalPath      string `yaml:"local_path,omitempty"`
+	TrainScript    string `yaml:"train_script,omitempty"`
+	StartupCommand string `yaml:"startup_command,omitempty"`
+	RemoteCodePath string `yaml:"remote_code_path,omitempty"`
+	RunBaseDir     string `yaml:"run_base_dir,omitempty"`
+	TrainCommand   string `yaml:"train_command,omitempty"`
+}
+
 // DefaultConfig returns a configuration with default values.
 func DefaultConfig() *Config {
 	return &Config{
@@ -154,7 +186,41 @@ func DefaultConfig() *Config {
 				Env:     make(map[string]string),
 			},
 		},
+		Training: TrainingConfig{
+			Enabled:               false,
+			LocalPath:             ".",
+			TrainScript:           "",
+			StartupCommand:        "",
+			RemoteCodePath:        "~/workspace/project",
+			RunBaseDir:            "~/workspace/runs",
+			TrainCommand:          "python -u examples/fake_log_generator.py --run-id {{RUN_ID}} --host {{HOST_NAME}} --total-steps 120",
+			Exclude:               DefaultTrainingExcludes(),
+			SSHControlPersist:     "30m",
+			RsyncCompress:         false,
+			RsyncRespectGitIgnore: true,
+			SyncParallelism:       0,
+			HostsFile:             "configs/train_hosts.yaml",
+			Hosts:                 []TrainingHostConfig{},
+		},
 	}
+}
+
+var defaultTrainingExcludePatterns = []string{
+	".git",
+	".cache",
+	".mscli",
+	"__pycache__",
+	"*.pyc",
+	"*.prof",
+	"*.coverprofile",
+	"*.test",
+	"*.out",
+	"ms-cli",
+}
+
+// DefaultTrainingExcludes returns the built-in ignore patterns for /train sync.
+func DefaultTrainingExcludes() []string {
+	return append([]string(nil), defaultTrainingExcludePatterns...)
 }
 
 // Validate validates the configuration.
@@ -177,6 +243,26 @@ func (c *Config) Validate() error {
 
 	if c.Context.MaxTokens < c.Context.ReserveTokens {
 		return fmt.Errorf("max_tokens must be greater than reserve_tokens")
+	}
+
+	if c.Training.Enabled {
+		if len(c.Training.Hosts) == 0 {
+			return fmt.Errorf("training.hosts or training.hosts_file is required when training.enabled=true")
+		}
+		if c.Training.SyncParallelism < 0 {
+			return fmt.Errorf("training.sync_parallelism must be >= 0")
+		}
+		for i, host := range c.Training.Hosts {
+			if host.Name == "" {
+				return fmt.Errorf("training.hosts[%d].name is required", i)
+			}
+			if host.Address == "" {
+				return fmt.Errorf("training.hosts[%d].address is required", i)
+			}
+			if host.User == "" {
+				return fmt.Errorf("training.hosts[%d].user is required", i)
+			}
+		}
 	}
 
 	return nil
@@ -224,5 +310,39 @@ func (c *Config) Merge(other *Config) {
 	}
 	if other.Context.MaxHistoryRounds != 0 {
 		c.Context.MaxHistoryRounds = other.Context.MaxHistoryRounds
+	}
+
+	if other.Training.Enabled {
+		c.Training.Enabled = true
+	}
+	if other.Training.LocalPath != "" {
+		c.Training.LocalPath = other.Training.LocalPath
+	}
+	if other.Training.TrainScript != "" {
+		c.Training.TrainScript = other.Training.TrainScript
+	}
+	if other.Training.StartupCommand != "" {
+		c.Training.StartupCommand = other.Training.StartupCommand
+	}
+	if other.Training.RemoteCodePath != "" {
+		c.Training.RemoteCodePath = other.Training.RemoteCodePath
+	}
+	if other.Training.RunBaseDir != "" {
+		c.Training.RunBaseDir = other.Training.RunBaseDir
+	}
+	if other.Training.TrainCommand != "" {
+		c.Training.TrainCommand = other.Training.TrainCommand
+	}
+	if len(other.Training.Exclude) > 0 {
+		c.Training.Exclude = append([]string{}, other.Training.Exclude...)
+	}
+	if other.Training.SSHControlPersist != "" {
+		c.Training.SSHControlPersist = other.Training.SSHControlPersist
+	}
+	if other.Training.HostsFile != "" {
+		c.Training.HostsFile = other.Training.HostsFile
+	}
+	if len(other.Training.Hosts) > 0 {
+		c.Training.Hosts = append([]TrainingHostConfig{}, other.Training.Hosts...)
 	}
 }

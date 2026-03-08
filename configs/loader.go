@@ -10,6 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type trainingHostList struct {
+	Hosts []TrainingHostConfig `yaml:"hosts"`
+}
+
 // LoadFromFile loads configuration from a YAML file.
 func LoadFromFile(path string) (*Config, error) {
 	if path == "" {
@@ -33,8 +37,47 @@ func LoadFromFile(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config file %q: %w", path, err)
 	}
+	if err := loadTrainingHosts(cfg, path); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+func loadTrainingHosts(cfg *Config, configPath string) error {
+	hostsFile := strings.TrimSpace(cfg.Training.HostsFile)
+	if hostsFile == "" {
+		return nil
+	}
+
+	resolved := hostsFile
+	if strings.HasPrefix(resolved, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			resolved = filepath.Join(home, resolved[2:])
+		}
+	} else if !filepath.IsAbs(resolved) {
+		baseDir := filepath.Dir(configPath)
+		resolved = filepath.Join(baseDir, resolved)
+	}
+
+	data, err := os.ReadFile(resolved)
+	if err != nil {
+		return fmt.Errorf("read training hosts file %q: %w", resolved, err)
+	}
+
+	var hostList trainingHostList
+	if err := yaml.Unmarshal(data, &hostList); err != nil {
+		return fmt.Errorf("parse training hosts file %q: %w", resolved, err)
+	}
+
+	if len(hostList.Hosts) == 0 {
+		return fmt.Errorf("training hosts file %q does not define any hosts", resolved)
+	}
+
+	cfg.Training.Hosts = append(hostList.Hosts, cfg.Training.Hosts...)
+	cfg.Training.HostsFile = resolved
+	return nil
 }
 
 // LoadWithEnv loads configuration from file and applies environment variable overrides.

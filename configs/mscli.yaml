@@ -22,3 +22,35 @@ memory:
   max_items: 200
   max_bytes: 2097152
   ttl_hours: 168
+training:
+  # Enable /train workflow (rsync + remote nohup + ssh master + tail -F + dashboard)
+  enabled: true
+  # Default local code directory or file to sync (can be overridden per host)
+  local_path: .
+  # Optional default training script path inside local_path
+  # train_script: scripts/train.py
+  # Optional shell command run on remote host before train_command.
+  # Useful for source/conda activate/set_env.sh.
+  startup_command: source ~/.bashrc
+  # Default remote code path (can be overridden per host)
+  remote_code_path: ~/workspace/zhy-ms-cli
+  # Default run directory base (run_id subfolder will be created here)
+  run_base_dir: ~/workspace/ms-cli-demo
+  # Remote machine list file (relative to this config file is supported)
+  hosts_file: train_hosts.yaml
+  # Verification command template; placeholders are replaced at runtime
+  train_command: nohup python -u examples/fake_log_generator.py --run-id {{RUN_ID}} --host {{HOST_NAME}} --total-steps 120
+  # SSH control socket persistence
+  ssh_control_persist: 30m
+  # 0 = auto (sync up to 4 hosts in parallel)
+  sync_parallelism: 0
+  # Compression is usually slower on the same LAN / cluster network
+  rsync_compress: false
+  # Reuse .gitignore rules so local caches and build outputs stay local
+  rsync_respect_gitignore: true
+  # Rsync exclude list (merged with built-in defaults)
+  exclude:
+    - .git
+    - .cache
+    - __pycache__
+    - mscli-demo.mp4

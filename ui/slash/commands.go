@@ -83,6 +83,23 @@ func (r *Registry) Suggestions(input string) []string {
 	return matches
 }
 
+// Without returns a copy of the registry excluding the named commands.
+func (r *Registry) Without(names ...string) *Registry {
+	excluded := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		excluded[name] = struct{}{}
+	}
+
+	next := &Registry{commands: make(map[string]Command, len(r.commands))}
+	for name, cmd := range r.commands {
+		if _, skip := excluded[name]; skip {
+			continue
+		}
+		next.commands[name] = cmd
+	}
+	return next
+}
+
 // IsSlashCommand checks if input starts with "/".
 func IsSlashCommand(input string) bool {
 	return strings.HasPrefix(strings.TrimSpace(input), "/")
@@ -168,6 +185,12 @@ func (r *Registry) registerDefaults() {
 		Name:        "/mouse",
 		Description: "Toggle mouse wheel scrolling",
 		Usage:       "/mouse [on|off|toggle|status]",
+	})
+
+	r.Register(Command{
+		Name:        "/train",
+		Description: "Start distributed training dashboard",
+		Usage:       "/train [run_id|retry|stop|task...]",
 	})
 
 	r.Register(Command{

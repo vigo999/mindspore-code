@@ -56,6 +56,11 @@ func (a *Application) processInput(input string) {
 		return
 	}
 
+	if strings.HasPrefix(trimmed, model.TrainChatInputPrefix) {
+		a.processTrainChatInput(strings.TrimPrefix(trimmed, model.TrainChatInputPrefix))
+		return
+	}
+
 	// Slash commands
 	if strings.HasPrefix(trimmed, "/") {
 		a.handleCommand(trimmed)

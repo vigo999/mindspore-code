@@ -60,6 +60,7 @@ In TUI input, use slash commands:
 - `/compact` - Compact conversation context to save tokens
 - `/clear` - Clear chat history
 - `/mouse [on|off|toggle|status]` - Control mouse wheel scrolling
+- `/train [run_id|stop]` - Start/stop distributed training dashboard workflow
 - `/exit` - Exit the application
 - `/help` - Show available commands
 
@@ -82,6 +83,40 @@ Type `/` to see available slash commands. Use `↑`/`↓` keys to navigate and `
 | `esc` | Cancel slash suggestions |
 | `/` | Start a slash command |
 | `ctrl+c` | Quit |
+
+## Distributed Training Dashboard (`/train`)
+
+Run `/train` to enter a dedicated training dashboard UI and execute workflow stages:
+
+1. Push code to multiple hosts via bounded-parallel `rsync`
+2. Start remote verification training with `nohup` (defaults to `examples/fake_log_generator.py`, with `run_id`, `log.txt`, `train.pid`)
+3. Create SSH master connections (`ControlMaster/ControlPath/ControlPersist`)
+4. Start multi-host log streaming via `tail -F`
+5. Parse multiple log streams and update dashboard in real time
+
+The sync stage now reuses SSH control sockets, respects `.gitignore` by default, and disables `rsync -z` compression unless you explicitly enable it for a slow WAN link.
+
+Typical generated commands:
+
+```bash
+# 1) sync
+rsync -a --delete --omit-dir-times --filter ':- .gitignore' --exclude '.git' --exclude '.cache' -e 'ssh -o ControlMaster=auto -o ControlPath=~/.ssh/cm-gpua -o ControlPersist=30m' /local/code/ user@gpuA:/remote/code/
+rsync -a --delete --omit-dir-times --filter ':- .gitignore' --exclude '.git' --exclude '.cache' -e 'ssh -o ControlMaster=auto -o ControlPath=~/.ssh/cm-gpub -o ControlPersist=30m' /local/code/ user@gpuB:/remote/code/
+
+# 2) launch
+ssh -o ControlMaster=auto -o ControlPath=~/.ssh/cm-gpua -o ControlPersist=30m user@gpuA 'mkdir -p /remote/runs/run_20260306 && cd /remote/code && nohup python -u examples/fake_log_generator.py --run-id run_20260306 --host gpuA --total-steps 120 > /remote/runs/run_20260306/log.txt 2>&1 & echo $! > /remote/runs/run_20260306/train.pid'
+
+# 3) ssh master
+ssh -O check -o ControlMaster=auto -o ControlPath=~/.ssh/cm-gpua -o ControlPersist=30m user@gpuA >/dev/null 2>&1 || ssh -MNf -o ControlMaster=yes -o ControlPath=~/.ssh/cm-gpua -o ControlPersist=30m user@gpuA
+
+# 4) log stream
+ssh -o ControlMaster=auto -o ControlPath=~/.ssh/cm-gpua -o ControlPersist=30m user@gpuA 'bash -lc '"'"'pid=$(cat /remote/runs/run_20260306/train.pid 2>/dev/null); if [ -n "$pid" ]; then tail --pid="$pid" -n 0 -F /remote/runs/run_20260306/log.txt; else tail -n 0 -F /remote/runs/run_20260306/log.txt; fi'"'"''
+```
+
+Dashboard layout:
+
+- Left: per-host key metrics (`model`, `steps`, `throughput`, `loss`, `grad_norm`) and workflow stage state
+- Right: multi-host loss curves in different colors with highlighted endpoints, x-axis showing total step range, y-axis auto-scaled by observed loss
 
 ## Project Status Data
 
@@ -178,6 +213,33 @@ budget:
 context:
   max_tokens: 24000
   compaction_threshold: 0.85
+training:
+  enabled: false
+  local_path: .
+  startup_command: source ~/.bashrc && conda activate trainer
+  remote_code_path: ~/workspace/zhy-ms-cli
+  run_base_dir: ~/workspace/train_runs
+  hosts_file: train_hosts.yaml
+  train_command: python -u examples/fake_log_generator.py --run-id {{RUN_ID}} --host {{HOST_NAME}} --total-steps 120
+  ssh_control_persist: 30m
+  sync_parallelism: 0
+  rsync_compress: false
+  rsync_respect_gitignore: true
+  exclude: [".git", ".cache", "__pycache__", "mscli-demo.mp4"]
+```
+
+Example `train_hosts.yaml`:
+
+```yaml
+hosts:
+  - name: gpuA
+    user: your_user
+    address: gpu-a.example.com
+    startup_command: source ~/.bashrc && conda activate gpu-train
+  - name: gpuB
+    user: your_user
+    address: gpu-b.example.com
+    startup_command: source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 
 ## Known Limitations

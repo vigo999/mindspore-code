@@ -50,6 +50,16 @@ func (t TextInput) Focus() (TextInput, tea.Cmd) {
 	return t, cmd
 }
 
+// WithSlashRegistry swaps the slash registry used for autocomplete.
+func (t TextInput) WithSlashRegistry(reg *slash.Registry) TextInput {
+	if reg == nil {
+		reg = slash.DefaultRegistry
+	}
+	t.slashRegistry = reg
+	t.updateSuggestions()
+	return t
+}
+
 // Update handles key events.
 func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -101,8 +111,8 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 
 // updateSuggestions updates the slash command suggestions based on current input.
 func (t *TextInput) updateSuggestions() {
-	val := t.Model.Value()
-	val = strings.TrimSpace(val)
+	raw := strings.TrimLeft(t.Model.Value(), " \t")
+	val := strings.TrimSpace(raw)
 
 	// Only show suggestions if input starts with "/"
 	if !strings.HasPrefix(val, "/") {
@@ -110,6 +120,23 @@ func (t *TextInput) updateSuggestions() {
 		t.suggestions = nil
 		t.selectedIdx = 0
 		return
+	}
+
+	// Only autocomplete the command token itself. Once the command is complete
+	// or the user starts typing arguments, Enter should submit immediately.
+	if len(raw) > 1 && strings.ContainsAny(raw[1:], " \t") {
+		t.showSuggestions = false
+		t.suggestions = nil
+		t.selectedIdx = 0
+		return
+	}
+	if val != "/" {
+		if _, ok := t.slashRegistry.Get(val); ok {
+			t.showSuggestions = false
+			t.suggestions = nil
+			t.selectedIdx = 0
+			return
+		}
 	}
 
 	// Get suggestions

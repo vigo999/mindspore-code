@@ -40,6 +40,8 @@ func (a *Application) handleCommand(input string) {
 		a.cmdYolo()
 	case "/mouse":
 		a.cmdMouse(parts[1:])
+	case "/train":
+		a.cmdTrain(parts[1:])
 	case "/help":
 		a.cmdHelp()
 	default:
@@ -455,6 +457,7 @@ func (a *Application) cmdHelp() {
   /permission [tool] [level]  Manage tool permissions
   /yolo                   Toggle auto-approve mode
   /mouse [on|off|toggle|status] Toggle mouse wheel scrolling
+  /train [run_id|retry|stop|task...] Start or stop training dashboard workflow
   /exit                   Exit the application
   /compact                Compact conversation context to save tokens
   /clear                  Clear chat history
@@ -469,6 +472,13 @@ Permission Commands:
   /permission             Show current permission settings
   /permission shell ask   Set permission level for a tool
   /yolo                   Toggle auto-approve for all operations
+
+Training Commands:
+  /train                  Start distributed training workflow + dashboard
+  /train 20260306-expA    Start with explicit run_id
+  /train tuning qwen3 with the current code
+  /train retry            Retry the last failed run_id
+  /train stop             Stop current workflow and log streaming
 
 Permission Levels:
   ask          - Ask each time (default)

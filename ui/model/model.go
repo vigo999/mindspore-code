@@ -18,7 +18,7 @@ type ModelInfo struct {
 type MessageKind int
 
 const (
-	MsgUser     MessageKind = iota
+	MsgUser MessageKind = iota
 	MsgAgent
 	MsgThinking
 	MsgTool
@@ -42,28 +42,31 @@ type Message struct {
 	Summary  string // shown when collapsed, e.g. "5 matches", "23 files"
 }
 
+const TrainChatInputPrefix = "__mscli_train_chat__:"
+
 // EventType identifies the kind of UI event.
 type EventType string
 
 const (
-	TaskUpdated    EventType = "TaskUpdated"
-	CmdStarted     EventType = "CmdStarted"
-	CmdOutput      EventType = "CmdOutput"
-	CmdFinished    EventType = "CmdFinished"
-	AnalysisReady  EventType = "AnalysisReady"
-	AgentReply     EventType = "AgentReply"
-	AgentThinking  EventType = "AgentThinking"
-	TokenUpdate    EventType = "TokenUpdate"
-	ToolRead       EventType = "ToolRead"
-	ToolGrep       EventType = "ToolGrep"
-	ToolGlob       EventType = "ToolGlob"
-	ToolEdit       EventType = "ToolEdit"
-	ToolWrite      EventType = "ToolWrite"
-	ToolError      EventType = "ToolError"
-	ClearScreen    EventType = "ClearScreen"
-	ModelUpdate    EventType = "ModelUpdate"
-	MouseModeToggle EventType = "MouseModeToggle"
-	Done           EventType = "Done"
+	TaskUpdated      EventType = "TaskUpdated"
+	CmdStarted       EventType = "CmdStarted"
+	CmdOutput        EventType = "CmdOutput"
+	CmdFinished      EventType = "CmdFinished"
+	AnalysisReady    EventType = "AnalysisReady"
+	AgentReply       EventType = "AgentReply"
+	AgentThinking    EventType = "AgentThinking"
+	TokenUpdate      EventType = "TokenUpdate"
+	ToolRead         EventType = "ToolRead"
+	ToolGrep         EventType = "ToolGrep"
+	ToolGlob         EventType = "ToolGlob"
+	ToolEdit         EventType = "ToolEdit"
+	ToolWrite        EventType = "ToolWrite"
+	ToolError        EventType = "ToolError"
+	ClearScreen      EventType = "ClearScreen"
+	ModelUpdate      EventType = "ModelUpdate"
+	MouseModeToggle  EventType = "MouseModeToggle"
+	TrainUpdateEvent EventType = "TrainUpdateEvent"
+	Done             EventType = "Done"
 )
 
 // Event is sent from the agent loop to the TUI.
@@ -77,6 +80,7 @@ type Event struct {
 	CtxUsed    int
 	CtxMax     int
 	TokensUsed int
+	Train      *TrainUpdate
 }
 
 // TaskStats tracks execution statistics for the current task.
@@ -112,8 +116,8 @@ func NewState(version, workDir, repoURL, modelName string, ctxMax int) State {
 		ctxMax = 128000 // Default for models like gpt-4o
 	}
 	return State{
-		Version:      version,
-		Tasks:        []TaskInfo{},
+		Version: version,
+		Tasks:   []TaskInfo{},
 		Model: ModelInfo{
 			Name:   modelName,
 			CtxMax: ctxMax,

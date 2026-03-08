@@ -1,0 +1,21 @@
+hosts:
+  - name: GPU-3090-1
+    user: root
+    address: 8.92.7.133
+    # Optional: override the default local code directory or point to a single Python file.
+    # When local_path is already a file, train_script can be omitted.
+    local_path: ./examples/train_qwen3_gpu.py
+    remote_code_path: ~/workspace/ms-cli-demo
+    run_base_dir: ~/workspace/ms-cli-demo
+    # Optional: host-specific bootstrap command before train_command.
+    startup_command: source /workspace/miniconda3/bin/activate qwen3
+    train_command: CUDA_VISIBLE_DEVICES=6 HF_ENDPOINT=https://hf-mirror.com python -u train_qwen3_gpu.py
+  - name: NPU-910B-1
+    user: root
+    address: 8.92.7.129
+    # Example: this host can use a different code tree or a different file.
+    local_path: ./examples/train_qwen3_npu.py
+    remote_code_path: ~/workspace/ms-cli-demo
+    run_base_dir: ~/workspace/ms-cli-demo
+    startup_command: source /usr/local/Ascend/ascend-toolkit/set_env.sh && source /home/miniconda3/bin/activate zjy_torch_npu
+    train_command: HUGGINGFACE_HUB_CACHE=/home/.cache/huggingface/hub/ HF_ENDPOINT=https://hf-mirror.com python -u train_qwen3_npu.py

@@ -1,7 +1,9 @@
 package main
 
 import (
+	stdcontext "context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/vigo999/ms-cli/agent/context"
@@ -28,6 +30,13 @@ type Application struct {
 	permService  permission.PermissionService
 	stateManager *configs.StateManager
 	traceWriter  trace.Writer
+
+	trainMu       sync.Mutex
+	trainRunID    string
+	trainLastID   string
+	trainLastArgs []string
+	trainCancel   stdcontext.CancelFunc
+	trainState    model.TrainDashboard
 }
 
 // SetProvider updates model/key and reinitializes the engine.

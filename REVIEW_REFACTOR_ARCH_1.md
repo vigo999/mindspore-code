@@ -1,132 +1,133 @@
-# Review: `refactor-arch-1` — Orchestration & Agent/Loop Architecture
+# Review: `refactor-arch-1` — Orchestration & Agent/Loop (Update 2)
 
-## Current Data Flow
+## What Changed Since Last Review
+
+You addressed item #4 from the previous review — **decoupling orchestrator from loop types**:
+
+1. **New `orchestrator.RunRequest`** replaces `loop.Task` as the orchestrator's input type
+2. **New `orchestrator.RunEvent`** replaces `loop.Event` as the orchestrator's output type
+3. **New `internal/app/adapter.go`** bridges `loop.Engine` → `orchestrator.Engine` interface
+4. **`convertEvent` simplified** — the 70-line switch is now a map lookup + generic fallback
+5. **Orchestrator owns its own event constants** — no longer imports `agent/loop`
+
+This is a solid step. The dependency arrow is now correct:
+
+```
+orchestrator  ←──adapts──  internal/app/adapter  ──depends──►  loop
+     │                                                           │
+     │  (no import)                                              │
+     └───────────────── X ──────────────────────────────────────┘
+```
+
+---
+
+## Updated Data Flow
 
 ```
 User Input (string)
     │
     ▼
-ui/app.go ──userCh──► internal/app/run.go::inputLoop()
+TUI ──userCh──► Application::inputLoop()
+                       │
+             ┌─────────┴──────────┐
+             │ "/" prefix          │ no "/"
+             ▼                    ▼
+    handleCommand()          runTask(description)
+    (still in Application)        │
+                                  │ wraps as orchestrator.RunRequest
+                                  ▼
+                         orchestrator.Run(ctx, req)
+                                  │
+                      ┌───────────┴───────────┐
+                      │ ModeStandard           │ ModePlan
+                      ▼                        ▼
+               adapter.Run()            planner → adapter.Run() per step
+                      │                        │
+                      │  loop.Task ↔ RunRequest │
+                      │  loop.Event ↔ RunEvent  │
+                      ▼                        ▼
+                 []RunEvent               []RunEvent
+                      │                        │
+                      └───────┬────────────────┘
+                              ▼
+                    convertRunEvent(RunEvent → model.Event)
                               │
-                    ┌─────────┴──────────┐
-                    │ "/" prefix?         │ no "/"
-                    ▼                    ▼
-           handleCommand()         runTask(description)
-           (slash cmds)                  │
-                                         │ wraps as loop.Task{Description: str}
-                                         ▼
-                                 orchestrator.Run(ctx, task)
-                                         │
-                             ┌───────────┴───────────┐
-                             │ ModeStandard           │ ModePlan
-                             ▼                        ▼
-                      engine.RunWithContext()    planner.Plan() → workflow/loop
-                             │                        │
-                             ▼                        ▼
-                       []loop.Event             []loop.Event
-                             │                        │
-                             └───────┬────────────────┘
-                                     ▼
-                           convertEvent(loop.Event → model.Event)
-                                     │
-                                     ▼
-                              EventCh → TUI
+                              ▼
+                       EventCh → TUI
 ```
 
 ---
 
-## Architecture Comments
+## Comments on the New Changes
 
-### 1. The `string` → `loop.Task` boundary is too thin
+### 1. Adapter is clean — but consider an interface extract
 
-Right now `Application.processInput()` in `run.go:75-85` makes the critical routing decision:
+`engineAdapter` is a concrete struct in `internal/app`. This is fine for now, but if you ever need to test the orchestrator with a different backend (e.g., a mock that doesn't go through loop at all), the adapter pattern means you just implement `orchestrator.Engine` directly. Good.
+
+One nit: `engineAdapter` holds `*loop.Engine` (concrete). If `loop.Engine` already has a public interface, prefer depending on that instead:
 
 ```go
-func (a *Application) processInput(input string) {
-    if strings.HasPrefix(trimmed, "/") {
-        a.handleCommand(trimmed)  // slash commands bypass orchestrator entirely
-        return
+// Instead of:
+type engineAdapter struct {
+    engine *loop.Engine  // concrete
+}
+
+// Consider:
+type engineAdapter struct {
+    engine interface {
+        RunWithContext(ctx context.Context, task loop.Task) ([]loop.Event, error)
     }
-    go a.runTask(trimmed)  // raw string → loop.Task
 }
 ```
 
-**Problem:** The `Application` layer is doing orchestration work (routing slash commands vs tasks) that should belong to the orchestrator. This means:
-- Slash commands like `/mode`, `/compact`, `/clear` live in `Application` but directly mutate orchestrator/engine state
-- The orchestrator never sees these commands — it can't log, trace, or intercept them
-- Adding a new command type (e.g., multi-turn confirmation, plan approval, interrupt) requires modifying `Application`, not orchestrator
+This makes the adapter testable in isolation without constructing a full `loop.Engine`. Low priority — the current approach works.
 
-### 2. Recommendation: Use a common input message type — but keep it minimal
+### 2. Three event type sets remain — now it's worse, not better
 
-I recommend a thin `Input` union type that the orchestrator receives:
+Before: `loop.Event` types + `model.EventType` (2 sets, 1 mapping layer)
+After: `loop.Event` types + `orchestrator.RunEvent` types + `model.EventType` (3 sets, 2 mapping layers)
 
+The mapping chain is now:
+
+```
+loop.Event  ──adapter.Run()──►  orchestrator.RunEvent  ──convertRunEvent()──►  model.Event
+   20+ consts                      7 consts                  11 consts
+```
+
+The adapter passes `ev.Type` (a string) through verbatim. The orchestrator only defines 7 event constants (`TaskStarted`, `TaskCompleted`, `TaskFailed`, `AgentThinking`, `AgentReply`, `LLMResponse`, `ToolError`) but the engine emits ~20 types (`ToolRead`, `ToolGrep`, `ToolGlob`, `ToolEdit`, `ToolWrite`, `CmdStarted`, `AnalysisReady`, `TokenUpdate`, etc.). These pass through the orchestrator as untyped strings — the orchestrator doesn't know they exist.
+
+**This is the core problem:** The orchestrator claims to own the event vocabulary but actually doesn't. The `convertRunEvent` typeMap in `run.go` maps strings that the orchestrator never declared.
+
+**Fix options (pick one):**
+
+**Option A — Orchestrator declares the full vocabulary:**
 ```go
-// agent/orchestrator/input.go
-
-// InputKind distinguishes what the user sent.
-type InputKind int
-
+// orchestrator/types.go — add all event types the adapter might produce
 const (
-    InputChat    InputKind = iota // free-form text → LLM
-    InputCommand                  // /mode, /clear, etc.
-    InputConfirm                  // "yes"/"no" to a pending permission/plan approval
-    InputCancel                   // ctrl+c / abort signal
+    EventToolRead      = "ToolRead"
+    EventToolGrep      = "ToolGrep"
+    EventToolGlob      = "ToolGlob"
+    EventToolEdit      = "ToolEdit"
+    EventToolWrite     = "ToolWrite"
+    EventCmdStarted    = "CmdStarted"
+    EventAnalysisReady = "AnalysisReady"
+    EventTokenUpdate   = "TokenUpdate"
+    // ...
 )
-
-// Input is the single entry point into the orchestrator.
-type Input struct {
-    Kind    InputKind
-    Text    string            // raw text for Chat, command string for Command
-    Args    []string          // parsed args for Command
-    Meta    map[string]string // extensible (session ID, message ID, etc.)
-}
 ```
 
-Then `Orchestrator.Handle(ctx, Input) error` replaces both `Run()` and the slash-command switch in `Application`:
+Downside: orchestrator becomes aware of every tool, which defeats the purpose of decoupling.
 
+**Option B — Shared event package (recommended):**
 ```go
-func (o *Orchestrator) Handle(ctx context.Context, input Input) error {
-    switch input.Kind {
-    case InputChat:
-        task := loop.Task{ID: generateID(), Description: input.Text}
-        events, err := o.dispatch(ctx, task)
-        // push events...
-    case InputCommand:
-        return o.handleCommand(input)
-    case InputConfirm:
-        return o.handleConfirmation(input)
-    case InputCancel:
-        return o.handleCancel(input)
-    }
-}
-```
-
-**Why this is better than letting orchestrator parse raw strings:**
-- The TUI already knows whether input is a `/command` or chat — no need to re-parse inside orchestrator
-- `InputKind` is an enum, not string parsing — impossible to miss a case
-- `InputConfirm` gives you a clean path for plan approval and permission confirmation without hacking it through the chat channel
-- The orchestrator can trace/log every input uniformly
-
-**Why this is better than the current approach (Application handles commands):**
-- Single responsibility: `Application` becomes a thin wiring layer, orchestrator owns all routing
-- `/compact`, `/clear`, `/mode` become orchestrator-internal commands that can participate in tracing, hooks, and event streams
-- New input types (file drag-and-drop, multi-turn confirmation) are added in one place
-
-### 3. The two Event types are redundant — collapse them
-
-You currently have `loop.Event` and `model.Event` with a 1:1 `convertEvent()` mapper (`run.go:105-175`). This is 70 lines of boilerplate that will grow with every new tool.
-
-**Recommendation:** Define one `Event` type in a shared package (e.g., `agent/event`), used by both loop and UI. The TUI can filter/ignore event types it doesn't care about. The orchestrator can add events of its own (e.g., `PlanCreated`, `StepStarted`) without needing a parallel model.Event constant.
-
-```go
-// agent/event/event.go
+// agent/event/types.go — single source of truth
 package event
 
 type Type string
 const (
     AgentReply    Type = "AgentReply"
     ToolRead      Type = "ToolRead"
-    // ...all in one place
+    // ... all in one place
 )
 
 type Event struct {
@@ -138,100 +139,105 @@ type Event struct {
     CtxMax     int
     TokensUsed int
     Timestamp  time.Time
-    Meta       map[string]any  // extensible
+    Meta       map[string]any
 }
 ```
 
-### 4. Orchestrator → Engine coupling is too tight
+Then `loop`, `orchestrator`, and `ui/model` all import `agent/event`. No adapters needed for the event type — only the request type needs adapting.
 
-`Orchestrator` holds a concrete `*loop.Engine` (via the `Engine` interface, but the interface is defined *inside* the orchestrator package). The `Engine` interface is:
+**Option C — Let the orchestrator pass opaque events:**
+The orchestrator doesn't need to understand tool-level events. It only needs its own lifecycle events (`TaskStarted`, `TaskFailed`, etc.). Engine events pass through as `[]RunEvent` with no semantic interpretation. The orchestrator prepends/appends its own events. The UI maps the full set.
+
+This is basically what you have now — just make it explicit by not defining tool-level constants in orchestrator at all. The `typeMap` in `convertRunEvent` becomes the single canonical mapping.
+
+### 3. `RunRequest` is too thin — won't survive the next feature
+
+`RunRequest` has only `ID` and `Description`. This is fine for "user typed text, run the LLM." But you'll need more soon:
+
+- **Context/metadata**: session ID, message ID, parent request ID (for plan steps)
+- **Attachments**: file references, images, code blocks
+- **Continuation signals**: "user approved the plan", "user wants to abort step 3"
+- **Mode overrides**: "run this one request in plan mode even though default is standard"
+
+Consider making it extensible now:
 
 ```go
-type Engine interface {
-    RunWithContext(ctx context.Context, task loop.Task) ([]loop.Event, error)
+type RunRequest struct {
+    ID          string
+    Description string
+    Context     map[string]string  // loop.Task already has this field
+    Meta        map[string]any     // future-proof
 }
 ```
 
-This means the orchestrator must produce `loop.Task` and consume `loop.Event` — it's a pass-through that adds no value in standard mode.
+At minimum, carry over `Context map[string]string` from `loop.Task` — the adapter currently drops it.
 
-**Better:** The orchestrator should own the `Task` and `Event` types. The engine should implement the orchestrator's interface, not the other way around. This inverts the dependency so the orchestrator is the top-level coordinator:
+### 4. Slash commands still bypass the orchestrator
 
-```
-orchestrator.Input → orchestrator dispatches → engine (implements orchestrator.Runner)
-                                              → planner
-                                              → workflow runner
-```
+The previous review's item #1 is still open. `Application.processInput()` routes `/` commands directly to `handleCommand()` which mutates engine/orchestrator/config state. The orchestrator never sees these.
 
-### 5. Plan mode: no approval flow
-
-`PlanCallback.OnPlanCreated` / `OnPlanApproved` are called back-to-back in `runPlan()` with no user interaction in between:
+With the new `RunRequest` type, you could extend it:
 
 ```go
-// orchestrator.go:103-108
-if err := o.callback.OnPlanCreated(steps); err != nil { ... }
-if err := o.callback.OnPlanApproved(steps); err != nil { ... }
+type RunRequest struct {
+    ID          string
+    Kind        RequestKind  // Chat, Command, Confirm, Cancel
+    Description string
+    Command     string       // for Kind=Command: "mode", "compact", "clear"
+    Args        []string     // command arguments
+    Context     map[string]string
+}
 ```
 
-There's no mechanism for the user to review, edit, or reject the plan. This is where `InputConfirm` in the proposed input model would help — `OnPlanCreated` would emit the plan to the UI, then the orchestrator suspends until it receives `InputConfirm{Kind: InputConfirm, Text: "yes"}`.
+Or keep `RunRequest` as-is and add a separate `Orchestrator.HandleCommand()` method. Either way, the orchestrator should be the single entry point.
 
-### 6. The `Application` struct is a god object
+### 5. The `convertRunEvent` map approach is better but fragile
 
-`Application` in `wire.go` holds: Engine, Orchestrator, EventCh, provider, toolRegistry, ctxManager, permService, stateManager, traceWriter, Config, WorkDir, RepoURL, Demo flag, llmReady flag...
-
-It also handles:
-- Slash commands (`commands.go`)
-- Task execution (`run.go`)
-- Provider hot-swapping (`SetProvider`)
-- State persistence (`SaveState`)
-- Demo mode (`runDemo`)
-
-**Recommendation:** Split into:
-- `Application` — wiring only (build dependencies, start TUI)
-- `Orchestrator` — all runtime routing (commands + tasks + confirmations)
-- `SessionManager` — state, persistence, provider switching
-
-### 7. Batch events vs streaming
-
-`engine.RunWithContext()` returns `[]loop.Event` — the entire run completes before any events reach the UI. This means:
-- No streaming of partial LLM responses
-- No real-time tool execution feedback
-- The "thinking" indicator appears, then a wall of text appears all at once
-
-The `EventCh chan model.Event` infrastructure is *already there* for streaming. The engine should push events to a channel as they happen, not batch them.
+The new table-driven approach is much cleaner than the old switch:
 
 ```go
-// Instead of:
-func (e *Engine) RunWithContext(ctx context.Context, task Task) ([]Event, error)
-
-// Do:
-func (e *Engine) RunWithContext(ctx context.Context, task Task, sink chan<- Event) error
+typeMap := map[string]model.EventType{
+    "AgentReply":    model.AgentReply,
+    "AgentThinking": model.AgentThinking,
+    // ...
+}
 ```
+
+But the map is rebuilt on every call (allocated on heap each time). Move it to a package-level var:
+
+```go
+var runEventToUIType = map[string]model.EventType{
+    "AgentReply":    model.AgentReply,
+    // ...
+}
+```
+
+Also: if someone adds a new event type in `loop` but forgets to update this map, it silently falls through to the default case and becomes a generic `AgentReply`. Consider logging unknown event types during development.
+
+### 6. `SetProvider` rebuilds everything — fragile
+
+`SetProvider()` in `wire.go` now correctly preserves the mode via `a.Orchestrator.CurrentMode()` (good fix). But it rebuilds engine + adapter + orchestrator from scratch. If the orchestrator later holds state (pending plan approvals, in-flight requests), this will drop them.
+
+Consider a `Reconfigure()` method on the orchestrator that hot-swaps the engine adapter without reconstructing the orchestrator itself.
 
 ---
 
-## Summary: Answer to Your Design Question
+## Remaining Items from Previous Review
 
-**Use a common input type, but don't over-engineer it.**
+| # | Item | Status |
+|---|------|--------|
+| 1 | Move command handling into orchestrator | **Still open** — commands bypass orchestrator |
+| 2 | Unify event types into shared package | **Worse** — now 3 type sets instead of 2 |
+| 3 | Switch from batch `[]Event` to streaming `chan Event` | **Still open** |
+| 4 | Decouple orchestrator from loop types | **Done** — adapter pattern, RunRequest/RunEvent |
+| 5 | Plan approval flow | **Still open** |
 
-The right boundary is:
+## Priority for Next Iteration
 
-```
-TUI ──Input{Kind, Text, Args}──► Orchestrator ──► Engine/Planner/Workflow
-                                      │
-                                      ▼
-                                 chan Event ◄── Engine pushes events as they happen
-```
-
-The orchestrator should be the **single entry point** for all user interactions — chat, commands, confirmations, cancellations. The TUI classifies input minimally (chat vs command vs confirm), and the orchestrator handles the rest.
-
-Don't let the orchestrator parse raw strings. Don't let `Application` route commands around the orchestrator. The enum-based `InputKind` approach gives you type safety and extensibility without complexity.
-
-## Priority Actions
-
-| # | Change | Impact |
-|---|--------|--------|
-| 1 | Add `Input` type, move command handling into orchestrator | Unblocks plan approval, tracing |
-| 2 | Unify `loop.Event` / `model.Event` into one shared type | Eliminates 70+ lines of mapping boilerplate |
-| 3 | Switch engine from `[]Event` return to `chan Event` push | Enables streaming / real-time feedback |
-| 4 | Split `Application` into wiring + orchestrator + session | Reduces god object |
-| 5 | Add suspension/resumption for plan approval flow | Completes plan mode |
+| # | Action | Why |
+|---|--------|-----|
+| 1 | Unify events into `agent/event` shared package | Eliminates 2 mapping layers, fixes the 3-type-set problem |
+| 2 | Add `Context`/`Meta` to `RunRequest` | Currently drops `loop.Task.Context` in adapter |
+| 3 | Move slash commands into orchestrator | Single entry point, enables tracing |
+| 4 | Package-level var for event type map | Avoids per-call allocation |
+| 5 | Streaming events via channel | Enables real-time UI feedback |

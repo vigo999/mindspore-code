@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/agent/orchestrator"
 	"github.com/vigo999/ms-cli/internal/project"
 	"github.com/vigo999/ms-cli/permission"
 	"github.com/vigo999/ms-cli/ui/model"
@@ -24,8 +23,6 @@ func (a *Application) handleCommand(input string) {
 		a.cmdRoadmap(parts[1:])
 	case "/weekly":
 		a.cmdWeekly(parts[1:])
-	case "/mode":
-		a.cmdMode(parts[1:])
 	case "/model":
 		a.cmdModel(parts[1:])
 	case "/exit":
@@ -49,22 +46,6 @@ func (a *Application) handleCommand(input string) {
 			Type:    model.AgentReply,
 			Message: fmt.Sprintf("Unknown command: %s. Type /help for available commands.", parts[0]),
 		}
-	}
-}
-
-func (a *Application) cmdMode(args []string) {
-	if len(args) == 0 {
-		a.EventCh <- model.Event{
-			Type:    model.AgentReply,
-			Message: fmt.Sprintf("Current mode: %s\n\nUsage: /mode [standard|plan]", a.Orchestrator.CurrentMode()),
-		}
-		return
-	}
-	mode := orchestrator.ParseRunMode(args[0])
-	a.Orchestrator.SetMode(mode)
-	a.EventCh <- model.Event{
-		Type:    model.AgentReply,
-		Message: fmt.Sprintf("Switched to %s mode", mode),
 	}
 }
 
@@ -383,7 +364,6 @@ func (a *Application) cmdMouse(args []string) {
 func (a *Application) cmdHelp() {
 	helpText := `Available commands:
 
-  /mode [standard|plan]   Show or switch execution mode
   /roadmap status [path]  Check roadmap status (default: roadmap.yaml)
   /weekly status [path]   Check weekly update status (default: weekly.md)
   /model [model-name]     Show or switch model

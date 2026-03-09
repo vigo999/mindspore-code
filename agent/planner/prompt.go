@@ -13,23 +13,42 @@ func buildPlanPrompt(goal string, tools []string) string {
 		toolDesc = "read, write, edit, grep, glob, shell"
 	}
 
-	return fmt.Sprintf(`You are a planning assistant. Create a step-by-step plan for the following task.
+	return fmt.Sprintf(`You are a planning assistant. Analyze the following task and decide how to execute it.
 
 Task: %s
 
 Available tools: %s
 
-Create a plan with the following format:
-1. Each step should be a clear, actionable instruction
-2. Specify which tool to use for each step (if applicable)
-3. Steps should be in logical order
-4. Keep the plan concise (3-10 steps)
+First, decide the execution mode:
+- "agent": for exploratory, open-ended, or coding-assistant-style tasks
+  (e.g. analyze code, investigate a bug, explain architecture, propose changes,
+  fix a bug, add a feature, refactor code)
+- "workflow": for structured, reproducible tasks with stable execution stages
+  (e.g. run training, benchmark comparison, build/test/verify pipeline,
+  migration pipeline, batch data processing)
 
-Format your response as a JSON array of steps:
-[
+Most coding tasks are agent mode. Use workflow only when the task is a
+repeatable pipeline with well-defined stages.
+
+Then respond with JSON:
+
+For agent mode:
+{"mode": "agent", "goal": "refined goal description"}
+
+For workflow mode with inline steps:
+{"mode": "workflow", "goal": "refined goal description", "steps": [
   {"description": "Step 1 description", "tool": "tool_name"},
   {"description": "Step 2 description", "tool": "tool_name"}
-]`, goal, toolDesc)
+]}
+
+For workflow mode with a named workflow:
+{"mode": "workflow", "goal": "refined goal description", "workflow": "workflow_id"}
+
+Rules:
+- Default to agent mode for coding, debugging, and exploratory tasks
+- Choose workflow mode only for pipeline-style, reproducible operations
+- Keep steps concise (3-10 steps max)
+- Only use tools from the available list`, goal, toolDesc)
 }
 
 func buildRefinePrompt(goal string, steps []Step, feedback string) string {
@@ -50,5 +69,5 @@ Current Plan:
 %s
 Feedback: %s
 
-Please provide an improved plan in the same JSON format.`, goal, sb.String(), feedback)
+Please provide an improved plan in the same JSON format (with mode, goal, and steps).`, goal, sb.String(), feedback)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/vigo999/ms-cli/agent/loop"
 	"github.com/vigo999/ms-cli/agent/orchestrator"
 	"github.com/vigo999/ms-cli/agent/planner"
+	wfexec "github.com/vigo999/ms-cli/workflow/executor"
 	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/integrations/llm"
 	openai "github.com/vigo999/ms-cli/integrations/llm/openai"
@@ -142,17 +143,15 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	// Build orchestrator (planner is nil when LLM is not ready)
 	adapter := newEngineAdapter(engine)
+	wf := wfexec.New()
 	var orch *orchestrator.Orchestrator
 	if provider != nil {
 		p := planner.New(provider, planner.DefaultConfig())
 		orch = orchestrator.New(orchestrator.Config{
-			Mode:           orchestrator.ModeStandard,
 			AvailableTools: engine.ToolNames(),
-		}, adapter, p, nil)
+		}, adapter, p, wf)
 	} else {
-		orch = orchestrator.New(orchestrator.Config{
-			Mode: orchestrator.ModeStandard,
-		}, adapter, nil, nil)
+		orch = orchestrator.New(orchestrator.Config{}, adapter, nil, wf)
 	}
 
 	return &Application{
@@ -212,19 +211,17 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 	a.Engine = newEngine
 	a.provider = provider
 
-	// Rebuild orchestrator with new engine
+	// Always rebuild orchestrator so it uses the new engine adapter.
+	// When provider is nil, planner is nil → orchestrator falls back to agent mode.
+	newAdapter := newEngineAdapter(newEngine)
+	newWf := wfexec.New()
+	var p *planner.Planner
 	if provider != nil {
-		p := planner.New(provider, planner.DefaultConfig())
-		mode := orchestrator.ModeStandard
-		if a.Orchestrator != nil {
-			mode = a.Orchestrator.CurrentMode()
-		}
-		newAdapter := newEngineAdapter(newEngine)
-		a.Orchestrator = orchestrator.New(orchestrator.Config{
-			Mode:           mode,
-			AvailableTools: newEngine.ToolNames(),
-		}, newAdapter, p, nil)
+		p = planner.New(provider, planner.DefaultConfig())
 	}
+	a.Orchestrator = orchestrator.New(orchestrator.Config{
+		AvailableTools: newEngine.ToolNames(),
+	}, newAdapter, p, newWf)
 
 	if a.stateManager != nil {
 		a.stateManager.SaveFromConfig(a.Config)

@@ -37,6 +37,9 @@ flowchart TD
 
     INTEGRATIONS --> CONFIGS
 
+    WORKFLOW[workflow/executor<br/>workflow executor stub]
+
+    AGENT --> WORKFLOW
     TOOLS --> RUNTIME
     TOOLS --> CONFIGS
 
@@ -58,14 +61,16 @@ ms-cli/
 │   ├── context/             # token budget and context compaction
 │   ├── loop/                # core engine interfaces and flow
 │   ├── memory/              # memory store, retrieval, policy
-│   ├── orchestrator/        # agent mode orchestration
-│   ├── planner/             # plan parsing and validation
+│   ├── orchestrator/        # mode dispatch (agent vs workflow) based on planner
+│   ├── planner/             # LLM-based execution mode decision and plan generation
 │   └── session/             # session state and persistence
 ├── integrations/
 │   ├── domain/              # domain client and schema
 │   ├── llm/                 # provider registry and OpenAI client
 │   └── skills/              # skill repo and invocation integration
 ├── permission/              # permission types, store, service
+├── workflow/
+│   └── executor/            # workflow executor (stub; returns ErrNotImplemented)
 ├── runtime/
 │   └── shell/               # low-level shell runner
 ├── tools/
@@ -96,7 +101,7 @@ ms-cli/
    Presents the terminal interface and forwards user intent into the agent-facing flow.
 
 4. `agent`
-   Owns the core reasoning loop: session state, orchestration, planning, memory, and execution coordination.
+   Owns the core reasoning loop: session state, orchestration (mode dispatch based on planner decision), planning, memory, and execution coordination.
 
 5. `integrations`
    Wraps external systems such as LLM providers, skill repositories, and domain APIs.
@@ -116,18 +121,10 @@ ms-cli/
 ## Package Notes
 
 - `agent/loop` is the main execution boundary for engine behavior.
-- `agent/orchestrator` appears to sit above the lower-level loop and planner packages.
-- `tools/` and `runtime/shell/` overlap conceptually: `tools/` exposes user-facing tool operations, while `runtime/shell/` is a lower-level runner.
+- `agent/orchestrator` dispatches tasks to agent or workflow executors based on the planner's decision. The planner calls the LLM to choose execution mode (`agent` for coding/exploratory tasks, `workflow` for pipeline-style operations).
+- `workflow/executor/` is currently a stub that returns `ErrWorkflowNotImplemented`, causing the orchestrator to fall back to agent mode. It will be replaced with a real workflow engine when needed.
+- `tools/` and `runtime/shell/` have distinct roles: `tools/` exposes LLM-callable tool definitions (stateless), while `runtime/shell/` is a stateful command runner.
 - `internal/project/` is separate from the agent runtime and is used for roadmap and weekly update features.
 - `test/mocks/llm.go` provides fake LLM behavior for tests.
 
-## Current Reality vs Older Docs
-
-Some repo docs still describe older or planned package names such as `app/`, `executor/`, `workflow/`, or a broader `runtime/` tree. In the current codebase:
-
-- `cmd/ms-cli/` and `internal/app/` replace the older `app/` layout.
-- `tools/` contains the current filesystem and shell tool implementations.
-- `runtime/` currently contains only `runtime/shell/`.
-- There is no top-level `workflow/` package in this checkout.
-
-Use this file as the source of truth for the repository structure until the other docs are updated.
+Use this file as the source of truth for the repository structure.

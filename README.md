@@ -115,8 +115,8 @@ ms-cli/
 │   ├── context/                # budget, compaction, context manager
 │   ├── loop/                   # engine interfaces and flow
 │   ├── memory/                 # policy, store, retrieve
-│   ├── orchestrator/           # mode orchestration
-│   ├── planner/                # plan parsing and validation
+│   ├── orchestrator/           # mode dispatch (agent vs workflow) based on planner
+│   ├── planner/                # LLM-based execution mode decision and plan generation
 │   └── session/                # session persistence
 ├── integrations/
 │   ├── domain/                 # external domain client + schema
@@ -124,6 +124,8 @@ ms-cli/
 │   └── skills/                 # skill invocation + repo
 ├── internal/project/           # roadmap and weekly helpers
 ├── permission/                 # permission engine
+├── workflow/
+│   └── executor/               # workflow executor (stub for now)
 ├── runtime/shell/              # low-level shell runner
 ├── tools/
 │   ├── fs/                     # filesystem operations

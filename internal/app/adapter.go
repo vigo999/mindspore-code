@@ -7,7 +7,7 @@ import (
 	"github.com/vigo999/ms-cli/agent/orchestrator"
 )
 
-// engineAdapter adapts loop.Engine to the orchestrator.Engine interface.
+// engineAdapter adapts loop.Engine to the orchestrator.AgentExecutor interface.
 // This is the bridge between orchestrator-owned types and loop-owned types.
 type engineAdapter struct {
 	engine *loop.Engine
@@ -17,19 +17,18 @@ func newEngineAdapter(engine *loop.Engine) *engineAdapter {
 	return &engineAdapter{engine: engine}
 }
 
-// Run converts orchestrator.RunRequest → loop.Task, calls the engine,
+// Execute converts orchestrator.RunRequest → loop.Task, calls the engine,
 // and converts []loop.Event → []orchestrator.RunEvent.
-func (a *engineAdapter) Run(ctx context.Context, req orchestrator.RunRequest) ([]orchestrator.RunEvent, error) {
+func (a *engineAdapter) Execute(ctx context.Context, req orchestrator.RunRequest) ([]orchestrator.RunEvent, error) {
 	task := loop.Task{
 		ID:          req.ID,
 		Description: req.Description,
 	}
 
 	events, err := a.engine.RunWithContext(ctx, task)
-	if err != nil {
-		return nil, err
-	}
 
+	// Always convert partial events, even on error.
+	// The engine may have produced tool output before failing.
 	result := make([]orchestrator.RunEvent, 0, len(events))
 	for _, ev := range events {
 		result = append(result, orchestrator.RunEvent{
@@ -44,5 +43,5 @@ func (a *engineAdapter) Run(ctx context.Context, req orchestrator.RunRequest) ([
 		})
 	}
 
-	return result, nil
+	return result, err
 }

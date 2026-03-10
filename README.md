@@ -1,6 +1,6 @@
 # ms-cli
 
-MindSpore CLI — an AI infrastructure agent with a terminal UI.
+AI infrastructure agent
 
 ## Prerequisites
 

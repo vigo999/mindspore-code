@@ -1584,7 +1584,13 @@ func (a App) renderTrainLayout(topBar string) string {
 
 	// Maximized panel — full screen.
 	if panel, ok := a.trainView.MaximizedPanel(); ok {
-		body := panels.RenderTrainWorkspacePanel(panel, a.trainView, w, a.trainBodyHeight())
+		var body string
+		if panel == model.TrainPanelAgent {
+			// Agent panel uses the viewport content for display.
+			body = panels.RenderAgentBox(a.viewport.View(), w, a.trainBodyHeight(), true, a.viewport.TotalLines(), a.viewport.YOffset())
+		} else {
+			body = panels.RenderTrainWorkspacePanel(panel, a.trainView, w, a.trainBodyHeight())
+		}
 		input := "  " + a.input.View()
 		hintBar := panels.RenderTrainHintBar(w, a.trainFocus, true)
 		return trimViewHeight(lipgloss.JoinVertical(lipgloss.Left,

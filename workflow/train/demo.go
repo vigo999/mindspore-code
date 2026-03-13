@@ -186,7 +186,7 @@ func (d *DemoBackend) runTraining(ctx context.Context, model, method string, sin
 	if !e(Event{Kind: EventLogLine, Message: fmt.Sprintf("[%s] Training complete. Saving model...", runID), DelayMs: 600}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventTrainCompleted, Message: "Training completed. Final loss: 0.831", DelayMs: 300}) {
+	if !e(Event{Kind: EventTrainCompleted, Message: "training completed. Final loss: 0.831", DelayMs: 300}) {
 		return ctx.Err()
 	}
 
@@ -201,7 +201,7 @@ func (d *DemoBackend) runTraining(ctx context.Context, model, method string, sin
 func RunSingleLaneEval(ctx context.Context, model, method string, driftFixed, perfFixed, trickApplied bool, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventEvalStarted, Message: "Evaluating model on ceval-valid benchmark...", DelayMs: 800}) {
+	if !e(Event{Kind: EventEvalStarted, Message: "evaluating model on ceval-valid benchmark...", DelayMs: 800}) {
 		return ctx.Err()
 	}
 
@@ -237,7 +237,7 @@ func RunSingleLaneEval(ctx context.Context, model, method string, driftFixed, pe
 		}
 		if !e(Event{
 			Kind:         EventEvalCompleted,
-			Message:      "Evaluation complete. Accuracy within tolerance.",
+			Message:      "evaluation complete. Accuracy within tolerance.",
 			BaselineAcc:  72.1,
 			CandidateAcc: candidateAcc,
 			Drift:        driftPts,
@@ -265,6 +265,7 @@ func RunSingleLaneEval(ctx context.Context, model, method string, driftFixed, pe
 		}
 		if !e(Event{
 			Kind:         EventVerificationPassed,
+			ActionSource: "observer",
 			Message:      verifyMsg,
 			BaselineAcc:  72.1,
 			CandidateAcc: candidateAcc,
@@ -286,7 +287,7 @@ func RunSingleLaneEval(ctx context.Context, model, method string, driftFixed, pe
 
 	if !e(Event{
 		Kind:         EventEvalCompleted,
-		Message:      "Evaluation complete. Significant accuracy drift detected.",
+		Message:      "evaluation complete. Significant accuracy drift detected.",
 		BaselineAcc:  72.1,
 		CandidateAcc: 55.3,
 		Drift:        -16.8,
@@ -297,7 +298,7 @@ func RunSingleLaneEval(ctx context.Context, model, method string, driftFixed, pe
 
 	if !e(Event{
 		Kind:         EventDriftDetected,
-		Message:      "Accuracy regressed by 16.8 pts (72.1% → 55.3%) on ceval-valid.",
+		Message:      "accuracy regressed by 16.8 pts (72.1% → 55.3%) on ceval-valid.",
 		BaselineAcc:  72.1,
 		CandidateAcc: 55.3,
 		Drift:        -16.8,
@@ -316,11 +317,11 @@ func RunSingleLaneEval(ctx context.Context, model, method string, driftFixed, pe
 func AnalyzeSingleLaneDrift(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventAnalysisStarted, Message: "Analyzing accuracy drift...", DelayMs: 500}) {
+	if !e(Event{Kind: EventAnalysisStarted, ActionSource: "acc-agent", Message: "analyzing accuracy drift...", DelayMs: 500}) {
 		return ctx.Err()
 	}
 
-	if !e(Event{Kind: EventMessage, Message: "acc-agent: cause → fp16 dtype drift for softmax accumulation", DelayMs: 800}) {
+	if !e(Event{Kind: EventMessage, ActionSource: "acc-agent", Message: "cause → fp16 dtype drift for softmax accumulation", DelayMs: 800}) {
 		return ctx.Err()
 	}
 
@@ -332,7 +333,7 @@ func AnalyzeSingleLaneDrift(ctx context.Context, model, method string, sink func
 		ActionKind:   "apply_patch",
 		ActionLabel:  "apply fix",
 		ActionSource: "acc-agent",
-		Message:      "Suggested action: patch softmax dtype to bf16.",
+		Message:      "suggested action: patch softmax dtype to bf16.",
 		DelayMs:      500,
 	}) {
 		return ctx.Err()
@@ -358,7 +359,7 @@ func AnalyzeSingleLaneDrift(ctx context.Context, model, method string, sink func
 		ActionID:    "fix-softmax-dtype",
 		ActionKind:  "apply_patch",
 		ActionLabel: "apply fix",
-		Message:     "Analysis complete. Ready to apply fix.",
+		Message:     "analysis complete. Ready to apply fix.",
 		DelayMs:     400,
 	}) {
 		return ctx.Err()
@@ -372,22 +373,24 @@ func ApplySingleLaneDriftFix(ctx context.Context, model, method string, sink fun
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
 	if !e(Event{
-		Kind:       EventActionApplied,
-		IssueType:  "accuracy",
-		ActionID:   "fix-softmax-dtype",
-		ActionKind: "apply_patch",
-		Message:    "acc-agent: adding patch to softmax with bf16...",
-		DelayMs:    2000,
+		Kind:         EventActionApplied,
+		IssueType:    "accuracy",
+		ActionID:     "fix-softmax-dtype",
+		ActionKind:   "apply_patch",
+		ActionSource: "acc-agent",
+		Message:      "adding patch to softmax with bf16...",
+		DelayMs:      2000,
 	}) {
 		return ctx.Err()
 	}
 
 	if !e(Event{
-		Kind:       EventFixApplied,
-		IssueType:  "accuracy",
-		FixSummary: "Softmax dtype patched to bf16",
-		Message:    "acc-agent: patch added. please rerun experiment.",
-		DelayMs:    1500,
+		Kind:         EventFixApplied,
+		IssueType:    "accuracy",
+		ActionSource: "acc-agent",
+		FixSummary:   "Softmax dtype patched to bf16",
+		Message:      "patch added. please rerun experiment.",
+		DelayMs:      1500,
 	}) {
 		return ctx.Err()
 	}
@@ -405,20 +408,21 @@ func RunSingleLaneAlgoFeature(ctx context.Context, model, method, feature string
 		feature = "mhc"
 	}
 
-	if !e(Event{Kind: EventMessage, Message: fmt.Sprintf("algo-agent: evaluating %s (multi-head contrastive) for %s %s...", feature, model, method), DelayMs: 800}) {
+	if !e(Event{Kind: EventMessage, ActionSource: "algo-agent", Message: fmt.Sprintf("evaluating %s (multi-head contrastive) for %s %s...", feature, model, method), DelayMs: 800}) {
 		return ctx.Err()
 	}
 
-	if !e(Event{Kind: EventMessage, Message: fmt.Sprintf("algo-agent: %s enabled. inject contrastive loss on attention heads to improve generalization.", feature), DelayMs: 800}) {
+	if !e(Event{Kind: EventMessage, ActionSource: "algo-agent", Message: fmt.Sprintf("%s enabled. inject contrastive loss on attention heads to improve generalization.", feature), DelayMs: 800}) {
 		return ctx.Err()
 	}
 
 	if !e(Event{
-		Kind:       EventFixApplied,
-		IssueType:  "algo-feature",
-		FixSummary: fmt.Sprintf("MHC algo-feature applied to %s %s", model, method),
-		Message:    "algo-agent: config patched. please rerun experiment.",
-		DelayMs:    1000,
+		Kind:         EventFixApplied,
+		IssueType:    "algo-feature",
+		ActionSource: "algo-agent",
+		FixSummary:   fmt.Sprintf("MHC algo-feature applied to %s %s", model, method),
+		Message:      "config patched. please rerun experiment.",
+		DelayMs:      1000,
 	}) {
 		return ctx.Err()
 	}
@@ -432,15 +436,15 @@ func RunSingleLaneAlgoFeature(ctx context.Context, model, method, feature string
 func AnalyzeSingleLanePerf(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventAnalysisStarted, Message: "Analyzing performance...", IssueType: "performance", DelayMs: 500}) {
+	if !e(Event{Kind: EventAnalysisStarted, ActionSource: "perf-agent", Message: "analyzing performance...", IssueType: "performance", DelayMs: 500}) {
 		return ctx.Err()
 	}
 
-	if !e(Event{Kind: EventMessage, Message: "perf-agent: profiling whole models and ops...", DelayMs: 800}) {
+	if !e(Event{Kind: EventMessage, ActionSource: "perf-agent", Message: "profiling whole models and ops...", DelayMs: 800}) {
 		return ctx.Err()
 	}
 
-	if !e(Event{Kind: EventMessage, Message: "perf-agent: root cause found, adam optimizer spent 400ms which is abnormal.", DelayMs: 800}) {
+	if !e(Event{Kind: EventMessage, ActionSource: "perf-agent", Message: "root cause found, adam optimizer spent 400ms which is abnormal.", DelayMs: 800}) {
 		return ctx.Err()
 	}
 
@@ -452,7 +456,7 @@ func AnalyzeSingleLanePerf(ctx context.Context, model, method string, sink func(
 		ActionKind:   "apply_patch",
 		ActionLabel:  "apply fix",
 		ActionSource: "perf-agent",
-		Message:      "perf-agent: suggest to replace with fused_adam kernel which will boost around 10%.",
+		Message:      "suggest to replace with fused_adam kernel which will boost around 10%.",
 		DelayMs:      500,
 	}) {
 		return ctx.Err()
@@ -478,7 +482,7 @@ func AnalyzeSingleLanePerf(ctx context.Context, model, method string, sink func(
 		ActionID:    "fix-fused-adam",
 		ActionKind:  "apply_patch",
 		ActionLabel: "apply fix",
-		Message:     "Analysis complete. Ready to apply fix.",
+		Message:     "analysis complete. Ready to apply fix.",
 		DelayMs:     400,
 	}) {
 		return ctx.Err()
@@ -492,22 +496,24 @@ func ApplySingleLanePerfFix(ctx context.Context, model, method string, sink func
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
 	if !e(Event{
-		Kind:       EventActionApplied,
-		IssueType:  "performance",
-		ActionID:   "fix-fused-adam",
-		ActionKind: "apply_patch",
-		Message:    "op-agent: replacing normal adam with fused kernel...",
-		DelayMs:    2000,
+		Kind:         EventActionApplied,
+		IssueType:    "performance",
+		ActionID:     "fix-fused-adam",
+		ActionKind:   "apply_patch",
+		ActionSource: "op-agent",
+		Message:      "replacing normal adam with fused kernel...",
+		DelayMs:      2000,
 	}) {
 		return ctx.Err()
 	}
 
 	if !e(Event{
-		Kind:       EventFixApplied,
-		IssueType:  "performance",
-		FixSummary: "Replaced adam with fused_adam kernel",
-		Message:    "op-agent: kernel replaced. please rerun experiment.",
-		DelayMs:    1500,
+		Kind:         EventFixApplied,
+		IssueType:    "performance",
+		ActionSource: "op-agent",
+		FixSummary:   "Replaced adam with fused_adam kernel",
+		Message:      "kernel replaced. please rerun experiment.",
+		DelayMs:      1500,
 	}) {
 		return ctx.Err()
 	}
@@ -523,7 +529,7 @@ func ApplySingleLanePerfFix(ctx context.Context, model, method string, sink func
 func RunSetup(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventMessage, Message: fmt.Sprintf("Preparing %s %s compare training. Running preflight checks...", model, method), DelayMs: 400}) {
+	if !e(Event{Kind: EventMessage, ActionSource: "setup-helper", Message: fmt.Sprintf("preparing %s %s compare training. running preflight checks...", model, method), DelayMs: 400}) {
 		return ctx.Err()
 	}
 
@@ -608,7 +614,7 @@ func RunSetup(ctx context.Context, model, method string, sink func(Event)) error
 		return ctx.Err()
 	}
 
-	if !e(Event{Kind: EventReadyToStart, Message: "All preflight checks passed. Ready to launch compare training.", DelayMs: 300}) {
+	if !e(Event{Kind: EventReadyToStart, ActionSource: "observer", Message: "all preflight checks passed. ready to launch compare training.", DelayMs: 300}) {
 		return ctx.Err()
 	}
 
@@ -729,7 +735,7 @@ func RunConcurrentTraining(ctx context.Context, model, method string, sink func(
 func RunNPUAnalysis(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventAnalysisStarted, Message: "Analyzing NPU runtime failure...", DelayMs: 500}) {
+	if !e(Event{Kind: EventAnalysisStarted, Message: "analyzing NPU runtime failure...", DelayMs: 500}) {
 		return ctx.Err()
 	}
 
@@ -748,7 +754,7 @@ func RunNPUAnalysis(ctx context.Context, model, method string, sink func(Event))
 
 	if !e(Event{
 		Kind:         EventActionSuggested,
-		Message:      "Suggested action: switch to SDPA fallback and relaunch.",
+		Message:      "suggested action: switch to SDPA fallback and relaunch.",
 		IssueType:    "runtime",
 		ActionID:     "runtime-fallback",
 		ActionKind:   "change_env",
@@ -770,7 +776,7 @@ func RunNPUAnalysis(ctx context.Context, model, method string, sink func(Event))
 
 	if !e(Event{
 		Kind:        EventAnalysisReady,
-		Message:     "Root cause identified. Runtime fix prepared.",
+		Message:     "root cause identified. Runtime fix prepared.",
 		IssueType:   "runtime",
 		IssueTitle:  "CANN kernel version mismatch (FlashAttentionScore)",
 		IssueDetail: "FlashAttentionScore kernel requires CANN >= 8.0.RC3 but host npu-910b-0 has CANN 8.0.RC2. Standard SDPA path is available as a compatible fallback.",
@@ -806,7 +812,7 @@ func RunNPUFixAndResume(ctx context.Context, model, method string, sink func(Eve
 	if !e(Event{
 		Kind:       EventFixApplied,
 		Lane:       "npu",
-		Message:    "Runtime fix applied. Relaunching NPU training...",
+		Message:    "runtime fix applied. Relaunching NPU training...",
 		FixSummary: "Disable FlashAttention, use standard SDPA path",
 		DiffText:   diffText,
 		DelayMs:    500,
@@ -872,7 +878,7 @@ func RunNPUFixAndResume(ctx context.Context, model, method string, sink func(Eve
 	}
 
 	// ── Evaluation ──
-	if !e(Event{Kind: EventEvalStarted, Message: "Evaluating both models on MMLU benchmark...", DelayMs: 800}) {
+	if !e(Event{Kind: EventEvalStarted, Message: "evaluating both models on MMLU benchmark...", DelayMs: 800}) {
 		return ctx.Err()
 	}
 	if !e(Event{Kind: EventLogLine, Lane: "gpu", Message: "[eval] Running MMLU (14,042 samples) on Torch/NPU model...", DelayMs: 600}) {
@@ -893,7 +899,7 @@ func RunNPUFixAndResume(ctx context.Context, model, method string, sink func(Eve
 
 	if !e(Event{
 		Kind:         EventEvalCompleted,
-		Message:      "Evaluation complete. Significant accuracy drift detected.",
+		Message:      "evaluation complete. Significant accuracy drift detected.",
 		BaselineAcc:  71.4,
 		CandidateAcc: 54.8,
 		Drift:        -16.6,
@@ -923,7 +929,7 @@ func RunNPUFixAndResume(ctx context.Context, model, method string, sink func(Eve
 func RunDriftAnalysis(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventAnalysisStarted, Message: "Analyzing accuracy drift on Ascend eval path...", DelayMs: 500}) {
+	if !e(Event{Kind: EventAnalysisStarted, Message: "analyzing accuracy drift on Ascend eval path...", DelayMs: 500}) {
 		return ctx.Err()
 	}
 
@@ -945,7 +951,7 @@ func RunDriftAnalysis(ctx context.Context, model, method string, sink func(Event
 
 	if !e(Event{
 		Kind:         EventActionSuggested,
-		Message:      "Suggested action: patch mask dtype and softmax precision before rerun.",
+		Message:      "suggested action: patch mask dtype and softmax precision before rerun.",
 		IssueType:    "accuracy",
 		ActionID:     "accuracy-mask-fix",
 		ActionKind:   "apply_patch",
@@ -976,7 +982,7 @@ func RunDriftAnalysis(ctx context.Context, model, method string, sink func(Event
 
 	if !e(Event{
 		Kind:        EventAnalysisReady,
-		Message:     "Root cause identified. Accuracy fix prepared.",
+		Message:     "root cause identified. Accuracy fix prepared.",
 		IssueType:   "accuracy",
 		IssueTitle:  "Attention mask dtype mismatch on Ascend eval path",
 		IssueDetail: "Attention mask is cast to float16 before SDPA op on Ascend. Torch/NPU path uses bool mask. The float16 cast causes precision loss in softmax.",
@@ -1025,7 +1031,7 @@ func RunDriftFixAndRerun(ctx context.Context, model, method string, sink func(Ev
 	if !e(Event{
 		Kind:       EventFixApplied,
 		Lane:       "npu",
-		Message:    "Accuracy fix applied. Starting NPU rerun...",
+		Message:    "accuracy fix applied. Starting NPU rerun...",
 		FixSummary: "Cast mask to bool, fp32 softmax, align GPU semantics",
 		DiffText:   diffText,
 		DelayMs:    500,
@@ -1111,7 +1117,8 @@ func RunDriftFixAndRerun(ctx context.Context, model, method string, sink func(Ev
 
 	if !e(Event{
 		Kind:         EventVerificationPassed,
-		Message:      "Fix verified. NPU accuracy recovered from 54.8% to 69.8%. Drift: -16.6 pts -> -1.6 pts.",
+		ActionSource: "observer",
+		Message:      "fix verified. NPU accuracy recovered from 54.8% to 69.8%. Drift: -16.6 pts -> -1.6 pts.",
 		BaselineAcc:  71.4,
 		CandidateAcc: 69.8,
 		Drift:        -1.6,
@@ -1127,7 +1134,7 @@ func RunDriftFixAndRerun(ctx context.Context, model, method string, sink func(Ev
 func RunPerformanceAnalysis(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventAnalysisStarted, Message: "Analyzing throughput bottleneck on target...", IssueType: "performance", DelayMs: 400}) {
+	if !e(Event{Kind: EventAnalysisStarted, Message: "analyzing throughput bottleneck on target...", IssueType: "performance", DelayMs: 400}) {
 		return ctx.Err()
 	}
 	if !e(Event{Kind: EventLogLine, Message: "[analysis] Observed dataloader workers underutilized on remote host", DelayMs: 500}) {
@@ -1138,7 +1145,7 @@ func RunPerformanceAnalysis(ctx context.Context, model, method string, sink func
 	}
 	if !e(Event{
 		Kind:         EventActionSuggested,
-		Message:      "Suggested action: increase dataloader workers and disable checkpointing for this target.",
+		Message:      "suggested action: increase dataloader workers and disable checkpointing for this target.",
 		IssueType:    "performance",
 		ActionID:     "perf-workers-tuning",
 		ActionKind:   "change_config",
@@ -1151,7 +1158,7 @@ func RunPerformanceAnalysis(ctx context.Context, model, method string, sink func
 	}
 	if !e(Event{
 		Kind:         EventAnalysisReady,
-		Message:      "Performance bottleneck identified. Throughput tuning is ready.",
+		Message:      "performance bottleneck identified. Throughput tuning is ready.",
 		IssueType:    "performance",
 		IssueTitle:   "Input pipeline bottleneck",
 		IssueDetail:  "The target is spending excessive time waiting on data loading and recomputation.",
@@ -1171,10 +1178,10 @@ func RunPerformanceAnalysis(ctx context.Context, model, method string, sink func
 func RunPerformanceFixAndRerun(ctx context.Context, model, method string, sink func(Event)) error {
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
-	if !e(Event{Kind: EventFixApplied, Message: "Performance tuning applied. Restarting run...", IssueType: "performance", FixSummary: "Increase dataloader workers, disable checkpointing", ActionID: "perf-workers-tuning", ActionKind: "change_config", ActionLabel: "Apply throughput tuning", ActionSource: "perf-agent", DelayMs: 300}) {
+	if !e(Event{Kind: EventFixApplied, Message: "performance tuning applied. Restarting run...", IssueType: "performance", FixSummary: "Increase dataloader workers, disable checkpointing", ActionID: "perf-workers-tuning", ActionKind: "change_config", ActionLabel: "Apply throughput tuning", ActionSource: "perf-agent", DelayMs: 300}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventRerunStarted, Message: "Rerunning after performance tuning...", RunLabel: "perf-rerun", DelayMs: 300}) {
+	if !e(Event{Kind: EventRerunStarted, Message: "rerunning after performance tuning...", RunLabel: "perf-rerun", DelayMs: 300}) {
 		return ctx.Err()
 	}
 	if !e(Event{Kind: EventMetricUpdate, Step: 40, TotalSteps: 300, Loss: 2.102, LR: 1.9e-4, Throughput: 690, RunLabel: "perf-rerun", DelayMs: 200}) {
@@ -1183,10 +1190,10 @@ func RunPerformanceFixAndRerun(ctx context.Context, model, method string, sink f
 	if !e(Event{Kind: EventMetricUpdate, Step: 120, TotalSteps: 300, Loss: 1.312, LR: 1.1e-4, Throughput: 712, RunLabel: "perf-rerun", DelayMs: 200}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventTrainCompleted, Message: "Performance rerun completed. Throughput improved to ~710 tok/s.", RunLabel: "perf-rerun", DelayMs: 300}) {
+	if !e(Event{Kind: EventTrainCompleted, Message: "performance rerun completed. Throughput improved to ~710 tok/s.", RunLabel: "perf-rerun", DelayMs: 300}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventVerificationPassed, Message: "Performance verified. Accuracy remains stable while throughput improved.", IssueType: "performance", DelayMs: 300}) {
+	if !e(Event{Kind: EventVerificationPassed, ActionSource: "observer", Message: "performance verified. Accuracy remains stable while throughput improved.", IssueType: "performance", DelayMs: 300}) {
 		return ctx.Err()
 	}
 	return nil
@@ -1198,16 +1205,16 @@ func RunTrickIteration(ctx context.Context, model, method, trick string, sink fu
 	if trick == "" {
 		trick = "mhc"
 	}
-	if !e(Event{Kind: EventFixApplied, Message: fmt.Sprintf("Applying new trick: %s", trick), ActionID: "trick-" + trick, ActionKind: "apply_patch", ActionLabel: "Apply trick " + strings.ToUpper(trick), ActionSource: "trick-flow", FixSummary: "Patch train config with new trick", DelayMs: 300}) {
+	if !e(Event{Kind: EventFixApplied, Message: fmt.Sprintf("applying new trick: %s", trick), ActionID: "trick-" + trick, ActionKind: "apply_patch", ActionLabel: "Apply trick " + strings.ToUpper(trick), ActionSource: "trick-flow", FixSummary: "Patch train config with new trick", DelayMs: 300}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventRerunStarted, Message: fmt.Sprintf("Rerunning with trick %s enabled...", trick), RunLabel: "trick-rerun", DelayMs: 300}) {
+	if !e(Event{Kind: EventRerunStarted, Message: fmt.Sprintf("rerunning with trick %s enabled...", trick), RunLabel: "trick-rerun", DelayMs: 300}) {
 		return ctx.Err()
 	}
 	if !e(Event{Kind: EventLogLine, Message: fmt.Sprintf("[trick] %s enabled in train config", trick), DelayMs: 300}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventDriftDetected, Message: fmt.Sprintf("After enabling %s, validation accuracy regressed. Accuracy analysis recommended.", trick), IssueType: "accuracy", DelayMs: 300}) {
+	if !e(Event{Kind: EventDriftDetected, Message: fmt.Sprintf("after enabling %s, validation accuracy regressed. Accuracy analysis recommended.", trick), IssueType: "accuracy", DelayMs: 300}) {
 		return ctx.Err()
 	}
 	return nil

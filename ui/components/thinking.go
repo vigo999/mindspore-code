@@ -78,6 +78,11 @@ func (t ThinkingSpinner) View() string {
 		thinkingStyle.Render(t.text))
 }
 
+// FrameView renders only the animated spinner character (no text).
+func (t ThinkingSpinner) FrameView() string {
+	return thinkingSpinnerStyle.Render(thinkingSpinnerFrames[t.frame])
+}
+
 // IsThinking returns true if the spinner is active.
 func (t ThinkingSpinner) IsThinking() bool {
 	return true

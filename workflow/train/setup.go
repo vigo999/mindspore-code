@@ -25,7 +25,7 @@ func RunSetupSequence(ctx context.Context, req itrain.Request, backend Backend, 
 		return runBootstrapSetup(ctx, req, nil, sink)
 	}
 
-	if !e(Event{Kind: EventTrainSetupStarted, RunID: runID, Message: fmt.Sprintf("Preparing %s %s training. Running preflight checks...", req.Model, req.Method), DelayMs: 500}) {
+	if !e(Event{Kind: EventTrainSetupStarted, RunID: runID, ActionSource: "setup-helper", Message: fmt.Sprintf("preparing %s %s training. running preflight checks...", req.Model, req.Method), DelayMs: 500}) {
 		return ctx.Err()
 	}
 
@@ -94,7 +94,7 @@ func RunSetupSequence(ctx context.Context, req itrain.Request, backend Backend, 
 				RunID:    runID,
 				Check:    "ssh",
 				Scope:    "target",
-				Message:  "Recovered by setup helper after SSH retry",
+				Message:  "recovered by setup helper after SSH retry",
 				Critical: true,
 				DelayMs:  1200,
 			}) {
@@ -146,7 +146,7 @@ func RunSetupSequence(ctx context.Context, req itrain.Request, backend Backend, 
 	}
 
 	if allCriticalPassed {
-		if !e(Event{Kind: EventReadyToStart, RunID: runID, Message: "All preflight checks passed. Ready to start training.", DelayMs: 400}) {
+		if !e(Event{Kind: EventReadyToStart, RunID: runID, ActionSource: "observer", Message: "all preflight checks passed. ready to start training.", DelayMs: 400}) {
 			return ctx.Err()
 		}
 	}
@@ -171,7 +171,7 @@ func autoResolveSSHFailure(ctx context.Context, sink func(Event), runID, host, a
 	if !e(Event{
 		Kind:         EventActionSuggested,
 		RunID:        runID,
-		Message:      "Setup helper is repairing SSH connectivity automatically.",
+		Message:      "setup helper is repairing SSH connectivity automatically.",
 		IssueType:    "bootstrap",
 		ActionID:     "repair-ssh-connectivity",
 		ActionKind:   "change_env",
@@ -224,7 +224,7 @@ func autoResolveLibsMissing(ctx context.Context, sink func(Event), runID, summar
 	if !e(Event{
 		Kind:         EventActionSuggested,
 		RunID:        runID,
-		Message:      "Setup helper is installing missing library: transformers v5.0.1",
+		Message:      "setup helper is installing missing library: transformers v5.0.1",
 		IssueType:    "bootstrap",
 		ActionID:     "install-missing-libs",
 		ActionKind:   "change_env",
@@ -323,10 +323,11 @@ func runBootstrapSetup(ctx context.Context, req itrain.Request, applied map[stri
 	}
 
 	if !e(Event{
-		Kind:    EventTrainSetupStarted,
-		RunID:   runID,
-		Message: "Bootstrapping training workspace from scratch. Inspecting prerequisites...",
-		DelayMs: 500,
+		Kind:         EventTrainSetupStarted,
+		RunID:        runID,
+		ActionSource: "setup-helper",
+		Message:      "bootstrapping training workspace from scratch. inspecting prerequisites...",
+		DelayMs:      500,
 	}) {
 		return ctx.Err()
 	}
@@ -339,7 +340,7 @@ func runBootstrapSetup(ctx context.Context, req itrain.Request, applied map[stri
 			return ctx.Err()
 		}
 		if applied != nil && applied[check.actionID] {
-			if !e(Event{Kind: EventCheckPassed, RunID: runID, Check: check.name, Scope: "local", Message: "Resolved by setup helper", Critical: true, DelayMs: 1200}) {
+			if !e(Event{Kind: EventCheckPassed, RunID: runID, Check: check.name, Scope: "local", Message: "resolved by setup helper", Critical: true, DelayMs: 1200}) {
 				return ctx.Err()
 			}
 			continue
@@ -382,7 +383,7 @@ func runBootstrapSetup(ctx context.Context, req itrain.Request, applied map[stri
 		if !e(Event{
 			Kind:         EventActionSuggested,
 			RunID:        runID,
-			Message:      "Bootstrap helper suggested the next action.",
+			Message:      "bootstrap helper suggested the next action.",
 			IssueType:    "bootstrap",
 			ActionID:     unresolved.actionID,
 			ActionKind:   unresolved.actionKind,
@@ -397,7 +398,7 @@ func runBootstrapSetup(ctx context.Context, req itrain.Request, applied map[stri
 	if !e(Event{
 		Kind:         EventPlanReady,
 		RunID:        runID,
-		Message:      "Bootstrap complete. Training plan is ready.",
+		Message:      "bootstrap complete. Training plan is ready.",
 		PlanID:       "bootstrap-plan-" + runID,
 		RepoPath:     "workspaces/qwen3-lora",
 		RepoSource:   "llama-factory",
@@ -410,7 +411,7 @@ func runBootstrapSetup(ctx context.Context, req itrain.Request, applied map[stri
 	}) {
 		return ctx.Err()
 	}
-	if !e(Event{Kind: EventReadyToStart, RunID: runID, Message: "Bootstrap finished. Ready to start training.", DelayMs: 200}) {
+	if !e(Event{Kind: EventReadyToStart, RunID: runID, Message: "bootstrap finished. Ready to start training.", DelayMs: 200}) {
 		return ctx.Err()
 	}
 

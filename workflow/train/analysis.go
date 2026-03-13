@@ -10,25 +10,28 @@ func AnalyzeFailure(ctx context.Context, model, method string, sink func(Event))
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
 	if !e(Event{
-		Kind:    EventAnalysisStarted,
-		Message: "Analyzing training failure...",
-		DelayMs: 500,
+		Kind:         EventAnalysisStarted,
+		ActionSource: "op-agent",
+		Message:      "analyzing training failure...",
+		DelayMs:      500,
 	}) {
 		return ctx.Err()
 	}
 
 	if !e(Event{
-		Kind:    EventMessage,
-		Message: "Scanning crash logs and operator registry...",
-		DelayMs: 800,
+		Kind:         EventMessage,
+		ActionSource: "op-agent",
+		Message:      "scanning crash logs and operator registry...",
+		DelayMs:      800,
 	}) {
 		return ctx.Err()
 	}
 
 	if !e(Event{
-		Kind:    EventMessage,
-		Message: "Checking torch operator compatibility for Ascend 910B...",
-		DelayMs: 600,
+		Kind:         EventMessage,
+		ActionSource: "op-agent",
+		Message:      "checking torch operator compatibility for Ascend 910B...",
+		DelayMs:      600,
 	}) {
 		return ctx.Err()
 	}
@@ -41,7 +44,7 @@ func AnalyzeFailure(ctx context.Context, model, method string, sink func(Event))
 		ActionKind:   "apply_patch",
 		ActionLabel:  "apply fix",
 		ActionSource: "op-agent",
-		Message:      "Root cause: DSA operator (torch.ops.npu.dsa) is not implemented in torch 2.7 for Ascend backend. Need to implement DSA op and compile custom torch-npu package.",
+		Message:      "root cause: DSA operator (torch.ops.npu.dsa) is not implemented in torch 2.7 for Ascend backend. Need to implement DSA op and compile custom torch-npu package.",
 		DelayMs:      500,
 	}) {
 		return ctx.Err()
@@ -99,7 +102,7 @@ func AnalyzeFailure(ctx context.Context, model, method string, sink func(Event))
 		ActionKind:   "apply_patch",
 		ActionLabel:  "apply fix",
 		ActionSource: "op-agent",
-		Message:      "Analysis complete. Ready to apply fix.",
+		Message:      "analysis complete. Ready to apply fix.",
 		DelayMs:      400,
 	}) {
 		return ctx.Err()
@@ -113,22 +116,24 @@ func ApplyFailureFix(ctx context.Context, model, method string, sink func(Event)
 	e := func(ev Event) bool { return emit(ctx, sink, withDefaultRunID(ev)) }
 
 	if !e(Event{
-		Kind:       EventActionApplied,
-		IssueType:  "failure",
-		ActionID:   "fix-dsa-op",
-		ActionKind: "apply_patch",
-		Message:    "op-agent: implementing DSA operator and compiling custom torch-npu...",
-		DelayMs:    2000,
+		Kind:         EventActionApplied,
+		IssueType:    "failure",
+		ActionID:     "fix-dsa-op",
+		ActionKind:   "apply_patch",
+		ActionSource: "op-agent",
+		Message:      "implementing DSA operator and compiling custom torch-npu...",
+		DelayMs:      2000,
 	}) {
 		return ctx.Err()
 	}
 
 	if !e(Event{
-		Kind:       EventFixApplied,
-		IssueType:  "failure",
-		FixSummary: "DSA operator implemented and torch-npu recompiled",
-		Message:    "op-agent: DSA operator finished. New torch wheel is ready. Please rerun experiment.",
-		DelayMs:    1500,
+		Kind:         EventFixApplied,
+		IssueType:    "failure",
+		ActionSource: "op-agent",
+		FixSummary:   "DSA operator implemented and torch-npu recompiled",
+		Message:      "DSA operator finished. new torch wheel is ready. please rerun experiment.",
+		DelayMs:      1500,
 	}) {
 		return ctx.Err()
 	}

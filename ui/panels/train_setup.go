@@ -176,34 +176,33 @@ func RenderTrainStatus(tv model.TrainWorkspaceState, width, height int) string {
 	}
 
 	var sections []string
-	title := run.Label
-	if title == "" {
-		title = run.ID
-	}
-	sections = append(sections, " "+trainTitleStyle.Render(title)+"  "+phaseBadge(run.Phase))
-	meta := []string{}
-	if run.Framework != "" {
-		meta = append(meta, run.Framework)
-	}
-	if run.Device != "" {
-		meta = append(meta, run.Device)
-	}
-	if run.TargetName != "" {
-		meta = append(meta, run.TargetName)
-	}
-	if len(meta) > 0 {
-		sections = append(sections, " "+checkDetailStyle.Render(strings.Join(meta, " · ")))
-	}
-	sections = append(sections, "")
 
-	if run.StatusMessage != "" && run.Phase != model.TrainPhaseSetup && run.Phase != model.TrainPhaseReady {
-		sections = append(sections, " "+checkDetailStyle.Render(run.StatusMessage))
-	}
-	if run.ErrorMessage != "" {
-		sections = append(sections, " "+checkFailedStyle.Render(run.ErrorMessage))
-	}
-	if run.StatusMessage != "" || run.ErrorMessage != "" {
+	// Only show run title/meta/status during setup and ready phases.
+	if run.Phase == model.TrainPhaseSetup || run.Phase == model.TrainPhaseReady || run.Phase == "" {
+		title := run.Label
+		if title == "" {
+			title = run.ID
+		}
+		sections = append(sections, " "+trainTitleStyle.Render(title)+"  "+phaseBadge(run.Phase))
+		meta := []string{}
+		if run.Framework != "" {
+			meta = append(meta, run.Framework)
+		}
+		if run.Device != "" {
+			meta = append(meta, run.Device)
+		}
+		if run.TargetName != "" {
+			meta = append(meta, run.TargetName)
+		}
+		if len(meta) > 0 {
+			sections = append(sections, " "+checkDetailStyle.Render(strings.Join(meta, " · ")))
+		}
 		sections = append(sections, "")
+
+		if run.ErrorMessage != "" {
+			sections = append(sections, " "+checkFailedStyle.Render(run.ErrorMessage))
+			sections = append(sections, "")
+		}
 	}
 
 	if len(run.Metrics) > 0 {
@@ -266,17 +265,17 @@ func renderMetricsSummary(metrics []model.MetricItem) string {
 }
 
 func renderCheck(c model.ChecklistItem, width int) string {
-	icon := "○"
+	icon := "⟳"
 	iconStyle := checkPendingStyle
 	switch c.Status {
 	case model.TrainCheckPass:
 		icon = "✓"
 		iconStyle = checkPassedStyle
 	case model.TrainCheckFail:
-		icon = "[!]"
+		icon = "✗"
 		iconStyle = checkFailedStyle
 	case model.TrainCheckRunning:
-		icon = "●"
+		icon = "⟳"
 		iconStyle = checkRunningStyle
 	}
 	name := displayCheckName(c.Name)
@@ -289,7 +288,7 @@ func renderCheck(c model.ChecklistItem, width int) string {
 			detail = "failed"
 		}
 	}
-	line := "   " + iconStyle.Render(icon) + " " + metricLabelStyle.Render(name+": ") + checkDetailStyle.Render(truncateRunText(detail, width-len(name)-10))
+	line := "   " + iconStyle.Render(icon) + " " + metricLabelStyle.Render(fmt.Sprintf("%-14s", name)) + checkDetailStyle.Render(truncateRunText(detail, width-20))
 	return line
 }
 

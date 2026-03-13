@@ -492,29 +492,33 @@ func renderStatusPanel(tv model.TrainWorkspaceState, width, _ int) string {
 	if run == nil {
 		return checkPendingStyle.Render("No active run")
 	}
-	lines := []string{
-		checkDetailStyle.Render(fmt.Sprintf("run: %s", run.Label)),
-		checkDetailStyle.Render(fmt.Sprintf("phase: %s", run.Phase)),
-	}
-	meta := []string{}
-	if run.Framework != "" {
-		meta = append(meta, run.Framework)
-	}
-	if run.Device != "" {
-		meta = append(meta, run.Device)
-	}
-	if run.TargetName != "" {
-		meta = append(meta, run.TargetName)
-	}
-	if len(meta) > 0 {
-		lines = append(lines, checkDetailStyle.Render(strings.Join(meta, " · ")))
-	}
-	if run.StatusMessage != "" {
-		lines = append(lines, "")
-		lines = append(lines, checkDetailStyle.Render(truncateRunText(run.StatusMessage, width-2)))
-	}
-	if run.ErrorMessage != "" {
-		lines = append(lines, checkFailedStyle.Render(truncateRunText(run.ErrorMessage, width-2)))
+	var lines []string
+	// Only show run info header during setup/ready phases.
+	if run.Phase == model.TrainPhaseSetup || run.Phase == model.TrainPhaseReady || run.Phase == "" {
+		lines = append(lines,
+			checkDetailStyle.Render(fmt.Sprintf("run: %s", run.Label)),
+			checkDetailStyle.Render(fmt.Sprintf("phase: %s", run.Phase)),
+		)
+		meta := []string{}
+		if run.Framework != "" {
+			meta = append(meta, run.Framework)
+		}
+		if run.Device != "" {
+			meta = append(meta, run.Device)
+		}
+		if run.TargetName != "" {
+			meta = append(meta, run.TargetName)
+		}
+		if len(meta) > 0 {
+			lines = append(lines, checkDetailStyle.Render(strings.Join(meta, " · ")))
+		}
+		if run.StatusMessage != "" {
+			lines = append(lines, "")
+			lines = append(lines, checkDetailStyle.Render(truncateRunText(run.StatusMessage, width-2)))
+		}
+		if run.ErrorMessage != "" {
+			lines = append(lines, checkFailedStyle.Render(truncateRunText(run.ErrorMessage, width-2)))
+		}
 	}
 
 	localChecks := tv.ChecksByGroup(run.ID, model.TrainCheckGroupLocal)
@@ -588,7 +592,7 @@ func renderLogsPanel(tv model.TrainWorkspaceState, width, height int) string {
 // RenderAgentBox renders the agent viewport inside a boxed panel.
 // Message colors are set at the source (red for errors, green for success).
 // totalLines/offset enable the scrollbar when content overflows.
-func RenderAgentBox(content string, width, height int, focused bool, totalLines, offset int) string {
+func RenderAgentBox(content string, width, height int, focused bool, totalLines, offset int, spinnerView string) string {
 	borderColor := lipgloss.Color("238")
 	titleColor := lipgloss.Color("252")
 	if focused {
@@ -596,7 +600,11 @@ func RenderAgentBox(content string, width, height int, focused bool, totalLines,
 		borderColor = accent
 		titleColor = accent
 	}
-	title := panelTitleStyle.Foreground(titleColor).Render("agent")
+	titleText := "agent"
+	if spinnerView != "" {
+		titleText = "agent " + spinnerView
+	}
+	title := panelTitleStyle.Foreground(titleColor).Render(titleText)
 	innerWidth := maxInt(1, width-4)
 	innerHeight := maxInt(1, height-2)
 	bodyHeight := maxInt(1, innerHeight-1)

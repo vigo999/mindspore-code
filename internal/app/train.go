@@ -187,7 +187,7 @@ func (a *Application) runTrainSetup(ctx context.Context, runID uint64, req train
 	if err != nil && ctx.Err() == nil {
 		a.EventCh <- model.Event{
 			Type:    model.TrainError,
-			Message: fmt.Sprintf("Setup failed: %v", err),
+			Message: fmt.Sprintf("setup failed: %v", err),
 		}
 	}
 }
@@ -203,7 +203,7 @@ func (a *Application) runTrainRun(ctx context.Context, runID uint64, req train.R
 	if err != nil && ctx.Err() == nil {
 		a.EventCh <- model.Event{
 			Type:    model.TrainError,
-			Message: fmt.Sprintf("Training failed: %v", err),
+			Message: fmt.Sprintf("training failed: %v", err),
 		}
 	}
 }
@@ -217,7 +217,7 @@ func (a *Application) runLegacySetup(ctx context.Context, runID uint64, req trai
 	if err != nil && ctx.Err() == nil {
 		a.EventCh <- model.Event{
 			Type:    model.TrainError,
-			Message: fmt.Sprintf("Setup failed: %v", err),
+			Message: fmt.Sprintf("setup failed: %v", err),
 		}
 	}
 }
@@ -233,7 +233,7 @@ func (a *Application) runConcurrentTraining(ctx context.Context, runID uint64, r
 	if err != nil && ctx.Err() == nil {
 		a.EventCh <- model.Event{
 			Type:    model.TrainError,
-			Message: fmt.Sprintf("Training failed: %v", err),
+			Message: fmt.Sprintf("training failed: %v", err),
 		}
 	}
 }
@@ -269,7 +269,7 @@ func (a *Application) runAnalysis(ctx context.Context, runID uint64, req train.R
 	if err != nil && ctx.Err() == nil {
 		a.EventCh <- model.Event{
 			Type:    model.TrainError,
-			Message: fmt.Sprintf("Analysis failed: %v", err),
+			Message: fmt.Sprintf("analysis failed: %v", err),
 		}
 	}
 }
@@ -305,7 +305,7 @@ func (a *Application) runApplyFix(ctx context.Context, runID uint64, req train.R
 	if err != nil && ctx.Err() == nil {
 		a.EventCh <- model.Event{
 			Type:    model.TrainError,
-			Message: fmt.Sprintf("Fix failed: %v", err),
+			Message: fmt.Sprintf("fix failed: %v", err),
 		}
 		return
 	}
@@ -427,7 +427,7 @@ func (a *Application) handleTrainInput(input string) {
 	default:
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
-			Message: fmt.Sprintf("Train mode commands: start, stop, analyze, apply fix, retry, view diff, exit (got: %s)", input),
+			Message: fmt.Sprintf("train mode commands: start, stop, analyze, apply fix, retry, view diff, exit (got: %s)", input),
 		}
 	}
 }
@@ -437,7 +437,7 @@ func (a *Application) rejectCommand(cmd, reason string) {
 	phase := a.getTrainPhase()
 	a.EventCh <- model.Event{
 		Type:    model.AgentReply,
-		Message: fmt.Sprintf("Cannot %s right now: %s. (phase: %s)", cmd, reason, phase),
+		Message: fmt.Sprintf("cannot %s right now: %s. (phase: %s)", cmd, reason, phase),
 	}
 }
 
@@ -458,7 +458,7 @@ func (a *Application) stopTraining() {
 	a.stopTrainTask("stopped")
 	a.EventCh <- model.Event{
 		Type:    model.AgentReply,
-		Message: "Training stopped.",
+		Message: "training stopped.",
 	}
 }
 
@@ -469,7 +469,7 @@ func (a *Application) viewDiff() {
 	}
 	a.EventCh <- model.Event{
 		Type:    model.AgentReply,
-		Message: "Diff is shown in the Issue section of the left panel.",
+		Message: "diff is shown in the issue section of the left panel.",
 	}
 }
 
@@ -501,7 +501,7 @@ func (a *Application) applyBootstrapAction(actionID string) {
 		if err != nil && ctx.Err() == nil {
 			a.EventCh <- model.Event{
 				Type:    model.TrainError,
-				Message: fmt.Sprintf("Bootstrap apply failed: %v", err),
+				Message: fmt.Sprintf("bootstrap apply failed: %v", err),
 				Train:   &model.TrainEventData{RunID: req.RunID},
 			}
 			return
@@ -517,7 +517,7 @@ func (a *Application) applyBootstrapAction(actionID string) {
 			if err != nil && recheckCtx.Err() == nil {
 				a.EventCh <- model.Event{
 					Type:    model.TrainError,
-					Message: fmt.Sprintf("Bootstrap setup failed: %v", err),
+					Message: fmt.Sprintf("bootstrap setup failed: %v", err),
 					Train:   &model.TrainEventData{RunID: req.RunID},
 				}
 			}
@@ -545,7 +545,7 @@ func (a *Application) addAlgoFeature(feature string) {
 		if err != nil && ctx.Err() == nil {
 			a.EventCh <- model.Event{
 				Type:    model.TrainError,
-				Message: fmt.Sprintf("Algo-feature iteration failed: %v", err),
+				Message: fmt.Sprintf("algo-feature iteration failed: %v", err),
 			}
 			return
 		}
@@ -586,12 +586,18 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: ev.Message,
+			Train: &model.TrainEventData{
+				ActionSource: ev.ActionSource,
+			},
 		}
 
 	case wtrain.EventTrainSetupStarted:
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: ev.Message,
+			Train: &model.TrainEventData{
+				ActionSource: ev.ActionSource,
+			},
 		}
 
 	case wtrain.EventCheckStarted:
@@ -711,7 +717,8 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 			Type:    model.TrainReady,
 			Message: ev.Message,
 			Train: &model.TrainEventData{
-				RunID: ev.RunID,
+				RunID:        ev.RunID,
+				ActionSource: ev.ActionSource,
 			},
 		}
 
@@ -828,9 +835,10 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 	case wtrain.EventDriftDetected:
 		a.setTrainIssueType("accuracy")
 		a.setTrainPhase("drift_detected")
+		// Emit TrainIssueDetected without Message to avoid duplicate chat line —
+		// TrainDriftDetected below will show the message.
 		a.EventCh <- model.Event{
-			Type:    model.TrainIssueDetected,
-			Message: ev.Message,
+			Type: model.TrainIssueDetected,
 			Train: &model.TrainEventData{
 				RunID:       ev.RunID,
 				IssueID:     valueOrString(ev.IssueID, "accuracy-issue"),
@@ -856,7 +864,8 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 			Type:    model.TrainAnalysisStarted,
 			Message: ev.Message,
 			Train: &model.TrainEventData{
-				RunID: ev.RunID,
+				RunID:        ev.RunID,
+				ActionSource: ev.ActionSource,
 			},
 		}
 
@@ -918,10 +927,11 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 			Type:    model.TrainFixApplied,
 			Message: ev.Message,
 			Train: &model.TrainEventData{
-				RunID:      ev.RunID,
-				Lane:       ev.Lane,
-				FixSummary: ev.FixSummary,
-				DiffText:   ev.DiffText,
+				RunID:        ev.RunID,
+				Lane:         ev.Lane,
+				FixSummary:   ev.FixSummary,
+				DiffText:     ev.DiffText,
+				ActionSource: ev.ActionSource,
 			},
 		}
 
@@ -944,6 +954,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 			Message: ev.Message,
 			Train: &model.TrainEventData{
 				RunID:        ev.RunID,
+				ActionSource: ev.ActionSource,
 				BaselineAcc:  ev.BaselineAcc,
 				CandidateAcc: ev.CandidateAcc,
 				Drift:        ev.Drift,

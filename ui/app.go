@@ -30,6 +30,32 @@ var (
 	trainWorkingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
 )
 
+// agentMsg formats an agent message with a status marker and fixed-width source prefix.
+// done=true → "✓ source      : msg", done=false → "⟳ source      : msg".
+// Agent names are right-padded to 12 chars so messages align vertically.
+func agentMsg(source, msg string, done bool) string {
+	marker := "⟳"
+	if done {
+		marker = "✓"
+	}
+	// Strip existing "agent-name: " prefix from msg to avoid duplication.
+	if source != "" && strings.HasPrefix(msg, source+": ") {
+		msg = strings.TrimPrefix(msg, source+": ")
+	}
+	if source != "" {
+		return fmt.Sprintf("%s %-12s: %s", marker, source, msg)
+	}
+	return fmt.Sprintf("%s %s", marker, msg)
+}
+
+// evSource extracts ActionSource from a train event, or returns fallback.
+func evSource(data *model.TrainEventData, fallback string) string {
+	if data != nil && data.ActionSource != "" {
+		return data.ActionSource
+	}
+	return fallback
+}
+
 type bootDoneMsg struct{}
 type bootTickMsg struct{}
 
@@ -377,7 +403,11 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 
 	case model.AgentReply:
 		a.state = a.state.WithThinking(false)
-		a.state = a.replaceThinking(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		content := ev.Message
+		if ev.Train != nil && ev.Train.ActionSource != "" {
+			content = agentMsg(ev.Train.ActionSource, ev.Message, false)
+		}
+		a.state = a.replaceThinking(model.Message{Kind: model.MsgAgent, Content: content})
 
 	case model.CmdStarted:
 		stats := a.state.Stats
@@ -544,7 +574,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 				ConfigPath: ev.Train.ConfigPath,
 			}
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: agentMsg(evSource(ev.Train, "setup-helper"), ev.Message, true)})
 
 	case model.TrainReady:
 		a.trainView.SetStage(model.StageReady)
@@ -557,7 +587,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		if r := a.trainView.RunByID(rid); r != nil {
 			r.CurrentIssue = nil
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(ev.Message)})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg(evSource(ev.Train, ""), ev.Message, true))})
 
 	case model.TrainStarted:
 		a.handleTrainStarted(ev)
@@ -577,7 +607,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 				RunID:   trainEventRunID(ev.Train),
 				Kind:    mapIssueKind(ev.Train.IssueType),
 				Phase:   string(a.trainView.Stage),
-				Summary: ev.Message,
+				Summary: valueOr(ev.Message, ev.Train.IssueDetail),
 				Signature: map[string]any{
 					"type": ev.Train.IssueType,
 				},
@@ -599,7 +629,9 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 				})
 			}
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(ev.Message)})
+		if ev.Message != "" {
+			a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(agentMsg(evSource(ev.Train, "observer"), ev.Message, false))})
+		}
 
 	case model.TrainLogLine:
 		a.handleTrainLogLine(ev)
@@ -617,17 +649,14 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		if run := a.trainView.RunByID(runID); run != nil {
 			run.StatusMessage = ev.Message
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(agentMsg(evSource(ev.Train, "observer"), ev.Message, false))})
 
 	case model.TrainError:
 		a.trainView.SetRunPhase(trainEventRunID(ev.Train), model.TrainPhaseFailed)
 		if run := a.ensureTrainRun(ev.Train); run != nil {
 			run.ErrorMessage = ev.Message
 		}
-		a.state = a.state.WithMessage(model.Message{
-			Kind: model.MsgTool, ToolName: "Train",
-			Display: model.DisplayError, Content: ev.Message,
-		})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(agentMsg(evSource(ev.Train, "observer"), ev.Message, false))})
 
 	// ── Phase 2 events ──────────────────────────────────────
 
@@ -667,12 +696,12 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		if ev.Train != nil && a.trainView.Compare != nil {
 			a.trainView.Compare.Status = "mismatch"
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(agentMsg(evSource(ev.Train, "observer"), ev.Message, false))})
 
 	case model.TrainAnalysisStarted:
 		a.trainView.SetStage(model.StageAnalyzing)
 		a.trainView.SetRunPhase(trainEventRunID(ev.Train), model.TrainPhaseAnalyzing)
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: agentMsg(evSource(ev.Train, ""), ev.Message, false)})
 
 	case model.TrainAnalyzing:
 		a.trainView.SetStage(model.StageAnalyzing)
@@ -685,7 +714,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 					run.StatusMessage = "Fixing..."
 				}
 				a.trainView.SetStage(model.StageSetup)
-				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render("setup-helper is fixing ssh connectivity...")})
+				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(agentMsg("setup-helper", "fixing ssh connectivity...", false))})
 				break
 			}
 			if valueOr(ev.Train.ActionID, "") == "install-missing-libs" {
@@ -693,7 +722,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 					run.StatusMessage = "Installing..."
 				}
 				a.trainView.SetStage(model.StageSetup)
-				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render("setup-helper is installing missing library...")})
+				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(agentMsg("setup-helper", "installing missing library...", false))})
 				break
 			}
 			a.trainView.SetAgentActions(trainEventRunID(ev.Train), []model.AgentAction{
@@ -706,7 +735,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 				},
 			})
 			if ev.Message != "" {
-				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(ev.Message)})
+				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(agentMsg(evSource(ev.Train, ""), ev.Message, false))})
 			}
 			if mapIssueKind(ev.Train.IssueType) == model.IssueBootstrap {
 				a.trainView.SetStage(model.StageSetup)
@@ -750,7 +779,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		a.trainView.SetStage(model.StageReady)
 		a.trainView.SetRunPhase(rid, model.TrainPhaseReady)
 		if ev.Message != "" {
-			a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(ev.Message)})
+			a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg(evSource(ev.Train, ""), ev.Message, true))})
 		}
 
 	case model.TrainActionApplied:
@@ -768,7 +797,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			}
 			// Show download/install progress in agent panel.
 			if actionID == "install-missing-libs" && ev.Message != "" {
-				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(ev.Message)})
+				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(agentMsg(evSource(ev.Train, "setup-helper"), ev.Message, false))})
 			}
 		} else {
 			rid := trainEventRunID(ev.Train)
@@ -779,7 +808,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			}
 			a.trainView.SetStage(model.StageFixing)
 			if ev.Message != "" {
-				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(ev.Message)})
+				a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainWorkingStyle.Render(agentMsg(evSource(ev.Train, ""), ev.Message, false))})
 			}
 		}
 
@@ -793,7 +822,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			run.CurrentMetrics = model.TrainMetricsView{}
 			run.Logs.Lines = nil
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: agentMsg(evSource(ev.Train, ""), ev.Message, false)})
 
 	case model.TrainVerified:
 		a.trainView.SetStage(model.StageDone)
@@ -803,7 +832,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			a.trainView.Compare.Drift = ev.Train.Drift
 			a.trainView.Compare.Status = "verified"
 		}
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg(evSource(ev.Train, ""), ev.Message, true))})
 
 	case model.Done:
 		return a, tea.Quit
@@ -962,11 +991,11 @@ func (a *App) handleTrainSetup(ev model.Event) {
 	}
 	if run.StatusMessage == "Fixing..." && ev.Train.Check == "ssh" && ev.Train.Status == "passed" {
 		run.StatusMessage = ""
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render("ssh connectivity repaired")})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg("setup-helper", "ssh connectivity repaired", true))})
 	}
 	if run.StatusMessage == "Installing..." && ev.Train.Check == "libs" && ev.Train.Status == "passed" {
 		run.StatusMessage = ""
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render("missing library installed successfully")})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg("setup-helper", "missing library installed successfully", true))})
 	}
 	// Skip checklist update for post-repair failures — the original probe result
 	// is re-emitted after auto-resolve returns, but we don't want the UI
@@ -989,8 +1018,8 @@ func (a *App) handleTrainSetup(ev model.Event) {
 		run.StatusMessage != "Fixing..." && run.StatusMessage != "Installing..." &&
 		ev.Train.Check != "ssh" && ev.Train.Check != "libs" {
 		checkName := displayCheckNameFromEvent(ev.Train.Check)
-		msg := fmt.Sprintf("[!] %s failed: %s", checkName, ev.Train.Detail)
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(msg)})
+		msg := fmt.Sprintf("%s failed: %s", checkName, ev.Train.Detail)
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(agentMsg("setup-helper", msg, false))})
 	}
 }
 
@@ -1348,6 +1377,33 @@ func (a App) appendToLastTool(line string) model.State {
 	return next
 }
 
+// agentStatus returns the spinner text for the current agent phase, or "" if idle.
+func (a *App) agentStatus() string {
+	if !a.trainView.Active {
+		if a.state.IsThinking {
+			return "thinking..."
+		}
+		return ""
+	}
+	run := a.trainView.ActiveRun()
+	if run == nil {
+		return ""
+	}
+	switch run.Phase {
+	case model.TrainPhaseSetup:
+		return "setting up..."
+	case model.TrainPhaseRunning:
+		return "training..."
+	case model.TrainPhaseAnalyzing:
+		return "analyzing..."
+	case model.TrainPhaseFixing:
+		return "applying fix..."
+	case model.TrainPhaseEvaluating:
+		return "evaluating..."
+	}
+	return ""
+}
+
 func (a *App) updateViewport() {
 	content := panels.RenderMessages(a.state, a.thinking.View(), a.trainView.Active)
 	a.viewport = a.viewport.SetContent(content)
@@ -1453,7 +1509,11 @@ func (a App) renderTrainLayout(topBar string) string {
 
 	// Agent message viewport in a boxed panel.
 	vpContent := a.viewport.View()
-	agentBox := panels.RenderAgentBox(vpContent, w, vpH+2, a.trainFocus == model.TrainPanelAgent, a.viewport.TotalLines(), a.viewport.YOffset())
+	agentSpinner := ""
+	if status := a.agentStatus(); status != "" {
+		agentSpinner = a.thinking.FrameView() + " " + status
+	}
+	agentBox := panels.RenderAgentBox(vpContent, w, vpH+2, a.trainFocus == model.TrainPanelAgent, a.viewport.TotalLines(), a.viewport.YOffset(), agentSpinner)
 
 	actionStrip := panels.RenderTrainActionStrip(a.trainView, w, a.trainFocus == model.TrainPanelActions)
 	input := "  " + a.input.View()

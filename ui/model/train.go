@@ -598,6 +598,7 @@ func (s *TrainWorkspaceState) SetRunPhase(runID string, phase TrainPhase) {
 		s.Panels[TrainPanelLogs].Collapsed = true
 	case TrainPhaseRunning, TrainPhaseEvaluating:
 		s.Stage = StageRunning
+		run.StatusMessage = ""
 		run.Logs.AutoFollow = true
 		s.Panels[TrainPanelMetrics].Collapsed = false
 		s.Panels[TrainPanelLogs].Collapsed = false

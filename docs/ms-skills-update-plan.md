@@ -119,18 +119,31 @@ Examples:
 The new agent-style skills should sit above these as diagnosis / routing /
 strategy layers.
 
-### 3. Keep Factory vocabulary aligned
+### 3. Keep Factory taxonomy aligned
 
-Skill instructions and query examples should use the same core card types that
-Factory uses:
+The three repos should share the same core card taxonomy:
 
 - `known_failure`
 - `operator`
-- `model`
 - `trick`
+- `model`
+- `report`
 
-Do not introduce parallel terminology like `perf-features` or `algo-features`
-unless the Factory side formally adopts those names.
+For v0.1:
+
+- strict naming should live mainly in Factory schemas and manifests
+- SKILL.md prose can stay flexible and agent-readable
+- do not build a heavy cross-repo vocab governance system yet
+
+Practical rule:
+
+- use the same `kind` names everywhere
+- avoid older parallel terms like `failure`, `perf_feature`, or `algo_feature`
+- let prose fields remain free-form unless later structured normalization is required
+
+`trick` should be the shared term for both optimization and algorithm-level
+techniques. Different subtypes can be handled later through a schema field such
+as `category`.
 
 ### 4. Separate skill packaging from helper-tool rollout
 
@@ -192,10 +205,11 @@ Diagnose crashes, runtime errors, hangs, and communication failures.
 The skill should instruct the agent to:
 
 1. collect logs and error evidence
-2. identify operator/component/platform facts
-3. if Factory query tooling is available, search `known_failure` cards
+2. identify operator/component/platform facts using canonical vocab
+3. if Factory query tooling is available, search `known_failure` cards (kind: `known_failure`)
 4. if Factory query tooling is available, consult `operator` cards when no known failure matches
 5. propose root cause and fix options
+6. if the failure is novel, suggest a report submission (kind: `report`)
 
 ### B1.3 accuracy-agent
 
@@ -240,7 +254,7 @@ The skill should instruct the agent to:
 1. collect runtime metrics and bottleneck evidence
 2. compare observed performance against expected behavior
 3. if Factory query tooling is available, inspect `operator` cards for bottleneck operators
-4. if Factory query tooling is available, inspect `trick` cards for applicable optimization techniques
+4. if Factory query tooling is available, inspect `trick` cards filtered by perf categories (`compute`, `memory`, `communication`, `compilation`)
 5. recommend optimizations and expected gains
 
 ### B1.5 op-agent
@@ -283,8 +297,8 @@ improvement.
 The skill should instruct the agent to:
 
 1. understand the user goal
-2. if Factory query tooling is available, inspect `trick` cards
-3. filter by model / method / platform applicability
+2. if Factory query tooling is available, inspect `trick` cards filtered by algo categories (`loss`, `attention`, `optimizer`, `regularization`, `scaling`)
+3. filter by model / method / platform applicability using canonical vocab
 4. explain benefits, risks, and validation path
 5. suggest the change before application
 
@@ -413,6 +427,31 @@ contract-compliant.
 4. Add command docs.
 5. Run consistency and contract tests.
 6. Only then evaluate which shared helper tools are actually needed next.
+
+## Cross-Repo Alignment
+
+The three repos should stay aligned on:
+
+- core card `kind` names
+- command names
+- the meaning of Factory assets consumed by skills and CLI
+
+For v0.1:
+
+- strict machine-facing naming lives mainly in Factory schemas/manifests
+- `ms-skills` should use the same card kind terms in examples and instructions
+- prose details do not need a heavy shared vocab system yet
+
+If later deterministic filtering across framework/platform/hardware becomes
+important, that can be added through a small Factory vocab layer.
+
+### Relationship to incubating-factory-plan
+
+The `docs/incubating-factory-plan.md` was written before the impl guide and
+uses outdated terms (`failure`, `perf_feature`, `algo_feature`, separate
+schemas for perf and algo features, 8 lifecycle states, different directory
+layout). The authoritative Factory design is now `docs/ms-factory-impl-guide.md`.
+The incubating plan should be treated as historical context, not current spec.
 
 ## Summary
 

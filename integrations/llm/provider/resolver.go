@@ -94,7 +94,7 @@ func resolveBaseURL(kind ProviderKind, cfgURL string) string {
 		if raw := trimmedEnv("ANTHROPIC_BASE_URL"); raw != "" {
 			return raw
 		}
-		if raw := strings.TrimSpace(cfgURL); raw != "" && raw != defaultOpenAIBaseURL {
+		if raw := strings.TrimSpace(cfgURL); raw != "" && normalizeURLForComparison(raw) != normalizeURLForComparison(defaultOpenAIBaseURL) {
 			return raw
 		}
 		return defaultAnthropicBaseURL
@@ -179,6 +179,10 @@ func trimmedEnv(key string) string {
 
 func normalizeProviderName(v string) string {
 	return strings.ToLower(strings.TrimSpace(v))
+}
+
+func normalizeURLForComparison(v string) string {
+	return strings.TrimRight(strings.TrimSpace(v), "/")
 }
 
 func parseProviderKind(raw string) (ProviderKind, error) {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,9 +50,7 @@ func newOpenAIClient(cfg ResolvedConfig, name string, httpClient HTTPClient) (*o
 	if authHeaderName == "" {
 		authHeaderName = "Authorization"
 	}
-	if _, ok := headers[authHeaderName]; !ok {
-		headers[authHeaderName] = "Bearer " + apiKey
-	}
+	ensureAuthHeader(headers, authHeaderName, "Bearer "+apiKey)
 
 	timeout := cfg.Timeout
 	if timeout == 0 {
@@ -165,6 +164,46 @@ func copyHeaders(headers map[string]string) map[string]string {
 		cloned[key] = value
 	}
 	return cloned
+}
+
+func ensureAuthHeader(headers map[string]string, authHeaderName, authHeaderValue string) {
+	if headers == nil {
+		return
+	}
+
+	keys := matchingHeaderKeys(headers, authHeaderName)
+	if len(keys) == 0 {
+		headers[authHeaderName] = authHeaderValue
+		return
+	}
+
+	chosenKey := keys[0]
+	for _, key := range keys {
+		if key == authHeaderName {
+			chosenKey = key
+			break
+		}
+	}
+	chosenValue := headers[chosenKey]
+	for _, key := range keys {
+		if key == chosenKey {
+			continue
+		}
+		delete(headers, key)
+	}
+	headers[chosenKey] = chosenValue
+}
+
+func matchingHeaderKeys(headers map[string]string, target string) []string {
+	matches := make([]string, 0, len(headers))
+	normalizedTarget := strings.ToLower(strings.TrimSpace(target))
+	for key := range headers {
+		if strings.ToLower(strings.TrimSpace(key)) == normalizedTarget {
+			matches = append(matches, key)
+		}
+	}
+	sort.Strings(matches)
+	return matches
 }
 
 func parseOpenAIError(resp *http.Response) error {

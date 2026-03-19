@@ -232,3 +232,61 @@ func TestOpenAIBuilder_UsesConfiguredBaseURLAndHeaders(t *testing.T) {
 		t.Fatalf("X-Trace-ID = %q, want %q", client.headers["X-Trace-ID"], "trace-123")
 	}
 }
+
+func TestOpenAIBuilder_DoesNotDuplicateAuthorizationHeaderForCaseVariant(t *testing.T) {
+	provider, err := NewOpenAIProvider(ResolvedConfig{
+		Kind:           ProviderOpenAI,
+		Model:          "gpt-4o-mini",
+		BaseURL:        "https://example.invalid/v1",
+		APIKey:         "generated-key",
+		AuthHeaderName: "Authorization",
+		Headers: map[string]string{
+			"authorization": "Bearer custom-key",
+			"X-Trace-ID":    "trace-123",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAIProvider() error = %v", err)
+	}
+
+	client, ok := provider.(*openAIClient)
+	if !ok {
+		t.Fatalf("provider type = %T, want *openAIClient", provider)
+	}
+
+	if got := client.headers["authorization"]; got != "Bearer custom-key" {
+		t.Fatalf("authorization header = %q, want %q", got, "Bearer custom-key")
+	}
+	if _, ok := client.headers["Authorization"]; ok {
+		t.Fatal("unexpected duplicate Authorization header added")
+	}
+}
+
+func TestOpenAIBuilder_DeduplicatesCaseVariantAuthorizationHeadersDeterministically(t *testing.T) {
+	provider, err := NewOpenAIProvider(ResolvedConfig{
+		Kind:           ProviderOpenAI,
+		Model:          "gpt-4o-mini",
+		BaseURL:        "https://example.invalid/v1",
+		APIKey:         "generated-key",
+		AuthHeaderName: "Authorization",
+		Headers: map[string]string{
+			"AUTHORIZATION": "Bearer upper-key",
+			"authorization": "Bearer lower-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewOpenAIProvider() error = %v", err)
+	}
+
+	client, ok := provider.(*openAIClient)
+	if !ok {
+		t.Fatalf("provider type = %T, want *openAIClient", provider)
+	}
+
+	if got := len(matchingHeaderKeys(client.headers, "Authorization")); got != 1 {
+		t.Fatalf("matching auth headers = %d, want 1", got)
+	}
+	if got := client.headers["AUTHORIZATION"]; got != "Bearer upper-key" {
+		t.Fatalf("AUTHORIZATION header = %q, want %q", got, "Bearer upper-key")
+	}
+}

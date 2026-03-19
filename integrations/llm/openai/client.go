@@ -68,11 +68,17 @@ func NewClient(cfg Config) (*Client, error) {
 
 // Name returns the provider name.
 func (c *Client) Name() string {
+	if c == nil || c.provider == nil {
+		return "openai"
+	}
 	return c.provider.Name()
 }
 
 // SupportsTools returns whether the provider supports tool calls.
 func (c *Client) SupportsTools() bool {
+	if c == nil || c.provider == nil {
+		return true
+	}
 	return c.provider.SupportsTools()
 }
 
@@ -88,5 +94,18 @@ func (c *Client) CompleteStream(ctx context.Context, req *llm.CompletionRequest)
 
 // AvailableModels returns the list of available models.
 func (c *Client) AvailableModels() []llm.ModelInfo {
+	if c == nil || c.provider == nil {
+		return legacyAvailableModels()
+	}
 	return c.provider.AvailableModels()
+}
+
+func legacyAvailableModels() []llm.ModelInfo {
+	return []llm.ModelInfo{
+		{ID: "gpt-4o", Provider: "openai", MaxTokens: 128000},
+		{ID: "gpt-4o-mini", Provider: "openai", MaxTokens: 128000},
+		{ID: "gpt-4-turbo", Provider: "openai", MaxTokens: 128000},
+		{ID: "gpt-4", Provider: "openai", MaxTokens: 8192},
+		{ID: "gpt-3.5-turbo", Provider: "openai", MaxTokens: 16385},
+	}
 }

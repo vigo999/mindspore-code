@@ -47,6 +47,18 @@ func (a *Application) handleCommand(input string) {
 	case "/help":
 		a.cmdHelp()
 	default:
+		// Check if the command matches a skill name (e.g. /pdf → load skill "pdf")
+		if a.skillLoader != nil {
+			skillName := strings.TrimPrefix(parts[0], "/")
+			if content, err := a.skillLoader.Load(skillName); err == nil {
+				desc := content
+				if len(parts) > 1 {
+					desc = content + "\n\nUser request: " + strings.Join(parts[1:], " ")
+				}
+				go a.runTask(desc)
+				return
+			}
+		}
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: fmt.Sprintf("Unknown command: %s. Type /help for available commands.", parts[0]),

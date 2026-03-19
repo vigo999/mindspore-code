@@ -25,6 +25,7 @@ import (
 	skillstool "github.com/vigo999/ms-cli/tools/skills"
 	"github.com/vigo999/ms-cli/trace"
 	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/ms-cli/ui/slash"
 	wtrain "github.com/vigo999/ms-cli/workflow/train"
 )
 
@@ -140,6 +141,17 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		filepath.Join(workDir, ".ms-cli", "skills"),
 	)
 	toolRegistry.MustRegister(skillstool.NewLoadSkillTool(skillLoader))
+
+	// Register each skill as a slash command in the UI registry.
+	for _, s := range skillLoader.List() {
+		name := s.Name
+		desc := s.Description
+		slash.Register(slash.Command{
+			Name:        "/" + name,
+			Description: desc,
+			Usage:       "/" + name + " [request...]",
+		})
+	}
 
 	ctxManager := agentctx.NewManager(agentctx.ManagerConfig{
 		MaxTokens:           config.Context.MaxTokens,

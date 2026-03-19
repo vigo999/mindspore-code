@@ -49,10 +49,10 @@ func agentMsg(source, msg string, done bool) string {
 }
 
 var (
-	diffAddStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // green
-	diffRemoveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
-	diffHunkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))  // blue
-	diffFileStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	diffAddStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // green
+	diffRemoveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+	diffHunkStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))  // blue
+	diffFileStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 	diffContextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244")) // dim
 	diffSummaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
 )
@@ -111,7 +111,7 @@ type App struct {
 }
 
 // New creates a new App driven by the given event channel.
-// userCh may be nil (demo mode) — user input won't be forwarded.
+// userCh may be nil — user input won't be forwarded.
 func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
 	return App{
 		state:      model.NewState(version, workDir, repoURL, modelName, ctxMax),

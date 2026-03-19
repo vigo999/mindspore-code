@@ -75,7 +75,7 @@ func mustRegisterDefaultProviders(m *Manager) {
 	builders := map[ProviderKind]Builder{
 		ProviderOpenAI:           NewOpenAIProvider,
 		ProviderOpenAICompatible: NewOpenAICompatibleProvider,
-		ProviderAnthropic:        notImplementedBuilder(ProviderAnthropic),
+		ProviderAnthropic:        NewAnthropicProvider,
 	}
 	for kind, builder := range builders {
 		if err := m.Register(kind, builder); err != nil {

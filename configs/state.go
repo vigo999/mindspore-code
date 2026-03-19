@@ -31,7 +31,7 @@ func NewStateManager(workDir string) *StateManager {
 		workDir, _ = os.Getwd()
 	}
 	return &StateManager{
-		filePath: filepath.Join(workDir, ".mscli", "state.yaml"),
+		filePath: filepath.Join(workDir, ".ms-cli", "state.yaml"),
 	}
 }
 

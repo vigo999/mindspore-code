@@ -15,14 +15,17 @@ import (
 	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/integrations/llm"
 	openai "github.com/vigo999/ms-cli/integrations/llm/openai"
+	"github.com/vigo999/ms-cli/integrations/skills"
 	itrain "github.com/vigo999/ms-cli/internal/train"
 	"github.com/vigo999/ms-cli/permission"
 	rshell "github.com/vigo999/ms-cli/runtime/shell"
 	"github.com/vigo999/ms-cli/tools"
 	"github.com/vigo999/ms-cli/tools/fs"
 	"github.com/vigo999/ms-cli/tools/shell"
+	skillstool "github.com/vigo999/ms-cli/tools/skills"
 	"github.com/vigo999/ms-cli/trace"
 	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/ms-cli/ui/slash"
 	wtrain "github.com/vigo999/ms-cli/workflow/train"
 )
 
@@ -45,6 +48,9 @@ type Application struct {
 	permService  permission.PermissionService
 	stateManager *configs.StateManager
 	traceWriter  trace.Writer
+
+	// Skills
+	skillLoader *skills.Loader
 
 	// Train mode state
 	trainMode       bool
@@ -123,6 +129,30 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	toolRegistry := initTools(config, workDir)
 
+	// Skills: discover from binary dir, home dir, and project dir.
+	homeDir, _ := os.UserHomeDir()
+	execSkillsDir := ""
+	if ep, err := os.Executable(); err == nil {
+		execSkillsDir = filepath.Join(filepath.Dir(ep), ".ms-cli", "skills")
+	}
+	skillLoader := skills.NewLoader(
+		execSkillsDir,
+		filepath.Join(homeDir, ".ms-cli", "skills"),
+		filepath.Join(workDir, ".ms-cli", "skills"),
+	)
+	toolRegistry.MustRegister(skillstool.NewLoadSkillTool(skillLoader))
+
+	// Register each skill as a slash command in the UI registry.
+	for _, s := range skillLoader.List() {
+		name := s.Name
+		desc := s.Description
+		slash.Register(slash.Command{
+			Name:        "/" + name,
+			Description: desc,
+			Usage:       "/" + name + " [request...]",
+		})
+	}
+
 	ctxManager := agentctx.NewManager(agentctx.ManagerConfig{
 		MaxTokens:           config.Context.MaxTokens,
 		ReserveTokens:       config.Context.ReserveTokens,
@@ -135,11 +165,20 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		return nil, fmt.Errorf("init trace writer: %w", err)
 	}
 
+	// Build system prompt: base + skill summaries.
+	systemPrompt := loop.DefaultSystemPrompt()
+	if summaries := skillLoader.List(); len(summaries) > 0 {
+		systemPrompt += "\n\n## Available Skills\n\n" +
+			"Use the load_skill tool to load a skill when the user's task matches one:\n\n" +
+			skills.FormatSummaries(summaries)
+	}
+
 	engineCfg := loop.EngineConfig{
 		MaxIterations:  0,
 		MaxTokens:      config.Budget.MaxTokens,
 		Temperature:    float32(config.Model.Temperature),
 		TimeoutPerTurn: time.Duration(config.Model.TimeoutSec) * time.Second,
+		SystemPrompt:   systemPrompt,
 	}
 	engine := loop.NewEngine(engineCfg, provider, toolRegistry)
 	engine.SetContextManager(ctxManager)
@@ -162,6 +201,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		stateManager: stateManager,
 		traceWriter:  traceWriter,
 		llmReady:     llmReady,
+		skillLoader:  skillLoader,
 	}, nil
 }
 

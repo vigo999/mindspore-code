@@ -177,6 +177,12 @@ func (r *Registry) registerDefaults() {
 	})
 
 	r.Register(Command{
+		Name:        "/skill",
+		Description: "Load and run a skill",
+		Usage:       "/skill [name] [request...]",
+	})
+
+	r.Register(Command{
 		Name:        "/help",
 		Description: "Show available commands",
 		Usage:       "/help",

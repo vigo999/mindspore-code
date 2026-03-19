@@ -11,5 +11,5 @@
 *.coverprofile
 
 # ms-cli local state
-.mscli/
+.ms-cli/
 /.cache

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/ms-cli/integrations/skills"
 	"github.com/vigo999/ms-cli/internal/project"
 	"github.com/vigo999/ms-cli/permission"
 	"github.com/vigo999/ms-cli/ui/model"
@@ -41,9 +43,19 @@ func (a *Application) handleCommand(input string) {
 		a.cmdTrain(parts[1:])
 	case "/mouse":
 		a.cmdMouse(parts[1:])
+	case "/skill":
+		a.cmdSkill(parts[1:])
 	case "/help":
 		a.cmdHelp()
 	default:
+		// Check if the command matches a skill name directly (e.g. /pdf → /skill pdf).
+		skillName := strings.TrimPrefix(parts[0], "/")
+		if a.skillLoader != nil {
+			if _, err := a.skillLoader.Load(skillName); err == nil {
+				a.cmdSkill(append([]string{skillName}, parts[1:]...))
+				return
+			}
+		}
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: fmt.Sprintf("Unknown command: %s. Type /help for available commands.", parts[0]),
@@ -363,9 +375,63 @@ func (a *Application) cmdMouse(args []string) {
 	}
 }
 
+func (a *Application) cmdSkill(args []string) {
+	if a.skillLoader == nil {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Skills not available."}
+		return
+	}
+	if len(args) == 0 {
+		summaries := a.skillLoader.List()
+		if len(summaries) == 0 {
+			a.EventCh <- model.Event{Type: model.AgentReply, Message: "No skills available."}
+			return
+		}
+		msg := "Available skills:\n\n" + skills.FormatSummaries(summaries) + "\nUsage: /skill <name> [request...]"
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: msg}
+		return
+	}
+
+	skillName := args[0]
+	content, err := a.skillLoader.Load(skillName)
+	if err != nil {
+		a.EventCh <- model.Event{
+			Type:    model.ToolError,
+			Message: fmt.Sprintf("Failed to load skill %q: %v", skillName, err),
+		}
+		return
+	}
+
+	// Inject a synthetic assistant tool_call + tool result into context so the
+	// model sees the skill as already loaded and won't call load_skill again.
+	toolCallID := "slash_skill_" + skillName
+	argBytes, _ := json.Marshal(map[string]string{"name": skillName})
+	assistantMsg := llm.Message{
+		Role: "assistant",
+		ToolCalls: []llm.ToolCall{
+			{
+				ID:   toolCallID,
+				Type: "function",
+				Function: llm.ToolCallFunc{
+					Name:      "load_skill",
+					Arguments: json.RawMessage(argBytes),
+				},
+			},
+		},
+	}
+	_ = a.ctxManager.AddMessage(assistantMsg)
+	_ = a.ctxManager.AddMessage(llm.NewToolMessage(toolCallID, content))
+
+	userRequest := ""
+	if len(args) > 1 {
+		userRequest = strings.Join(args[1:], " ")
+	}
+	go a.runTask(userRequest)
+}
+
 func (a *Application) cmdHelp() {
 	helpText := `Available commands:
 
+  /skill [name] [request] Load and run a skill (e.g. /skill pdf extract text from report.pdf)
   /train <model> <method> Set up and run model training (e.g. /train qwen3 lora)
   /roadmap status [path]  Check roadmap status (default: roadmap.yaml)
   /weekly status [path]   Check weekly update status (default: weekly.md)

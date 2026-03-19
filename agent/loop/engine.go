@@ -39,7 +39,7 @@ func NewEngine(cfg EngineConfig, provider llm.Provider, tools *tools.Registry) *
 		cfg.Temperature = 0.7
 	}
 	if cfg.SystemPrompt == "" {
-		cfg.SystemPrompt = defaultSystemPrompt()
+		cfg.SystemPrompt = DefaultSystemPrompt()
 	}
 
 	engine := &Engine{
@@ -345,7 +345,7 @@ func extractPathArg(raw json.RawMessage) string {
 	return ""
 }
 
-func defaultSystemPrompt() string {
+func DefaultSystemPrompt() string {
 	return `You are an AI assistant that helps users with software development tasks.
 
 You have access to the following tools:
@@ -355,6 +355,7 @@ You have access to the following tools:
 - grep: Search for patterns in files
 - glob: Find files matching patterns
 - shell: Execute shell commands
+- load_skill: Load a skill's detailed instructions. Call this when the user's task matches an available skill listed in the system prompt.
 
 Guidelines:
 1. Use tools to gather information before making changes

@@ -88,7 +88,7 @@ func FindConfigFile() string {
 	if err == nil {
 		paths := []string{
 			filepath.Join(home, ".config", "mscli", "config.yaml"),
-			filepath.Join(home, ".mscli", "config.yaml"),
+			filepath.Join(home, ".ms-cli", "config.yaml"),
 		}
 		for _, path := range paths {
 			if _, err := os.Stat(path); err == nil {

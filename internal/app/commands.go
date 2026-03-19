@@ -420,10 +420,19 @@ func (a *Application) cmdSkill(args []string) {
 	}
 	_ = a.ctxManager.AddMessage(assistantMsg)
 	_ = a.ctxManager.AddMessage(llm.NewToolMessage(toolCallID, content))
+	a.EventCh <- model.Event{
+		Type:     model.ToolSkill,
+		ToolName: "load_skill",
+		Message:  skillName,
+		Summary:  fmt.Sprintf("loaded skill: %s", skillName),
+	}
 
 	userRequest := ""
 	if len(args) > 1 {
 		userRequest = strings.Join(args[1:], " ")
+	}
+	if strings.TrimSpace(userRequest) == "" {
+		return
 	}
 	go a.runTask(userRequest)
 }

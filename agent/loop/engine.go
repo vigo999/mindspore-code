@@ -101,6 +101,16 @@ func (e *Engine) Run(task Task) ([]Event, error) {
 
 // RunWithContext executes the ReAct loop for a task.
 func (e *Engine) RunWithContext(ctx context.Context, task Task) ([]Event, error) {
+	return e.runWithContext(ctx, task, nil)
+}
+
+// RunWithContextStream executes the ReAct loop and emits events as they occur.
+func (e *Engine) RunWithContextStream(ctx context.Context, task Task, sink func(Event)) error {
+	_, err := e.runWithContext(ctx, task, sink)
+	return err
+}
+
+func (e *Engine) runWithContext(ctx context.Context, task Task, sink func(Event)) ([]Event, error) {
 	startedAt := time.Now()
 	e.writeTrace("run_started", map[string]any{
 		"task_id":     task.ID,
@@ -112,6 +122,7 @@ func (e *Engine) RunWithContext(ctx context.Context, task Task) ([]Event, error)
 		engine:    e,
 		task:      task,
 		events:    make([]Event, 0),
+		sink:      sink,
 		startTime: startedAt,
 	}
 	events, err := exec.run(ctx)
@@ -139,15 +150,16 @@ type executor struct {
 	iterCount  int
 	startTime  time.Time
 	totalUsage llm.Usage
+	sink       func(Event)
 }
 
 func (ex *executor) run(ctx context.Context) ([]Event, error) {
 	ex.engine.ctxManager.AddMessage(llm.NewUserMessage(ex.task.Description))
 	ex.addEvent(NewEvent(EventTaskStarted, fmt.Sprintf("Task: %s", ex.task.Description)))
-	ex.addEvent(NewEvent(EventAgentThinking, ""))
 
 	for ex.engine.config.MaxIterations == 0 || ex.iterCount < ex.engine.config.MaxIterations {
 		ex.iterCount++
+		ex.addEvent(NewEvent(EventAgentThinking, ""))
 
 		if err := ctx.Err(); err != nil {
 			ex.addEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Context cancelled: %v", err)))
@@ -239,6 +251,9 @@ func (ex *executor) handleResponse(ctx context.Context, resp *llm.CompletionResp
 
 func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error {
 	toolName := tc.Function.Name
+	startEv := NewEvent(EventToolCallStart, describeToolCall(toolName, tc.Function.Arguments))
+	startEv.ToolName = toolName
+	ex.addEvent(startEv)
 
 	tool, ok := ex.engine.tools.Get(toolName)
 	if !ok {
@@ -284,12 +299,13 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 }
 
 var toolEventMap = map[string]string{
-	"read":  EventToolRead,
-	"grep":  EventToolGrep,
-	"glob":  EventToolGlob,
-	"edit":  EventToolEdit,
-	"write": EventToolWrite,
-	"shell": EventCmdStarted,
+	"read":       EventToolRead,
+	"grep":       EventToolGrep,
+	"glob":       EventToolGlob,
+	"edit":       EventToolEdit,
+	"write":      EventToolWrite,
+	"shell":      EventCmdStarted,
+	"load_skill": EventToolSkill,
 }
 
 func (ex *executor) addToolEvent(toolName string, result *tools.Result) {
@@ -309,6 +325,9 @@ func (ex *executor) addEvent(ev Event) {
 	ev.CtxMax = usage.Max
 	ev.TokensUsed = ex.totalUsage.TotalTokens
 	ex.events = append(ex.events, ev)
+	if ex.sink != nil {
+		ex.sink(ev)
+	}
 	ex.engine.writeTrace("event", ev)
 }
 
@@ -345,6 +364,60 @@ func extractPathArg(raw json.RawMessage) string {
 	return ""
 }
 
+func describeToolCall(toolName string, raw json.RawMessage) string {
+	var params map[string]any
+	_ = json.Unmarshal(raw, &params)
+
+	getString := func(keys ...string) string {
+		for _, key := range keys {
+			if v, ok := params[key].(string); ok {
+				v = strings.TrimSpace(v)
+				if v != "" {
+					return v
+				}
+			}
+		}
+		return ""
+	}
+
+	switch toolName {
+	case "shell":
+		return getString("command")
+	case "read", "edit", "write":
+		return getString("path", "file_path")
+	case "grep":
+		pattern := getString("pattern")
+		path := getString("path")
+		switch {
+		case pattern != "" && path != "":
+			return fmt.Sprintf("%q in %s", pattern, path)
+		case pattern != "":
+			return pattern
+		default:
+			return path
+		}
+	case "glob":
+		pattern := getString("pattern")
+		path := getString("path")
+		switch {
+		case pattern != "" && path != "":
+			return fmt.Sprintf("%s in %s", pattern, path)
+		case pattern != "":
+			return pattern
+		default:
+			return path
+		}
+	case "load_skill":
+		return getString("name")
+	default:
+		preview := strings.TrimSpace(string(raw))
+		if preview == "" {
+			return toolName
+		}
+		return preview
+	}
+}
+
 func DefaultSystemPrompt() string {
 	return `You are an AI assistant that helps users with software development tasks.
 
@@ -367,4 +440,8 @@ Guidelines:
 IMPORTANT: When you have gathered enough information to answer the user's question, you MUST provide your final answer directly WITHOUT using any more tools. Do not keep calling tools indefinitely - provide a clear, concise response once you have the information needed.
 
 When making edits, ensure the old_string matches exactly (including whitespace and newlines).`
+}
+
+func defaultSystemPrompt() string {
+	return DefaultSystemPrompt()
 }

@@ -21,6 +21,8 @@ const (
 	verticalPad    = 2
 	bootDuration   = 2 * time.Second
 	bootTickRate   = 80 * time.Millisecond
+	maxToolLines   = 120
+	maxToolRunes   = 12000
 )
 
 var (
@@ -49,10 +51,10 @@ func agentMsg(source, msg string, done bool) string {
 }
 
 var (
-	diffAddStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // green
-	diffRemoveStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
-	diffHunkStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))  // blue
-	diffFileStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
+	diffAddStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("114")) // green
+	diffRemoveStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")) // red
+	diffHunkStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("12"))  // blue
+	diffFileStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).Bold(true)
 	diffContextStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244")) // dim
 	diffSummaryStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
 )
@@ -494,7 +496,9 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	switch ev.Type {
 	case model.AgentThinking:
 		a.state = a.state.WithThinking(true)
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgThinking})
+		if !a.hasThinkingMessage() {
+			a.state = a.state.WithMessage(model.Message{Kind: model.MsgThinking})
+		}
 
 	case model.AgentReply:
 		a.state = a.state.WithThinking(false)
@@ -506,15 +510,19 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		}
 		a.state = a.replaceThinking(model.Message{Kind: model.MsgAgent, Content: content})
 
+	case model.ToolCallStart:
+		a.state = a.state.WithThinking(false)
+		a.state = a.replaceThinking(a.pendingToolMessage(ev))
+
 	case model.CmdStarted:
 		stats := a.state.Stats
 		stats.Commands++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
+		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind:     model.MsgTool,
 			ToolName: "Shell",
 			Display:  model.DisplayExpanded,
-			Content:  ev.Message,
+			Content:  truncateToolContent(ev.Message),
 		})
 
 	case model.CmdOutput:
@@ -527,7 +535,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		stats := a.state.Stats
 		stats.FilesRead++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
+		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind: model.MsgTool, ToolName: "Read",
 			Display: model.DisplayCollapsed, Content: ev.Message, Summary: ev.Summary,
 		})
@@ -536,7 +544,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		stats := a.state.Stats
 		stats.Searches++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
+		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind: model.MsgTool, ToolName: "Grep",
 			Display: model.DisplayCollapsed, Content: ev.Message, Summary: ev.Summary,
 		})
@@ -545,7 +553,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		stats := a.state.Stats
 		stats.Searches++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
+		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind: model.MsgTool, ToolName: "Glob",
 			Display: model.DisplayCollapsed, Content: ev.Message, Summary: ev.Summary,
 		})
@@ -554,27 +562,33 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		stats := a.state.Stats
 		stats.FilesEdited++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
+		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind: model.MsgTool, ToolName: "Edit",
-			Display: model.DisplayExpanded, Content: ev.Message,
+			Display: model.DisplayExpanded, Content: truncateToolContent(ev.Message),
 		})
 
 	case model.ToolWrite:
 		stats := a.state.Stats
 		stats.FilesEdited++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
+		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind: model.MsgTool, ToolName: "Write",
-			Display: model.DisplayExpanded, Content: ev.Message,
+			Display: model.DisplayExpanded, Content: truncateToolContent(ev.Message),
+		})
+
+	case model.ToolSkill:
+		a.state = a.resolveToolEvent(ev, model.Message{
+			Kind: model.MsgTool, ToolName: "Skill",
+			Display: model.DisplayCollapsed, Content: ev.Message, Summary: ev.Summary,
 		})
 
 	case model.ToolError:
 		stats := a.state.Stats
 		stats.Errors++
 		a.state = a.state.WithStats(stats)
-		a.state = a.state.WithMessage(model.Message{
-			Kind: model.MsgTool, ToolName: ev.ToolName,
-			Display: model.DisplayError, Content: ev.Message,
+		a.state = a.resolveToolEvent(ev, model.Message{
+			Kind: model.MsgTool, ToolName: displayToolName(ev.ToolName),
+			Display: model.DisplayError, Content: truncateToolContent(ev.Message),
 		})
 
 	case model.AnalysisReady:
@@ -1485,17 +1499,34 @@ func (a App) replaceThinking(m model.Message) model.State {
 	return next
 }
 
+func (a App) hasThinkingMessage() bool {
+	for i := len(a.state.Messages) - 1; i >= 0; i-- {
+		if a.state.Messages[i].Kind == model.MsgThinking {
+			return true
+		}
+	}
+	return false
+}
+
 func (a App) appendToLastTool(line string) model.State {
 	msgs := make([]model.Message, len(a.state.Messages))
 	copy(msgs, a.state.Messages)
 
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if msgs[i].Kind == model.MsgTool {
+			content := msgs[i].Content
+			if content == "" {
+				content = line
+			} else {
+				content += "\n" + line
+			}
 			msgs[i] = model.Message{
 				Kind:     model.MsgTool,
 				ToolName: msgs[i].ToolName,
 				Display:  msgs[i].Display,
-				Content:  msgs[i].Content + "\n" + line,
+				Content:  truncateToolContent(content),
+				Summary:  msgs[i].Summary,
+				Pending:  false,
 			}
 			break
 		}
@@ -1504,6 +1535,173 @@ func (a App) appendToLastTool(line string) model.State {
 	next := a.state
 	next.Messages = msgs
 	return next
+}
+
+func (a App) pendingToolMessage(ev model.Event) model.Message {
+	toolName := displayToolName(ev.ToolName)
+	summary := "running..."
+	display := model.DisplayCollapsed
+	switch ev.ToolName {
+	case "shell":
+		display = model.DisplayExpanded
+		summary = "running command..."
+	case "edit", "write":
+		display = model.DisplayExpanded
+		summary = "applying changes..."
+	case "load_skill":
+		toolName = "Skill"
+		summary = "loading skill..."
+	}
+	content := ev.Message
+	if ev.ToolName == "shell" && !strings.HasPrefix(strings.TrimSpace(content), "$ ") {
+		content = "$ " + content
+	}
+	return model.Message{
+		Kind:     model.MsgTool,
+		ToolName: toolName,
+		Display:  display,
+		Content:  content,
+		Summary:  summary,
+		Pending:  true,
+	}
+}
+
+func (a App) resolveToolEvent(ev model.Event, fallback model.Message) model.State {
+	msgs := make([]model.Message, len(a.state.Messages))
+	copy(msgs, a.state.Messages)
+
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Kind != model.MsgTool || !msgs[i].Pending {
+			continue
+		}
+		msgs[i] = finalizeToolMessage(msgs[i], ev)
+		next := a.state
+		next.Messages = msgs
+		return next
+	}
+
+	fallback.Pending = false
+	next := a.state
+	next.Messages = append(msgs, fallback)
+	return next
+}
+
+func finalizeToolMessage(pending model.Message, ev model.Event) model.Message {
+	switch ev.Type {
+	case model.CmdStarted:
+		return model.Message{
+			Kind:     model.MsgTool,
+			ToolName: valueOrString(pending.ToolName, "Shell"),
+			Display:  model.DisplayExpanded,
+			Content:  truncateToolContent(ev.Message),
+			Summary:  ev.Summary,
+		}
+	case model.ToolEdit, model.ToolWrite:
+		return model.Message{
+			Kind:     model.MsgTool,
+			ToolName: pending.ToolName,
+			Display:  model.DisplayExpanded,
+			Content:  truncateToolContent(ev.Message),
+			Summary:  ev.Summary,
+		}
+	case model.ToolRead, model.ToolGrep, model.ToolGlob, model.ToolSkill:
+		content := pending.Content
+		if strings.TrimSpace(content) == "" {
+			content = ev.Message
+		}
+		return model.Message{
+			Kind:     model.MsgTool,
+			ToolName: pending.ToolName,
+			Display:  model.DisplayCollapsed,
+			Content:  content,
+			Summary:  firstNonEmpty(ev.Summary, pending.Summary),
+		}
+	case model.ToolError:
+		toolName := pending.ToolName
+		if toolName == "" {
+			toolName = displayToolName(ev.ToolName)
+		}
+		return model.Message{
+			Kind:     model.MsgTool,
+			ToolName: toolName,
+			Display:  model.DisplayError,
+			Content:  truncateToolContent(ev.Message),
+		}
+	default:
+		return pending
+	}
+}
+
+func displayToolName(name string) string {
+	switch strings.TrimSpace(name) {
+	case "read":
+		return "Read"
+	case "grep":
+		return "Grep"
+	case "glob":
+		return "Glob"
+	case "edit":
+		return "Edit"
+	case "write":
+		return "Write"
+	case "shell":
+		return "Shell"
+	case "load_skill":
+		return "Skill"
+	default:
+		if name == "" {
+			return "Tool"
+		}
+		return name
+	}
+}
+
+func truncateToolContent(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	runes := []rune(content)
+	truncatedByRunes := false
+	if len(runes) > maxToolRunes {
+		runes = runes[:maxToolRunes]
+		content = string(runes)
+		truncatedByRunes = true
+	}
+
+	lines := strings.Split(content, "\n")
+	truncatedByLines := false
+	if len(lines) > maxToolLines {
+		lines = lines[:maxToolLines]
+		content = strings.Join(lines, "\n")
+		truncatedByLines = true
+	}
+
+	if !truncatedByRunes && !truncatedByLines {
+		return content
+	}
+
+	var parts []string
+	if truncatedByLines {
+		parts = append(parts, fmt.Sprintf("%d lines", maxToolLines))
+	}
+	if truncatedByRunes {
+		parts = append(parts, fmt.Sprintf("%d chars", maxToolRunes))
+	}
+	return content + "\n[ui truncated after " + strings.Join(parts, ", ") + "]"
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func valueOrString(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 // agentStatus returns the spinner text for the current agent phase, or "" if idle.
@@ -1536,7 +1734,14 @@ func (a *App) agentStatus() string {
 func (a *App) updateViewport() {
 	// Check if user is at (or near) bottom before updating content.
 	atBottom := a.viewport.AtBottom() || a.viewport.TotalLines() <= a.viewport.Model.Height
-	content := panels.RenderMessages(a.state, a.thinking.View(), a.trainView.Active)
+	width := a.viewport.Model.Width
+	if width <= 0 {
+		width = a.chatWidth() - 4
+	}
+	if width < 1 {
+		width = 1
+	}
+	content := panels.RenderMessages(a.state, a.thinking.View(), width, a.trainView.Active)
 	a.viewport = a.viewport.SetContent(content)
 	// Only auto-scroll to bottom if user hasn't scrolled up.
 	if atBottom {

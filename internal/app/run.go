@@ -97,14 +97,17 @@ func (a *Application) runTask(description string) {
 		return
 	}
 
-	a.EventCh <- model.Event{Type: model.AgentThinking}
-
 	task := loop.Task{
 		ID:          generateTaskID(),
 		Description: description,
 	}
 
-	events, err := a.Engine.RunWithContext(context.Background(), task)
+	err := a.Engine.RunWithContextStream(context.Background(), task, func(ev loop.Event) {
+		uiEvent := convertLoopEvent(ev)
+		if uiEvent != nil {
+			a.EventCh <- *uiEvent
+		}
+	})
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline") {
@@ -117,18 +120,12 @@ func (a *Application) runTask(description string) {
 		}
 		return
 	}
-
-	for _, ev := range events {
-		uiEvent := convertLoopEvent(ev)
-		if uiEvent != nil {
-			a.EventCh <- *uiEvent
-		}
-	}
 }
 
 // convertLoopEvent maps loop.Event -> UI model.Event.
 func convertLoopEvent(ev loop.Event) *model.Event {
 	typeMap := map[string]model.EventType{
+		"ToolCallStart": model.ToolCallStart,
 		"AgentReply":    model.AgentReply,
 		"AgentThinking": model.AgentThinking,
 		"ToolRead":      model.ToolRead,
@@ -136,6 +133,7 @@ func convertLoopEvent(ev loop.Event) *model.Event {
 		"ToolGlob":      model.ToolGlob,
 		"ToolEdit":      model.ToolEdit,
 		"ToolWrite":     model.ToolWrite,
+		"ToolSkill":     model.ToolSkill,
 		"ToolError":     model.ToolError,
 		"CmdStarted":    model.CmdStarted,
 		"AnalysisReady": model.AnalysisReady,

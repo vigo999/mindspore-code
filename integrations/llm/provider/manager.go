@@ -34,6 +34,8 @@ func NewManager() *Manager {
 func DefaultManager() *Manager {
 	defaultManagerOnce.Do(func() {
 		defaultManager = NewManager()
+		// Stub builders preserve the default registration surface until concrete
+		// provider clients land in the follow-up task.
 		mustRegisterDefaultProviders(defaultManager)
 	})
 

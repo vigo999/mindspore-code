@@ -164,6 +164,9 @@ func TestAnthropicCodec_DecodeResponseMapsTextToolUseAndFinishReason(t *testing.
 	if resp.ToolCalls[0].Function.Name != "lookup_weather" {
 		t.Fatalf("tool call name = %q, want %q", resp.ToolCalls[0].Function.Name, "lookup_weather")
 	}
+	if resp.ToolCalls[0].Type != "function" {
+		t.Fatalf("tool call type = %q, want %q", resp.ToolCalls[0].Type, "function")
+	}
 	if string(resp.ToolCalls[0].Function.Arguments) != `{"city":"Shanghai"}` {
 		t.Fatalf("tool call args = %q", string(resp.ToolCalls[0].Function.Arguments))
 	}
@@ -260,5 +263,8 @@ func TestAnthropicClient_CompletePostsMessagesAndDecodesResponse(t *testing.T) {
 	}
 	if resp.ToolCalls[0].Function.Name != "lookup_time" {
 		t.Fatalf("response tool name = %q, want %q", resp.ToolCalls[0].Function.Name, "lookup_time")
+	}
+	if resp.ToolCalls[0].Type != "function" {
+		t.Fatalf("response tool type = %q, want %q", resp.ToolCalls[0].Type, "function")
 	}
 }

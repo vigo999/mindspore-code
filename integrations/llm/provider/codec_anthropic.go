@@ -182,7 +182,7 @@ func (c *anthropicCodec) decodeCompletionResponse(resp anthropicMessagesResponse
 		case "tool_use":
 			result.ToolCalls = append(result.ToolCalls, llm.ToolCall{
 				ID:   block.ID,
-				Type: "tool_use",
+				Type: "function",
 				Function: llm.ToolCallFunc{
 					Name:      block.Name,
 					Arguments: normalizeRawJSON(block.Input),
@@ -368,6 +368,7 @@ func (it *anthropicStreamIterator) Next() (*llm.StreamChunk, error) {
 				return nil, fmt.Errorf("decode message_delta: %w", err)
 			}
 			chunk := &llm.StreamChunk{
+				ToolCalls:    it.snapshotCompletedCalls(),
 				FinishReason: mapAnthropicStopReason(payload.Delta.StopReason),
 				Usage: &llm.Usage{
 					PromptTokens:     it.promptTokens,
@@ -477,7 +478,7 @@ func (it *anthropicStreamIterator) finishContentBlock(index int) (*llm.StreamChu
 
 	call := llm.ToolCall{
 		ID:   state.ID,
-		Type: "tool_use",
+		Type: "function",
 		Function: llm.ToolCallFunc{
 			Name:      state.Name,
 			Arguments: arguments,
@@ -486,8 +487,18 @@ func (it *anthropicStreamIterator) finishContentBlock(index int) (*llm.StreamChu
 	it.completedCalls = append(it.completedCalls, call)
 
 	return &llm.StreamChunk{
-		ToolCalls: []llm.ToolCall{call},
+		ToolCalls: it.snapshotCompletedCalls(),
 	}, nil
+}
+
+func (it *anthropicStreamIterator) snapshotCompletedCalls() []llm.ToolCall {
+	if len(it.completedCalls) == 0 {
+		return nil
+	}
+
+	snapshot := make([]llm.ToolCall, len(it.completedCalls))
+	copy(snapshot, it.completedCalls)
+	return snapshot
 }
 
 func decodeAnthropicStreamError(data []byte) error {

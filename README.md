@@ -67,8 +67,8 @@ Provider routing is fully configuration-driven (no runtime protocol probing).
 Layered merge (low -> high):
 
 1. built-in defaults
-2. user config: `~/.mscli/config.yaml`
-3. project config: `./.mscli/config.yaml`
+2. user config: `~/.ms-cli/config.yaml`
+3. project config: `./.ms-cli/config.yaml`
 4. environment variables: `MSCLI_*`
 5. session overrides (`/model` in current process only, not persisted)
 

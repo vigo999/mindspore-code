@@ -47,7 +47,7 @@ func TestWire_OpenAICompatibleDefaultRouting(t *testing.T) {
 	defaultCfg.Model.Provider = "openai-compatible"
 	defaultCfg.Model.Model = "gpt-4o-mini"
 	defaultCfg.Model.Key = ""
-	configPath := filepath.Join(tempDir, ".mscli", "config.yaml")
+	configPath := filepath.Join(tempDir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

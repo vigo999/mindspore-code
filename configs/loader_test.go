@@ -22,7 +22,7 @@ func TestLoadWithEnv_MergesFixedLayers(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Chdir(projectDir)
 
-	userPath := filepath.Join(home, ".mscli", "config.yaml")
+	userPath := filepath.Join(home, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(userPath), 0755); err != nil {
 		t.Fatalf("mkdir user config dir: %v", err)
 	}
@@ -36,7 +36,7 @@ context:
 		t.Fatalf("write user config: %v", err)
 	}
 
-	projectPath := filepath.Join(projectDir, ".mscli", "config.yaml")
+	projectPath := filepath.Join(projectDir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
 		t.Fatalf("mkdir project config dir: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestLoadWithEnv_UsesFixedProjectPathOnly(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Chdir(projectDir)
 
-	projectPath := filepath.Join(projectDir, ".mscli", "config.yaml")
+	projectPath := filepath.Join(projectDir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
 		t.Fatalf("mkdir project dir: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestLoadWithEnvRejectsWhitespaceOnlyModel(t *testing.T) {
 	clearEnv(t)
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".mscli", "config.yaml")
+	path := filepath.Join(dir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestLoadWithEnvRejectsUnsupportedProvider(t *testing.T) {
 	clearEnv(t)
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, ".mscli", "config.yaml")
+	path := filepath.Join(dir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -175,6 +175,39 @@ func TestLoadWithEnvRejectsUnsupportedProvider(t *testing.T) {
 	_, err := LoadWithEnv()
 	if err == nil {
 		t.Fatal("LoadWithEnv() error = nil, want validation error for unsupported provider")
+	}
+}
+
+func TestLoadWithEnv_IgnoresLegacyDotMscliPaths(t *testing.T) {
+	clearEnv(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
+
+	legacyUserPath := filepath.Join(home, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacyUserPath), 0755); err != nil {
+		t.Fatalf("mkdir legacy user config dir: %v", err)
+	}
+	if err := os.WriteFile(legacyUserPath, []byte("model:\n  model: legacy-user\n"), 0600); err != nil {
+		t.Fatalf("write legacy user config: %v", err)
+	}
+
+	legacyProjectPath := filepath.Join(projectDir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacyProjectPath), 0755); err != nil {
+		t.Fatalf("mkdir legacy project config dir: %v", err)
+	}
+	if err := os.WriteFile(legacyProjectPath, []byte("model:\n  model: legacy-project\n"), 0600); err != nil {
+		t.Fatalf("write legacy project config: %v", err)
+	}
+
+	cfg, err := LoadWithEnv()
+	if err != nil {
+		t.Fatalf("LoadWithEnv() error = %v", err)
+	}
+	if got, want := cfg.Model.Model, "gpt-4o-mini"; got != want {
+		t.Fatalf("model = %q, want %q (legacy .mscli path should be ignored)", got, want)
 	}
 }
 

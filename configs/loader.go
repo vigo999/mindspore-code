@@ -19,7 +19,7 @@ func LoadWithEnv() (*Config, error) {
 		return nil, err
 	}
 
-	projectPath := filepath.Join(".mscli", "config.yaml")
+	projectPath := filepath.Join(".ms-cli", "config.yaml")
 	if err := mergeConfigFile(cfg, projectPath); err != nil {
 		return nil, err
 	}
@@ -170,7 +170,7 @@ func userConfigPath() string {
 	if err != nil || strings.TrimSpace(home) == "" {
 		return ""
 	}
-	return filepath.Join(home, ".mscli", "config.yaml")
+	return filepath.Join(home, ".ms-cli", "config.yaml")
 }
 
 func mergeConfigFile(cfg *Config, path string) error {

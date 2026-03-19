@@ -76,7 +76,7 @@ func TestWireBootstrapKeyAndURLOverrideEnvDuringProviderInit(t *testing.T) {
 	defaultCfg.Model.Model = "gpt-4o-mini"
 	defaultCfg.Model.Key = ""
 	defaultCfg.Model.URL = "https://api.openai.com/v1"
-	configPath := filepath.Join(tempDir, ".mscli", "config.yaml")
+	configPath := filepath.Join(tempDir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

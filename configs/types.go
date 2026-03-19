@@ -3,6 +3,7 @@ package configs
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Config holds the complete application configuration.
@@ -15,6 +16,12 @@ type Config struct {
 	Memory      MemoryConfig      `yaml:"memory"`
 	Skills      SkillsConfig      `yaml:"skills"`
 	Execution   ExecutionConfig   `yaml:"execution"`
+}
+
+func (c *Config) normalize() {
+	if strings.TrimSpace(c.Model.Provider) == "" {
+		c.Model.Provider = "openai-compatible"
+	}
 }
 
 // ModelConfig holds the LLM model configuration.
@@ -97,7 +104,7 @@ type DockerConfig struct {
 
 // DefaultConfig returns a configuration with default values.
 func DefaultConfig() *Config {
-	return &Config{
+	cfg := &Config{
 		Model: ModelConfig{
 			URL:         "https://api.openai.com/v1",
 			Provider:    "openai-compatible",
@@ -157,10 +164,14 @@ func DefaultConfig() *Config {
 			},
 		},
 	}
+	cfg.normalize()
+	return cfg
 }
 
 // Validate validates the configuration.
 func (c *Config) Validate() error {
+	c.normalize()
+
 	if c.Model.URL == "" {
 		return fmt.Errorf("model url is required")
 	}

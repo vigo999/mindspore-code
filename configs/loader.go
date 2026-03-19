@@ -34,6 +34,7 @@ func LoadFromFile(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config file %q: %w", path, err)
 	}
 
+	cfg.normalize()
 	return cfg, nil
 }
 
@@ -59,6 +60,7 @@ func LoadWithEnv(path string) (*Config, error) {
 
 	// ENV > YAML > default
 	ApplyEnvOverrides(cfg)
+	cfg.normalize()
 
 	// Validate
 	if err := cfg.Validate(); err != nil {

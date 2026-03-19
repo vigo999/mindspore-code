@@ -72,22 +72,34 @@ func canonicalHeaders(headers map[string]string) []headerKey {
 		return nil
 	}
 
+	type headerEntry struct {
+		original string
+		value    string
+	}
+
+	grouped := make(map[string][]headerEntry, len(headers))
 	keys := make([]string, 0, len(headers))
-	lookup := make(map[string]string, len(headers))
 	for key, value := range headers {
-		name := strings.ToLower(strings.TrimSpace(key))
+		original := strings.TrimSpace(key)
+		name := strings.ToLower(original)
 		if name == "" {
 			continue
 		}
-		keys = append(keys, name)
-		lookup[name] = value
+		if _, ok := grouped[name]; !ok {
+			keys = append(keys, name)
+		}
+		grouped[name] = append(grouped[name], headerEntry{original: original, value: value})
 	}
 
 	sort.Strings(keys)
 
 	result := make([]headerKey, 0, len(keys))
 	for _, key := range keys {
-		result = append(result, headerKey{Name: key, Value: lookup[key]})
+		entries := grouped[key]
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].original < entries[j].original
+		})
+		result = append(result, headerKey{Name: key, Value: entries[len(entries)-1].value})
 	}
 	return result
 }

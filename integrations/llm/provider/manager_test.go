@@ -115,3 +115,42 @@ func TestManagerBuild_UnregisteredKindReturnsError(t *testing.T) {
 		t.Fatal("Build() returned not-implemented error for unregistered kind")
 	}
 }
+
+func TestCacheKey_HeaderCanonicalizationDeterministic(t *testing.T) {
+	base := ResolvedConfig{
+		Kind:           ProviderOpenAICompatible,
+		BaseURL:        "https://example.invalid/v1",
+		Model:          "gpt-test",
+		Timeout:        30 * time.Second,
+		AuthHeaderName: "Authorization",
+		APIKey:         "secret",
+	}
+
+	sameLogicalHeadersA := base
+	sameLogicalHeadersA.Headers = map[string]string{
+		"X-Trace-ID": "trace-123",
+		"X-Feature":  "on",
+	}
+	sameLogicalHeadersB := base
+	sameLogicalHeadersB.Headers = map[string]string{
+		"x-feature":  "on",
+		"x-trace-id": "trace-123",
+	}
+
+	if gotA, gotB := cacheKey(sameLogicalHeadersA), cacheKey(sameLogicalHeadersB); gotA != gotB {
+		t.Fatalf("cacheKey() mismatch for equivalent headers: %q vs %q", gotA, gotB)
+	}
+
+	duplicateCaseVariant := base
+	duplicateCaseVariant.Headers = map[string]string{
+		"X-Trace-ID": "trace-123",
+		"x-trace-id": "trace-999",
+	}
+
+	want := cacheKey(duplicateCaseVariant)
+	for i := 0; i < 100; i++ {
+		if got := cacheKey(duplicateCaseVariant); got != want {
+			t.Fatalf("cacheKey() changed across calls with duplicate case-variant headers: got %q, want %q", got, want)
+		}
+	}
+}

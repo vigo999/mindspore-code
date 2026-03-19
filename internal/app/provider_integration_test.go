@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -13,11 +14,11 @@ import (
 )
 
 func TestWire_OpenAICompatibleDefaultRouting(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
 	t.Setenv("MSCLI_PROVIDER", "")
 	t.Setenv("MSCLI_API_KEY", "mscli-token")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-	t.Setenv("ANTHROPIC_API_KEY", "")
 
 	var gotPath string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,12 +47,15 @@ func TestWire_OpenAICompatibleDefaultRouting(t *testing.T) {
 	defaultCfg.Model.Provider = "openai-compatible"
 	defaultCfg.Model.Model = "gpt-4o-mini"
 	defaultCfg.Model.Key = ""
-	configPath := filepath.Join(tempDir, "mscli.yaml")
+	configPath := filepath.Join(tempDir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 	if err := configs.SaveToFile(defaultCfg, configPath); err != nil {
 		t.Fatalf("SaveToFile() error = %v", err)
 	}
 
-	app, err := Wire(BootstrapConfig{ConfigPath: configPath})
+	app, err := Wire(BootstrapConfig{})
 	if err != nil {
 		t.Fatalf("Wire() error = %v", err)
 	}

@@ -3,7 +3,6 @@ package provider
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -57,9 +56,6 @@ func ResolveConfigWithOptions(cfg configs.ModelConfig, opts ResolveOptions) (Res
 }
 
 func resolveProviderKind(cfgProvider string) (ProviderKind, error) {
-	if raw := normalizedProviderEnv("MSCLI_PROVIDER"); raw != "" {
-		return parseProviderKind(raw)
-	}
 	if raw := NormalizeProvider(cfgProvider); raw != "" {
 		return parseProviderKind(raw)
 	}
@@ -69,23 +65,6 @@ func resolveProviderKind(cfgProvider string) (ProviderKind, error) {
 func resolveAPIKey(kind ProviderKind, cfgKey string, opts ResolveOptions) (string, error) {
 	if opts.PreferConfigAPIKey {
 		if raw := strings.TrimSpace(cfgKey); raw != "" {
-			return raw, nil
-		}
-	}
-
-	switch kind {
-	case ProviderAnthropic:
-		if raw := trimmedEnv("ANTHROPIC_AUTH_TOKEN"); raw != "" {
-			return raw, nil
-		}
-		if raw := trimmedEnv("ANTHROPIC_API_KEY"); raw != "" {
-			return raw, nil
-		}
-	default:
-		if raw := trimmedEnv("MSCLI_API_KEY"); raw != "" {
-			return raw, nil
-		}
-		if raw := trimmedEnv("OPENAI_API_KEY"); raw != "" {
 			return raw, nil
 		}
 	}
@@ -106,23 +85,11 @@ func resolveBaseURL(kind ProviderKind, cfgURL string, opts ResolveOptions) strin
 
 	switch kind {
 	case ProviderAnthropic:
-		if raw := trimmedEnv("MSCLI_BASE_URL"); raw != "" {
-			return raw
-		}
-		if raw := trimmedEnv("ANTHROPIC_BASE_URL"); raw != "" {
-			return raw
-		}
 		if raw := strings.TrimSpace(cfgURL); raw != "" && normalizeURLForComparison(raw) != normalizeURLForComparison(defaultOpenAIBaseURL) {
 			return raw
 		}
 		return defaultAnthropicBaseURL
 	default:
-		if raw := trimmedEnv("MSCLI_BASE_URL"); raw != "" {
-			return raw
-		}
-		if raw := trimmedEnv("OPENAI_BASE_URL"); raw != "" {
-			return raw
-		}
 		if raw := strings.TrimSpace(cfgURL); raw != "" {
 			return raw
 		}
@@ -185,14 +152,6 @@ func resolvedTimeout(timeoutSec int) time.Duration {
 		return 180 * time.Second
 	}
 	return time.Duration(timeoutSec) * time.Second
-}
-
-func normalizedProviderEnv(key string) string {
-	return normalizeProviderName(os.Getenv(key))
-}
-
-func trimmedEnv(key string) string {
-	return strings.TrimSpace(os.Getenv(key))
 }
 
 func normalizeProviderName(v string) string {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -15,13 +16,10 @@ import (
 )
 
 func TestInitProviderAnthropic(t *testing.T) {
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "anthropic-token")
-	t.Setenv("MSCLI_API_KEY", "")
-	t.Setenv("OPENAI_API_KEY", "")
-
 	provider, err := initProvider(configs.ModelConfig{
 		Provider: "anthropic",
 		Model:    "claude-3-5-sonnet",
+		Key:      "anthropic-token",
 	}, providerResolveNoOverrides())
 	if err != nil {
 		t.Fatalf("initProvider() error = %v", err)
@@ -35,12 +33,7 @@ func TestInitProviderAnthropic(t *testing.T) {
 }
 
 func TestInitProviderOpenAICompatibleDefault(t *testing.T) {
-	t.Setenv("MSCLI_PROVIDER", "")
-	t.Setenv("MSCLI_API_KEY", "mscli-token")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-
-	provider, err := initProvider(configs.ModelConfig{Model: "gpt-4o-mini"}, providerResolveNoOverrides())
+	provider, err := initProvider(configs.ModelConfig{Model: "gpt-4o-mini", Key: "mscli-token"}, providerResolveNoOverrides())
 	if err != nil {
 		t.Fatalf("initProvider() error = %v", err)
 	}
@@ -53,11 +46,6 @@ func TestInitProviderOpenAICompatibleDefault(t *testing.T) {
 }
 
 func TestInitProviderMapsMissingKeyToAppSentinel(t *testing.T) {
-	t.Setenv("MSCLI_PROVIDER", "")
-	t.Setenv("MSCLI_API_KEY", "")
-	t.Setenv("OPENAI_API_KEY", "")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-
 	_, err := initProvider(configs.ModelConfig{Model: "gpt-4o-mini"}, providerResolveNoOverrides())
 	if err == nil {
 		t.Fatal("initProvider() error = nil, want missing api key error")
@@ -68,6 +56,9 @@ func TestInitProviderMapsMissingKeyToAppSentinel(t *testing.T) {
 }
 
 func TestWireBootstrapKeyAndURLOverrideEnvDuringProviderInit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
 	t.Setenv("MSCLI_PROVIDER", "openai-compatible")
 	t.Setenv("MSCLI_API_KEY", "env-key")
 	t.Setenv("MSCLI_BASE_URL", "http://127.0.0.1:1")
@@ -85,7 +76,10 @@ func TestWireBootstrapKeyAndURLOverrideEnvDuringProviderInit(t *testing.T) {
 	defaultCfg.Model.Model = "gpt-4o-mini"
 	defaultCfg.Model.Key = ""
 	defaultCfg.Model.URL = "https://api.openai.com/v1"
-	configPath := filepath.Join(tempDir, "mscli.yaml")
+	configPath := filepath.Join(tempDir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 	if err := configs.SaveToFile(defaultCfg, configPath); err != nil {
 		t.Fatalf("SaveToFile() error = %v", err)
 	}
@@ -112,10 +106,9 @@ func TestWireBootstrapKeyAndURLOverrideEnvDuringProviderInit(t *testing.T) {
 	defer server.Close()
 
 	app, err := Wire(BootstrapConfig{
-		ConfigPath: configPath,
-		URL:        server.URL + "/v1",
-		Key:        "cli-key",
-		Model:      "gpt-4o-mini",
+		URL:   server.URL + "/v1",
+		Key:   "cli-key",
+		Model: "gpt-4o-mini",
 	})
 	if err != nil {
 		t.Fatalf("Wire() error = %v", err)

@@ -8,118 +8,151 @@ import (
 
 func TestDefaultConfigProvider(t *testing.T) {
 	cfg := DefaultConfig()
-
 	if got, want := cfg.Model.Provider, "openai-compatible"; got != want {
 		t.Fatalf("default provider = %q, want %q", got, want)
 	}
 }
 
-func TestApplyEnvOverridesProvider(t *testing.T) {
+func TestLoadWithEnv_MergesFixedLayers(t *testing.T) {
+	clearEnv(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
+
+	userPath := filepath.Join(home, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(userPath), 0755); err != nil {
+		t.Fatalf("mkdir user config dir: %v", err)
+	}
+	if err := os.WriteFile(userPath, []byte(`model:
+  provider: openai
+  model: user-model
+  temperature: 0.2
+context:
+  max_tokens: 16000
+`), 0600); err != nil {
+		t.Fatalf("write user config: %v", err)
+	}
+
+	projectPath := filepath.Join(projectDir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
+		t.Fatalf("mkdir project config dir: %v", err)
+	}
+	if err := os.WriteFile(projectPath, []byte(`model:
+  model: project-model
+ui:
+  enabled: false
+`), 0600); err != nil {
+		t.Fatalf("write project config: %v", err)
+	}
+
 	t.Setenv("MSCLI_PROVIDER", "anthropic")
+	t.Setenv("MSCLI_MODEL", "env-model")
+	t.Setenv("MSCLI_API_KEY", "env-key")
+	t.Setenv("MSCLI_BASE_URL", "https://env.example")
 
-	cfg := DefaultConfig()
-	cfg.Model.Provider = "yaml-provider"
-
-	ApplyEnvOverrides(cfg)
+	cfg, err := LoadWithEnv()
+	if err != nil {
+		t.Fatalf("LoadWithEnv() error = %v", err)
+	}
 
 	if got, want := cfg.Model.Provider, "anthropic"; got != want {
-		t.Fatalf("provider after env override = %q, want %q", got, want)
+		t.Fatalf("provider = %q, want %q", got, want)
+	}
+	if got, want := cfg.Model.Model, "env-model"; got != want {
+		t.Fatalf("model = %q, want %q", got, want)
+	}
+	if got, want := cfg.Model.Key, "env-key"; got != want {
+		t.Fatalf("key = %q, want %q", got, want)
+	}
+	if got, want := cfg.Model.URL, "https://env.example"; got != want {
+		t.Fatalf("url = %q, want %q", got, want)
+	}
+	if got, want := cfg.Model.Temperature, 0.2; got != want {
+		t.Fatalf("temperature = %v, want %v", got, want)
+	}
+	if got, want := cfg.Context.MaxTokens, 16000; got != want {
+		t.Fatalf("context.max_tokens = %d, want %d", got, want)
+	}
+	if got, want := cfg.UI.Enabled, false; got != want {
+		t.Fatalf("ui.enabled = %v, want %v", got, want)
 	}
 }
 
-func TestApplyEnvOverridesProviderAware(t *testing.T) {
-	t.Setenv("MSCLI_PROVIDER", "anthropic")
+func TestLoadWithEnv_UsesFixedProjectPathOnly(t *testing.T) {
+	clearEnv(t)
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	projectDir := t.TempDir()
+	t.Chdir(projectDir)
+
+	projectPath := filepath.Join(projectDir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
+		t.Fatalf("mkdir project dir: %v", err)
+	}
+	if err := os.WriteFile(projectPath, []byte("model:\n  model: project-model\n"), 0600); err != nil {
+		t.Fatalf("write project config: %v", err)
+	}
+
+	ignoredPath := filepath.Join(projectDir, "custom", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(ignoredPath), 0755); err != nil {
+		t.Fatalf("mkdir ignored dir: %v", err)
+	}
+	if err := os.WriteFile(ignoredPath, []byte("model:\n  model: ignored-model\n"), 0600); err != nil {
+		t.Fatalf("write ignored config: %v", err)
+	}
+
+	cfg, err := LoadWithEnv()
+	if err != nil {
+		t.Fatalf("LoadWithEnv() error = %v", err)
+	}
+	if got, want := cfg.Model.Model, "project-model"; got != want {
+		t.Fatalf("model = %q, want %q", got, want)
+	}
+}
+
+func TestApplyEnvOverrides_OnlyMSCLIVariables(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("OPENAI_MODEL", "openai-model")
 	t.Setenv("OPENAI_API_KEY", "openai-key")
-	t.Setenv("OPENAI_BASE_URL", "https://openai.example/v1")
+	t.Setenv("OPENAI_BASE_URL", "https://openai.example")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "anthropic-token")
+	t.Setenv("ANTHROPIC_API_KEY", "anthropic-api-key")
+	t.Setenv("ANTHROPIC_BASE_URL", "https://anthropic.example")
 
 	cfg := DefaultConfig()
-	cfg.Model.Key = ""
-	cfg.Model.URL = "https://api.openai.com/v1"
-
 	ApplyEnvOverrides(cfg)
 
+	if got, want := cfg.Model.Model, "gpt-4o-mini"; got != want {
+		t.Fatalf("model after non-MSCLI env overrides = %q, want %q", got, want)
+	}
 	if got, want := cfg.Model.Key, ""; got != want {
-		t.Fatalf("anthropic config key after env override = %q, want %q", got, want)
+		t.Fatalf("key after non-MSCLI env overrides = %q, want %q", got, want)
 	}
-
 	if got, want := cfg.Model.URL, "https://api.openai.com/v1"; got != want {
-		t.Fatalf("anthropic config url after env override = %q, want %q", got, want)
+		t.Fatalf("url after non-MSCLI env overrides = %q, want %q", got, want)
 	}
-}
-
-func TestLoadWithEnvProvider(t *testing.T) {
-	t.Run("defaults when yaml provider blank", func(t *testing.T) {
-		dir := t.TempDir()
-		path := filepath.Join(dir, "mscli.yaml")
-
-		if err := os.WriteFile(path, []byte("model:\n  model: gpt-4o-mini\n  provider: \"\"\n"), 0600); err != nil {
-			t.Fatalf("write yaml: %v", err)
-		}
-
-		cfg, err := LoadWithEnv(path)
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-
-		if got, want := cfg.Model.Provider, "openai-compatible"; got != want {
-			t.Fatalf("provider from blank yaml = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("env overrides yaml provider", func(t *testing.T) {
-		t.Setenv("MSCLI_PROVIDER", "anthropic")
-
-		dir := t.TempDir()
-		path := filepath.Join(dir, "mscli.yaml")
-
-		if err := os.WriteFile(path, []byte("model:\n  model: gpt-4o-mini\n  provider: yaml-provider\n"), 0600); err != nil {
-			t.Fatalf("write yaml: %v", err)
-		}
-
-		cfg, err := LoadWithEnv(path)
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-
-		if got, want := cfg.Model.Provider, "anthropic"; got != want {
-			t.Fatalf("provider from env override = %q, want %q", got, want)
-		}
-	})
-
-	t.Run("accepts anthropic config with blank model url", func(t *testing.T) {
-		clearEnv(t)
-		t.Setenv("MSCLI_PROVIDER", "anthropic")
-		t.Setenv("ANTHROPIC_AUTH_TOKEN", "anthropic-key")
-
-		dir := t.TempDir()
-		path := filepath.Join(dir, "mscli.yaml")
-
-		if err := os.WriteFile(path, []byte("model:\n  model: gpt-4o-mini\n  provider: anthropic\n  url: \"\"\n"), 0600); err != nil {
-			t.Fatalf("write yaml: %v", err)
-		}
-
-		cfg, err := LoadWithEnv(path)
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-
-		if got, want := cfg.Model.URL, ""; got != want {
-			t.Fatalf("model url from blank yaml = %q, want %q", got, want)
-		}
-	})
 }
 
 func TestLoadWithEnvRejectsWhitespaceOnlyModel(t *testing.T) {
 	clearEnv(t)
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mscli.yaml")
+	path := filepath.Join(dir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 
 	if err := os.WriteFile(path, []byte("model:\n  model: \"   \"\n"), 0600); err != nil {
 		t.Fatalf("write yaml: %v", err)
 	}
 
-	_, err := LoadWithEnv(path)
+	t.Chdir(dir)
+	_, err := LoadWithEnv()
 	if err == nil {
 		t.Fatal("LoadWithEnv() error = nil, want validation error for whitespace-only model")
 	}
@@ -129,13 +162,17 @@ func TestLoadWithEnvRejectsUnsupportedProvider(t *testing.T) {
 	clearEnv(t)
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "mscli.yaml")
+	path := filepath.Join(dir, ".mscli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
 
 	if err := os.WriteFile(path, []byte("model:\n  model: gpt-4o-mini\n  provider: unsupported\n"), 0600); err != nil {
 		t.Fatalf("write yaml: %v", err)
 	}
 
-	_, err := LoadWithEnv(path)
+	t.Chdir(dir)
+	_, err := LoadWithEnv()
 	if err == nil {
 		t.Fatal("LoadWithEnv() error = nil, want validation error for unsupported provider")
 	}
@@ -147,11 +184,13 @@ func clearEnv(t *testing.T) {
 	for _, key := range []string{
 		"MSCLI_PROVIDER",
 		"MSCLI_API_KEY",
+		"MSCLI_BASE_URL",
+		"MSCLI_MODEL",
 		"OPENAI_API_KEY",
+		"OPENAI_MODEL",
+		"OPENAI_BASE_URL",
 		"ANTHROPIC_AUTH_TOKEN",
 		"ANTHROPIC_API_KEY",
-		"MSCLI_BASE_URL",
-		"OPENAI_BASE_URL",
 		"ANTHROPIC_BASE_URL",
 	} {
 		t.Setenv(key, "")

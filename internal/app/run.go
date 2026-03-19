@@ -19,7 +19,6 @@ const provideAPIKeyFirstMsg = "provide api key first"
 func Run(args []string) error {
 	fs := flag.NewFlagSet("ms-cli", flag.ContinueOnError)
 	demo := fs.Bool("demo", false, "Run in demo mode")
-	configPath := fs.String("config", "", "Path to config file")
 	url := fs.String("url", "", "OpenAI-compatible base URL")
 	modelFlag := fs.String("model", "", "Model name")
 	apiKey := fs.String("api-key", "", "API key")
@@ -29,11 +28,10 @@ func Run(args []string) error {
 	}
 
 	app, err := Wire(BootstrapConfig{
-		Demo:       *demo,
-		ConfigPath: *configPath,
-		URL:        *url,
-		Model:      *modelFlag,
-		Key:        *apiKey,
+		Demo:  *demo,
+		URL:   *url,
+		Model: *modelFlag,
+		Key:   *apiKey,
 	})
 	if err != nil {
 		return err

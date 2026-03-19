@@ -43,7 +43,6 @@ type Application struct {
 	toolRegistry *tools.Registry
 	ctxManager   *agentctx.Manager
 	permService  permission.PermissionService
-	stateManager *configs.StateManager
 	traceWriter  trace.Writer
 
 	// Train mode state
@@ -63,37 +62,24 @@ type Application struct {
 
 // BootstrapConfig holds bootstrap configuration.
 type BootstrapConfig struct {
-	Demo       bool
-	ConfigPath string
-	URL        string
-	Model      string
-	Key        string
+	Demo  bool
+	URL   string
+	Model string
+	Key   string
 }
 
 // Wire builds and returns the Application.
 func Wire(cfg BootstrapConfig) (*Application, error) {
-	configPath := cfg.ConfigPath
-	if configPath == "" {
-		configPath = configs.FindConfigFile()
-	}
-
-	config, err := configs.LoadWithEnv(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("load config: %w", err)
-	}
-
 	workDir, err := os.Getwd()
 	if err != nil {
 		workDir = "."
 	}
 	workDir, _ = filepath.Abs(workDir)
 
-	stateManager := configs.NewStateManager(workDir)
-	if err := stateManager.Load(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load state: %v\n", err)
+	config, err := configs.LoadWithEnv()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
 	}
-	stateManager.ApplyToConfig(config)
-	configs.ApplyEnvOverrides(config)
 
 	if cfg.URL != "" {
 		config.Model.URL = cfg.URL
@@ -163,7 +149,6 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		toolRegistry: toolRegistry,
 		ctxManager:   ctxManager,
 		permService:  permService,
-		stateManager: stateManager,
 		traceWriter:  traceWriter,
 		llmReady:     llmReady,
 	}, nil
@@ -216,23 +201,12 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 	a.Engine = newEngine
 	a.provider = provider
 
-	if a.stateManager != nil {
-		a.stateManager.SaveFromConfig(a.Config)
-		if err := a.stateManager.Save(); err != nil {
-			return fmt.Errorf("save state: %w", err)
-		}
-	}
-
 	return nil
 }
 
 // SaveState saves current configuration to persistent state.
 func (a *Application) SaveState() error {
-	if a.stateManager == nil {
-		return nil
-	}
-	a.stateManager.SaveFromConfig(a.Config)
-	return a.stateManager.Save()
+	return nil
 }
 
 func initProvider(cfg configs.ModelConfig, opts providerpkg.ResolveOptions) (llm.Provider, error) {

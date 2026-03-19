@@ -3,7 +3,6 @@ package app
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -147,11 +146,7 @@ func (a *Application) showCurrentModel() {
 	}
 
 	apiKeyStatus := "not set"
-	if a.Config.Model.Key != "" ||
-		os.Getenv("MSCLI_API_KEY") != "" ||
-		os.Getenv("OPENAI_API_KEY") != "" ||
-		os.Getenv("ANTHROPIC_AUTH_TOKEN") != "" ||
-		os.Getenv("ANTHROPIC_API_KEY") != "" {
+	if strings.TrimSpace(a.Config.Model.Key) != "" {
 		apiKeyStatus = "set"
 	}
 
@@ -420,12 +415,9 @@ Environment Variables:
   MSCLI_BASE_URL          Base URL
   MSCLI_MODEL             Default model
   MSCLI_API_KEY           API key
-  OPENAI_BASE_URL         Base URL (fallback)
-  OPENAI_MODEL            Model (fallback)
-  OPENAI_API_KEY          API key (fallback)
-  ANTHROPIC_BASE_URL      Base URL (anthropic)
-  ANTHROPIC_AUTH_TOKEN    API key (anthropic, preferred)
-  ANTHROPIC_API_KEY       API key (anthropic fallback)`
+  MSCLI_TEMPERATURE       Temperature
+  MSCLI_MAX_TOKENS        Max completion tokens
+  MSCLI_TIMEOUT           Request timeout seconds`
 
 	a.EventCh <- model.Event{Type: model.AgentReply, Message: helpText}
 }

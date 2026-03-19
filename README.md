@@ -9,7 +9,6 @@ Current documentation in [`docs/`](docs/) is split into:
 - shared repository policy: [`docs/ai/contributor-guide.md`](docs/ai/contributor-guide.md)
 - current architecture references:
   - [`docs/arch.md`](docs/arch.md)
-  - [`docs/ms-cli-arch.md`](docs/ms-cli-arch.md)
 - active refactor and workstream plans:
   - [`docs/ms-cli-refactor.md`](docs/ms-cli-refactor.md)
   - [`docs/ms-skills-update-plan.md`](docs/ms-skills-update-plan.md)
@@ -57,9 +56,6 @@ go run ./cmd/ms-cli
 # Select URL and model
 ./ms-cli --url https://api.openai.com/v1 --model gpt-4o
 
-# Use custom config file
-./ms-cli --config /path/to/config.yaml
-
 # Set API key directly
 ./ms-cli --api-key sk-xxx
 ```
@@ -74,7 +70,17 @@ go run ./cmd/ms-cli
 
 Provider routing is fully configuration-driven (no runtime protocol probing).
 
-### Config file (`mscli.yaml`)
+### Config files
+
+Layered merge (low -> high):
+
+1. built-in defaults
+2. user config: `~/.mscli/config.yaml`
+3. project config: `./.mscli/config.yaml`
+4. environment variables: `MSCLI_*`
+5. session overrides (`/model` in current process only, not persisted)
+
+Each higher layer overrides only the fields it sets.
 
 ```yaml
 model:
@@ -84,29 +90,26 @@ model:
   key: ""
 ```
 
-### Environment variable precedence
+### Environment variables
 
-- Provider: `MSCLI_PROVIDER` > `model.provider` > default `openai-compatible`
-- API key:
-  - `openai` / `openai-compatible`: `MSCLI_API_KEY` > `OPENAI_API_KEY` > `model.key`
-  - `anthropic`: `ANTHROPIC_AUTH_TOKEN` > `ANTHROPIC_API_KEY` > `model.key`
-- Base URL:
-  - all providers: `MSCLI_BASE_URL` (highest)
-  - `openai` / `openai-compatible`: then `OPENAI_BASE_URL`
-  - `anthropic`: then `ANTHROPIC_BASE_URL`
-  - then `model.url`
-  - then provider default:
-    - OpenAI/OpenAI-compatible: `https://api.openai.com/v1`
-    - Anthropic: `https://api.anthropic.com/v1/messages`
+Use unified `MSCLI_*` names:
 
-CLI flags `--api-key` and `--url` are explicit runtime overrides for the current run.
+- `MSCLI_PROVIDER`
+- `MSCLI_MODEL`
+- `MSCLI_API_KEY`
+- `MSCLI_BASE_URL`
+- `MSCLI_TEMPERATURE`
+- `MSCLI_MAX_TOKENS`
+- `MSCLI_TIMEOUT`
+
+CLI flags `--api-key`, `--url`, `--model` are startup overrides for the current run.
 
 ### Use OpenAI API
 
 ```bash
 export MSCLI_PROVIDER=openai
-export OPENAI_API_KEY=sk-...
-export OPENAI_MODEL=gpt-4o-mini
+export MSCLI_API_KEY=sk-...
+export MSCLI_MODEL=gpt-4o-mini
 ./ms-cli
 ```
 
@@ -114,7 +117,7 @@ export OPENAI_MODEL=gpt-4o-mini
 
 ```bash
 export MSCLI_PROVIDER=anthropic
-export ANTHROPIC_AUTH_TOKEN=sk-ant-...
+export MSCLI_API_KEY=sk-ant-...
 export MSCLI_MODEL=claude-3-5-sonnet
 ./ms-cli
 ```
@@ -125,8 +128,8 @@ OpenRouter uses an OpenAI-compatible interface, so set provider to `openai-compa
 
 ```bash
 export MSCLI_PROVIDER=openai-compatible
-export OPENAI_API_KEY=sk-or-...
-export OPENAI_BASE_URL=https://openrouter.ai/api/v1
+export MSCLI_API_KEY=sk-or-...
+export MSCLI_BASE_URL=https://openrouter.ai/api/v1
 export MSCLI_MODEL=anthropic/claude-3.5-sonnet
 ./ms-cli
 ```
@@ -144,8 +147,7 @@ Inside CLI:
 
 ## Repository Structure
 
-See [`docs/arch.md`](docs/arch.md) and [`docs/ms-cli-arch.md`](docs/ms-cli-arch.md)
-for the current architecture and package map.
+See [`docs/arch.md`](docs/arch.md) for the current architecture and package map.
 
 The repository is under active refactor, so this README intentionally does not
 duplicate a full package tree. Use the linked architecture docs above as the

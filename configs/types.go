@@ -110,12 +110,12 @@ func DefaultConfig() *Config {
 			Provider:    "openai-compatible",
 			Model:       "gpt-4o-mini",
 			Temperature: 0.7,
-			MaxTokens:   4096,
+			MaxTokens:   240000,
 			TimeoutSec:  180, // 3 minutes for longer conversations
 			Headers:     make(map[string]string),
 		},
 		Budget: BudgetConfig{
-			MaxTokens:  32768,
+			MaxTokens:  240000,
 			MaxCostUSD: 10.0,
 			DailyLimit: 0,
 		},
@@ -133,7 +133,7 @@ func DefaultConfig() *Config {
 			BlockedTools: []string{},
 		},
 		Context: ContextConfig{
-			MaxTokens:           24000,
+			MaxTokens:           240000,
 			ReserveTokens:       4000,
 			CompactionThreshold: 0.85,
 			MaxHistoryRounds:    10,

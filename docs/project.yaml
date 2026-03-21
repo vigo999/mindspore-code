@@ -1,65 +1,74 @@
-top_msg: this is ms-cli project status
-top_msg_color: blue
-
 overview:
   project: mindspore ai infra agent
   color: blue
-  phase: refactor / dogfood
-  owner: vigo999
-  focus: project status stream card
+  phase: demo / dogfood
+  owner: wei
   repo: http://github.com/vigo999/ms-cli
-
+  branch: refactor-arch-4
 milestones:
   color: blue
   items:
-    - title: release v0.1 version on 330
+    - title: Enable five independently operable skills across cc/codex/mscli
       color: magenta
-      progress: 70
+      progress: "30"
       progress_color: magenta
-      empty_color: gray
-      owner: weizheng
-
+    - title: release v0.1 version in 330
+      color: magenta
+      progress: '40'
+      progress_color: magenta
 tasks:
   color: blue
-  date: 2026-03-19
   items:
     - title: train HUD switched to shared chat layout
       color: green
       status: done
       progress: 100
       progress_color: green
-      empty_color: gray
-      due-date: 03-18
       owner: weizheng
-    - title: /project renders as stream snapshot
+    - title: mscli /project cmd to refresh dev status
       color: green
       status: done
       progress: 100
       progress_color: green
-      empty_color: gray
       owner: weizheng
-    - title: wire editable docs/project.yaml data
-      color: white
-      status: doing
-      progress: 80
-      progress_color: yellow
-      empty_color: gray
-      owner: weizheng
-
-tomorrow:
+    - title: Enable setup-agent as an independently operable skill
+      owner: haochen
+      progress: "0"
+      due-date: 03-21
+    - title: Enable failure-agent as an indenpendently operable skill
+      owner: xinwen
+      progress: "0"
+      due-date: 03-21
+    - title: Enable acc-agent as an indenpendently operable skill
+      owner: shengqi
+      progress: "0"
+      due-date: 03-21
+    - title: Enable algo-feaure agent as an indenpendently operable skill
+      owner: huiyao
+      progress: "0"
+      due-date: 03-21
+    - title: unified naming and routing for op-agent skills
+      owner: zhihui/zhilan
+      progress: "0"
+      due-date: 03-21
+    - title: mscli factory loading
+      owner: weixi
+      due-date: 03-21
+      progress: "0"
+todo:
   color: blue
   items:
-    - title: define richer project schema if needed
+    - title: mscli rlease feature
       color: gray
       status: todo
       progress: 0
-      progress_color: cyan
-      empty_color: gray
-      owner: fzl
-    - title: split boss view vs dev view
+      owner: wei
+    - title: mscli diagnose and fix cmd routing
       color: gray
       status: todo
       progress: 0
-      progress_color: cyan
-      empty_color: gray
-      owner: fzl
+      owner: wei
+    - title: mscli /factory cmd
+      color: gray
+      progress: "0"
+      owner: wei

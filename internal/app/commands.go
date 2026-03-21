@@ -42,7 +42,7 @@ func (a *Application) handleCommand(input string) {
 	case "/train":
 		a.cmdTrain(parts[1:])
 	case "/project":
-		a.cmdProject(parts[1:])
+		a.cmdProjectInput(strings.TrimSpace(strings.TrimPrefix(input, "/project")))
 	case "/mouse":
 		a.cmdMouse(parts[1:])
 	case "/skill":
@@ -438,6 +438,9 @@ func (a *Application) cmdHelp() {
   /train <model> <method> Start train workflow (e.g. /train qwen3 lora)
   /train <action>         Control active train HUD (start, stop, analyze, apply fix, retry, view diff, exit)
   /project [status]        Show a formatted project status snapshot in the chat stream
+  /project add ...         Add a task to docs/project.yaml
+  /project update ...      Update a task in docs/project.yaml
+  /project rm ...          Remove a task from docs/project.yaml
   /roadmap status [path]  Check roadmap status (default: roadmap.yaml)
   /weekly status [path]   Check weekly update status (default: weekly.md)
   /model [model-name]     Show or switch model

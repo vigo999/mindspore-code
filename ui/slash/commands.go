@@ -178,8 +178,8 @@ func (r *Registry) registerDefaults() {
 
 	r.Register(Command{
 		Name:        "/project",
-		Description: "Show a formatted project status snapshot",
-		Usage:       "/project [status]",
+		Description: "Show or edit project status data",
+		Usage:       "/project [status|add|update|rm]",
 	})
 
 	r.Register(Command{

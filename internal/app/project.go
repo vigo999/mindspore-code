@@ -915,10 +915,12 @@ func normalizeTaskStatus(status string) string {
 		return "done"
 	case "block", "blocked":
 		return "block"
+	case "todo", "pending", "not_started", "not-started":
+		return "todo"
 	case "doing", "in_progress", "in-progress":
 		return "doing"
 	default:
-		return "doing"
+		return ""
 	}
 }
 
@@ -1407,7 +1409,7 @@ func renderStructuredProjectItem(node *yaml.Node, indent string, widths projectS
 	titleText := fmt.Sprintf("%-*s", widths.Title, title)
 	switch sectionKind {
 	case projectSectionTasks:
-		if pct, ok := parsePercent(progress); ok && pct > 0 {
+		if pct, ok := parsePercent(progress); ok && pct >= 100 {
 			titleText = applyProjectStyle(titleText, "green", false)
 		}
 	case projectSectionMilestones:
@@ -1446,12 +1448,13 @@ func renderStructuredProjectItem(node *yaml.Node, indent string, widths projectS
 			barFilled = "magenta"
 			barEmpty = "gray"
 		case projectSectionTasks:
-			if pct > 0 {
+			if pct >= 100 {
 				barFilled = "green"
 				barEmpty = "gray"
 			} else {
-				barFilled = ""
-				barEmpty = "gray"
+				if strings.TrimSpace(barEmpty) == "" {
+					barEmpty = "gray"
+				}
 			}
 		}
 		pctText := fmt.Sprintf("%3d%%", pct)
@@ -1620,14 +1623,21 @@ func projectTaskTitleWidth(tasks []projectTask) int {
 }
 
 func taskStatusMarker(sectionKind, status string, progress int) string {
+	normalized := normalizeTaskStatus(status)
 	switch sectionKind {
 	case projectSectionMilestones:
 		return ""
 	case projectSectionTodo:
 		return "○"
 	default:
-		if normalizeTaskStatus(status) == "done" || progress >= 100 {
+		if normalized == "done" || progress >= 100 {
 			return "✓"
+		}
+		if normalized == "block" {
+			return "!"
+		}
+		if normalized == "todo" || progress <= 0 {
+			return "○"
 		}
 		return "▶"
 	}

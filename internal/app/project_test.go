@@ -159,8 +159,8 @@ phases:
 		"implement collector",
 		applyProjectStyle("stream card v1", "magenta", false),
 		applyProjectStyle("100%", "green", false) + "  owner: travis",
-		applyProjectStyle(" 60%", "green", false) + "  owner: verylongowner",
-		applyProjectStyle(" 25%", "green", false) + "  owner: alice",
+		applyProjectStyle(" 60%", "yellow", false) + "  owner: verylongowner",
+		applyProjectStyle(" 25%", "red", false) + "  owner: alice",
 		applyProjectStyle("  0%", "cyan", false) + "  owner: travis",
 		applyProjectStyle(" 20%", "cyan", false) + "  owner: travis",
 		applyProjectStyle(" 78%", "magenta", false) + "  owner: travis",
@@ -179,15 +179,28 @@ phases:
 		applyProjectStyle("[ OVERVIEW ]", "white", true),
 		"\x1b[38;5;34m■\x1b[0m",
 		applyProjectStyle("✓", "green", false),
+		"○",
+		"!",
 		"▶",
 		applyProjectStyle("100%", "green", false),
-		applyProjectStyle(" 60%", "green", false),
+		applyProjectStyle(" 60%", "yellow", false),
+		applyProjectStyle(" 25%", "red", false),
 		applyProjectStyle(" 78%", "magenta", false),
 		"\x1b[38;5;201m■\x1b[0m",
+		"\x1b[38;5;220m■\x1b[0m",
+		"\x1b[38;5;196m■\x1b[0m",
 		"\x1b[38;5;244m□\x1b[0m",
 	} {
 		if !strings.Contains(ev.Message, want) {
 			t.Fatalf("expected progress bar color fragment %q, got:\n%s", want, ev.Message)
+		}
+	}
+	for _, unwanted := range []string{
+		applyProjectStyle(" 60%", "green", false),
+		applyProjectStyle(" 25%", "green", false),
+	} {
+		if strings.Contains(ev.Message, unwanted) {
+			t.Fatalf("expected project snapshot to avoid forced green partial progress %q, got:\n%s", unwanted, ev.Message)
 		}
 	}
 	if strings.Contains(ev.Message, "week goals") {

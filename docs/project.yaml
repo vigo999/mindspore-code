@@ -2,9 +2,9 @@ overview:
   project: mindspore ai infra agent
   color: blue
   phase: demo / dogfood
-  owner: wei
+  owner: victor
   repo: http://github.com/vigo999/ms-cli
-  branch: refactor-arch-4
+  branch: refactor-arch-4.1
 milestones:
   color: blue
   items:
@@ -19,56 +19,66 @@ milestones:
 tasks:
   color: blue
   items:
+    - title: update perf-agent skills
+      progress: "40"
+      owner: shengqi
+      due: 03-21
+    - title: Enable setup-agent as an independently operable skill
+      owner: haochen
+      progress: "40"
+      due: 03-21
+    - title: Enable failure-agent as an indenpendently operable skill
+      owner: xinwen
+      progress: "40"
+      due: 03-21
+    - title: Enable acc-agent as an indenpendently operable skill
+      owner: shengqi
+      progress: "40"
+      due: 03-21
+    - title: Enable algo-feaure agent as an indenpendently operable skill
+      owner: huiyao
+      progress: "40"
+      due: 03-21
+    - title: unified naming and routing for op-agent skills
+      owner: zhihui/zhilan
+      progress: "40"
+      due: 03-21
+    - title: mscli factory loading
+      owner: victor
+      due: 03-21
+      progress: "0"
+    - title: mscli rlease feature
+      color: gray
+      status: todo
+      progress: 0
+      owner: victor
+      due: 03-23
+    - title: mscli diagnose and fix cmd routing
+      color: gray
+      status: todo
+      progress: 0
+      owner: victor
+      due: 03-23
+    - title: mscli /factory cmd
+      color: gray
+      progress: "0"
+      owner: victor
+      due: 03-23
     - title: train HUD switched to shared chat layout
       color: green
       status: done
       progress: 100
       progress_color: green
-      owner: weizheng
+      owner: victor
     - title: mscli /project cmd to refresh dev status
       color: green
       status: done
       progress: 100
       progress_color: green
-      owner: weizheng
-    - title: Enable setup-agent as an independently operable skill
-      owner: haochen
-      progress: "0"
-      due-date: 03-21
-    - title: Enable failure-agent as an indenpendently operable skill
-      owner: xinwen
-      progress: "0"
-      due-date: 03-21
-    - title: Enable acc-agent as an indenpendently operable skill
-      owner: shengqi
-      progress: "0"
-      due-date: 03-21
-    - title: Enable algo-feaure agent as an indenpendently operable skill
-      owner: huiyao
-      progress: "0"
-      due-date: 03-21
-    - title: unified naming and routing for op-agent skills
-      owner: zhihui/zhilan
-      progress: "0"
-      due-date: 03-21
-    - title: mscli factory loading
-      owner: weixi
-      due-date: 03-21
-      progress: "0"
-todo:
+      owner: victor
+support:
   color: blue
   items:
-    - title: mscli rlease feature
-      color: gray
-      status: todo
-      progress: 0
-      owner: wei
-    - title: mscli diagnose and fix cmd routing
-      color: gray
-      status: todo
-      progress: 0
-      owner: wei
-    - title: mscli /factory cmd
-      color: gray
-      progress: "0"
-      owner: wei
+    - support platform issue triage
+    - project status snapshot
+    - train workflow demo

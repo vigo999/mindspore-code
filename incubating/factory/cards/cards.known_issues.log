@@ -1,0 +1,57 @@
+2026-03-21 | known_issues | first failure batch
+
+Summary:
+- Added the first failure-oriented Factory `known_issue` batch from the
+  current `failure-agent` fallback knowledge.
+- Expanded `known_issues` in `manifests/pack.yaml` from 3 to 9 cards.
+
+Selection rationale:
+- Prioritized high-frequency, low-ambiguity, reusable runtime failures.
+- Preferred entries with stable signatures and conservative fixes.
+- Deferred test-framework-specific, hardware-fault-only, and long-tail
+  backend cases to later batches.
+
+Added cards:
+- `missing-cann-environment`
+  - Ascend/CANN environment or library setup missing at import/startup time
+  - file: `known_issues/missing-cann-environment.yaml`
+
+- `device-out-of-memory`
+  - device-side memory exhaustion across Ascend and GPU
+  - file: `known_issues/device-out-of-memory.yaml`
+
+- `distributed-communication-timeout`
+  - distributed HCCL communication timeout or rank progress mismatch
+  - file: `known_issues/distributed-communication-timeout.yaml`
+
+- `ms-context-empty`
+  - MindSpore Ascend runtime context not initialized before execution
+  - file: `known_issues/ms-context-empty.yaml`
+
+- `ms-tbe-operator-compilation-error`
+  - MindSpore Ascend TBE operator compilation failure
+  - file: `known_issues/ms-tbe-operator-compilation-error.yaml`
+
+- `stack-version-mismatch`
+  - ABI or compatibility mismatch after partial stack upgrades
+  - file: `known_issues/stack-version-mismatch.yaml`
+
+Deferred candidates:
+- `feature-or-operator-not-supported`
+  - useful, but currently more ambiguous and overlaps with mode/shape/dtype
+    precondition failures
+- `pta-cann-inner-error`
+  - useful, but still broad as an early shared Factory card
+- `ai-core-execution-timeout`
+  - kept in fallback knowledge first because timeout sources are still broad
+- `hbm-ecc-error`
+  - operationally clear, but more hardware-health-oriented than software triage
+
+Manifest impact:
+- updated `incubating/factory/manifests/pack.yaml`
+- `card_count.known_issues: 3 -> 9`
+- appended 6 `known_issue` entries to the `cards:` list
+
+Validation:
+- Parsed all `incubating/factory/cards/known_issues/*.yaml`
+- Verified `pack.yaml` known-issue count matches actual files and manifest entries

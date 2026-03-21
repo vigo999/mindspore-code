@@ -3,7 +3,7 @@ channel: stable
 created_at: "2026-03-19"
 card_count:
   operators: 6
-  known_issues: 3
+  known_issues: 9
   perf_features: 9
   algo_features: 9
   models: 1
@@ -17,6 +17,12 @@ cards:
   - { id: dsa-torch27-ascend, kind: known_issue, path: known_issues/dsa-torch27-ascend.yaml }
   - { id: fp16-softmax-drift, kind: known_issue, path: known_issues/fp16-softmax-drift.yaml }
   - { id: cann-flash-attn-version, kind: known_issue, path: known_issues/cann-flash-attn-version.yaml }
+  - { id: missing-cann-environment, kind: known_issue, path: known_issues/missing-cann-environment.yaml }
+  - { id: device-out-of-memory, kind: known_issue, path: known_issues/device-out-of-memory.yaml }
+  - { id: distributed-communication-timeout, kind: known_issue, path: known_issues/distributed-communication-timeout.yaml }
+  - { id: ms-context-empty, kind: known_issue, path: known_issues/ms-context-empty.yaml }
+  - { id: ms-tbe-operator-compilation-error, kind: known_issue, path: known_issues/ms-tbe-operator-compilation-error.yaml }
+  - { id: stack-version-mismatch, kind: known_issue, path: known_issues/stack-version-mismatch.yaml }
   - { id: fused-adam, kind: perf_feature, path: perf_features/fused-adam.yaml }
   - { id: flash-attn-v2, kind: perf_feature, path: perf_features/flash-attn-v2.yaml }
   - { id: gradient-ckpt, kind: perf_feature, path: perf_features/gradient-ckpt.yaml }

@@ -1,0 +1,21 @@
+kind: known_issue
+id: stack-version-mismatch
+symptom: failure
+severity: high
+lifecycle:
+  state: stable
+source:
+  kind: bootstrap
+confidence:
+  level: bootstrap
+tags: [version, compatibility, abi, symbol, ascend]
+affects_platforms: [ascend]
+detection:
+  pattern: "symbol not found|ABI mismatch|version mismatch|import fails after upgrade|compatibility"
+description: |
+  Runtime components were installed from incompatible version sets, so
+  symbols, kernels, or registrations expected by one layer are missing in
+  another. The issue commonly appears after upgrading only part of the
+  stack, such as torch_npu, MindSpore, PyTorch, or CANN.
+fix:
+  summary: Rebuild or reinstall the runtime stack with an explicitly compatible version matrix instead of mixing independently upgraded components.

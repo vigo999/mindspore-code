@@ -1,0 +1,21 @@
+kind: known_issue
+id: missing-cann-environment
+symptom: failure
+severity: high
+lifecycle:
+  state: stable
+source:
+  kind: bootstrap
+confidence:
+  level: bootstrap
+tags: [cann, environment, ascend, import, setup]
+affects_platforms: [ascend]
+detection:
+  pattern: "libascendcl\\.so not found|libhccl\\.so not found|ASCEND_OPP_PATH|cannot find CANN"
+description: |
+  Runtime initialization fails on Ascend because required CANN libraries
+  or environment variables are missing, unset, or point to an incomplete
+  toolkit installation. The failure usually appears during import or
+  startup before model execution begins.
+fix:
+  summary: Source the Ascend toolkit environment script, verify the CANN installation, and re-check required Ascend environment variables before retrying.

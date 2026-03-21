@@ -1,0 +1,20 @@
+kind: known_issue
+id: device-out-of-memory
+symptom: failure
+severity: high
+lifecycle:
+  state: stable
+source:
+  kind: bootstrap
+confidence:
+  level: bootstrap
+tags: [oom, memory, allocation, ascend, gpu]
+affects_platforms: [ascend, gpu]
+detection:
+  pattern: "EL0004|FAIL_TO_ALLOCATE_MEMORY|200000|207018|out of memory|CUDA out of memory"
+description: |
+  Device memory is exhausted by model size, batch size, fragmentation, or
+  competing workloads on the same accelerator. The failure is a common
+  first-line runtime issue on both Ascend and GPU training jobs.
+fix:
+  summary: Reduce memory pressure first by lowering batch size, enabling recompute or checkpointing, and clearing stale cached memory before deeper debugging.

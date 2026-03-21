@@ -1,0 +1,21 @@
+kind: known_issue
+id: ms-tbe-operator-compilation-error
+symptom: failure
+severity: high
+lifecycle:
+  state: stable
+source:
+  kind: bootstrap
+confidence:
+  level: bootstrap
+tags: [mindspore, ascend, tbe, compile, kernel, ub]
+affects_platforms: [ascend]
+detection:
+  pattern: "TBE|compile failed|E9[0-9A-Z]+|EB[0-9A-Z]+|UB overflow|operator compilation"
+description: |
+  MindSpore fails while compiling a TBE operator on Ascend because the
+  input shape, dtype, or backend toolchain path violates kernel-generation
+  constraints. The signature often points to backend compile-time limits
+  rather than frontend API misuse.
+fix:
+  summary: Recheck the operator input shape and dtype against backend limits, then validate whether the current CANN stack supports that compilation path before forcing fallback behavior.

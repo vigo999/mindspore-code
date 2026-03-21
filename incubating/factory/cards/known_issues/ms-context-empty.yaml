@@ -1,0 +1,20 @@
+kind: known_issue
+id: ms-context-empty
+symptom: failure
+severity: high
+lifecycle:
+  state: stable
+source:
+  kind: bootstrap
+confidence:
+  level: bootstrap
+tags: [mindspore, context, initialization, runtime, ascend]
+affects_platforms: [ascend]
+detection:
+  pattern: "107002|context is empty|aclrtSetContext|aclrtSetDevice"
+description: |
+  Ascend runtime APIs are called before MindSpore establishes a valid
+  device context for the current process. The failure usually reflects
+  incorrect initialization order rather than an operator or kernel bug.
+fix:
+  summary: Ensure context initialization happens before tensor or operator execution and verify device setup runs exactly once in the expected startup path.

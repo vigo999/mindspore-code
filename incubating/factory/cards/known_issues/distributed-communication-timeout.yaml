@@ -1,0 +1,21 @@
+kind: known_issue
+id: distributed-communication-timeout
+symptom: failure
+severity: high
+lifecycle:
+  state: stable
+source:
+  kind: bootstrap
+confidence:
+  level: bootstrap
+tags: [hccl, distributed, timeout, communication, ascend]
+affects_platforms: [ascend]
+detection:
+  pattern: "HCCL|EI0002|EI0006|107020|notify wait|socket build|times out"
+description: |
+  Distributed execution stalls or aborts because ranks do not make
+  matching progress, network setup is broken, or the communication layer
+  times out during collective execution. The same signature often appears
+  when one rank exits early or startup ordering is inconsistent.
+fix:
+  summary: Verify rank configuration, startup ordering, and network reachability first, then re-check timeout settings and whether one rank exits early.

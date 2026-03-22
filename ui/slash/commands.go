@@ -165,12 +165,6 @@ func (r *Registry) registerDefaults() {
 	})
 
 	r.Register(Command{
-		Name:        "/mouse",
-		Description: "Toggle mouse wheel scrolling",
-		Usage:       "/mouse [on|off|toggle|status]",
-	})
-
-	r.Register(Command{
 		Name:        "/train",
 		Description: "Start or control the train HUD workflow",
 		Usage:       "/train <model> <method> | /train <action>",

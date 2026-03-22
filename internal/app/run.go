@@ -40,6 +40,10 @@ func Run(args []string) error {
 
 // run starts the TUI.
 func (a *Application) run() error {
+	go cleanUpdateTmp()
+	if checkAndPromptUpdate() {
+		return nil // user updated, exit so they restart
+	}
 	if closer, ok := a.traceWriter.(interface{ Close() error }); ok {
 		defer closer.Close()
 	}
@@ -49,7 +53,7 @@ func (a *Application) run() error {
 func (a *Application) runReal() error {
 	userCh := make(chan string, 8)
 	tui := ui.New(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.MaxTokens)
-	p := tea.NewProgram(tui, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	p := tea.NewProgram(tui, tea.WithAltScreen())
 
 	go a.inputLoop(userCh)
 
@@ -117,26 +121,26 @@ func (a *Application) runTask(description string) {
 	}
 }
 
+var loopEventTypeMap = map[string]model.EventType{
+	"ToolCallStart": model.ToolCallStart,
+	"AgentReply":    model.AgentReply,
+	"AgentThinking": model.AgentThinking,
+	"ToolRead":      model.ToolRead,
+	"ToolGrep":      model.ToolGrep,
+	"ToolGlob":      model.ToolGlob,
+	"ToolEdit":      model.ToolEdit,
+	"ToolWrite":     model.ToolWrite,
+	"ToolSkill":     model.ToolSkill,
+	"ToolError":     model.ToolError,
+	"CmdStarted":    model.CmdStarted,
+	"AnalysisReady": model.AnalysisReady,
+	"TokenUpdate":   model.TokenUpdate,
+	"TaskFailed":    model.ToolError,
+}
+
 // convertLoopEvent maps loop.Event -> UI model.Event.
 func convertLoopEvent(ev loop.Event) *model.Event {
-	typeMap := map[string]model.EventType{
-		"ToolCallStart": model.ToolCallStart,
-		"AgentReply":    model.AgentReply,
-		"AgentThinking": model.AgentThinking,
-		"ToolRead":      model.ToolRead,
-		"ToolGrep":      model.ToolGrep,
-		"ToolGlob":      model.ToolGlob,
-		"ToolEdit":      model.ToolEdit,
-		"ToolWrite":     model.ToolWrite,
-		"ToolSkill":     model.ToolSkill,
-		"ToolError":     model.ToolError,
-		"CmdStarted":    model.CmdStarted,
-		"AnalysisReady": model.AnalysisReady,
-		"TokenUpdate":   model.TokenUpdate,
-		"TaskFailed":    model.ToolError,
-	}
-
-	uiType, ok := typeMap[ev.Type]
+	uiType, ok := loopEventTypeMap[ev.Type]
 	if !ok {
 		if ev.Type == "TaskCompleted" {
 			return nil

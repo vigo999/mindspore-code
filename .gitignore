@@ -1,5 +1,6 @@
 # Binaries
 /ms-cli
+/dist/
 *.exe
 *.out
 

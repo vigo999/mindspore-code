@@ -43,8 +43,6 @@ func (a *Application) handleCommand(input string) {
 		a.cmdTrain(parts[1:])
 	case "/project":
 		a.cmdProjectInput(strings.TrimSpace(strings.TrimPrefix(input, "/project")))
-	case "/mouse":
-		a.cmdMouse(parts[1:])
 	case "/skill":
 		a.cmdSkill(parts[1:])
 	case "/help":
@@ -340,35 +338,6 @@ func (a *Application) cmdYolo() {
 	}
 }
 
-func (a *Application) cmdMouse(args []string) {
-	mode := "toggle"
-	if len(args) > 0 {
-		mode = strings.ToLower(strings.TrimSpace(args[0]))
-	}
-
-	switch mode {
-	case "on", "enable", "enabled":
-		a.EventCh <- model.Event{Type: model.MouseModeToggle, Message: "on"}
-		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Mouse scrolling enabled. Use wheel to scroll chat."}
-	case "off", "disable", "disabled":
-		a.EventCh <- model.Event{Type: model.MouseModeToggle, Message: "off"}
-		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Mouse scrolling disabled."}
-	case "toggle":
-		a.EventCh <- model.Event{Type: model.MouseModeToggle, Message: "toggle"}
-		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Mouse scrolling toggled."}
-	case "status":
-		a.EventCh <- model.Event{
-			Type:    model.AgentReply,
-			Message: "Use `/mouse on` to enable scroll wheel, `/mouse off` to disable, `/mouse toggle` to switch.",
-		}
-	default:
-		a.EventCh <- model.Event{
-			Type:    model.AgentReply,
-			Message: "Usage: /mouse [on|off|toggle|status]",
-		}
-	}
-}
-
 func (a *Application) cmdSkill(args []string) {
 	if a.skillLoader == nil {
 		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Skills not available."}
@@ -447,7 +416,6 @@ func (a *Application) cmdHelp() {
   /test                   Test API connectivity
   /permission [tool] [level]  Manage tool permissions
   /yolo                   Toggle auto-approve mode
-  /mouse [on|off|toggle|status] Toggle mouse wheel scrolling
   /exit                   Exit the application
   /compact                Compact conversation context to save tokens
   /clear                  Clear chat history

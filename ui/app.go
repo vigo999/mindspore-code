@@ -184,9 +184,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, a.ensureWaitForEvent(cmd)
 
 	case tea.MouseMsg:
-		if !a.state.MouseEnabled {
-			return a, nil
-		}
 		var cmd tea.Cmd
 		a.viewport, cmd = a.viewport.Update(msg)
 		return a, cmd
@@ -573,23 +570,6 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		mi := a.state.Model
 		mi.Name = ev.Message
 		a.state = a.state.WithModel(mi)
-
-	case model.MouseModeToggle:
-		enabled := a.state.MouseEnabled
-		switch strings.ToLower(strings.TrimSpace(ev.Message)) {
-		case "", "toggle":
-			enabled = !enabled
-		case "on", "enable", "enabled", "true", "1":
-			enabled = true
-		case "off", "disable", "disabled", "false", "0":
-			enabled = false
-		}
-		a.state = a.state.WithMouseEnabled(enabled)
-		if enabled {
-			eventCmd = tea.EnableMouseCellMotion
-		} else {
-			eventCmd = tea.DisableMouse
-		}
 
 	// ── Train events ──────────────────────────────────────────
 

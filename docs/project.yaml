@@ -16,6 +16,10 @@ milestones:
       color: magenta
       progress: '40'
       progress_color: magenta
+    - title: ms-skills v0.1 pack
+      progress: "50"
+    - title: ms-factory v0.1 pack
+      progress: "50"
 tasks:
   color: blue
   items:
@@ -82,3 +86,4 @@ support:
     - support platform issue triage
     - project status snapshot
     - train workflow demo
+    - title: support max linux windows

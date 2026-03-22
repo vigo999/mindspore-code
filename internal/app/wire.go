@@ -17,6 +17,7 @@ import (
 	providerpkg "github.com/vigo999/ms-cli/integrations/llm/provider"
 	"github.com/vigo999/ms-cli/integrations/skills"
 	itrain "github.com/vigo999/ms-cli/internal/train"
+	"github.com/vigo999/ms-cli/internal/version"
 	"github.com/vigo999/ms-cli/permission"
 	rshell "github.com/vigo999/ms-cli/runtime/shell"
 	"github.com/vigo999/ms-cli/tools"
@@ -31,7 +32,7 @@ import (
 
 var errAPIKeyNotFound = errors.New("api key not found")
 
-const Version = "MindSpore AI Infra Agent CLI. v0.2.0"
+var Version = "MindSpore AI Infra Agent CLI. " + version.Version
 
 // Application is the top-level composition container.
 type Application struct {

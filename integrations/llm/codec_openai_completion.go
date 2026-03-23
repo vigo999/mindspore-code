@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"bufio"
@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 type openAICodec struct {
@@ -18,7 +16,7 @@ func newOpenAICodec(defaultModel string) *openAICodec {
 	return &openAICodec{defaultModel: strings.TrimSpace(defaultModel)}
 }
 
-func (c *openAICodec) encodeRequest(req *llm.CompletionRequest, stream bool) (openAIChatCompletionRequest, error) {
+func (c *openAICodec) encodeRequest(req *CompletionRequest, stream bool) (openAIChatCompletionRequest, error) {
 	if req == nil {
 		return openAIChatCompletionRequest{}, fmt.Errorf("request is nil")
 	}
@@ -43,7 +41,7 @@ func (c *openAICodec) encodeRequest(req *llm.CompletionRequest, stream bool) (op
 	}, nil
 }
 
-func (c *openAICodec) encodeMessages(msgs []llm.Message) []openAIMessage {
+func (c *openAICodec) encodeMessages(msgs []Message) []openAIMessage {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -60,7 +58,7 @@ func (c *openAICodec) encodeMessages(msgs []llm.Message) []openAIMessage {
 	return result
 }
 
-func (c *openAICodec) encodeToolCalls(calls []llm.ToolCall) []openAIToolCall {
+func (c *openAICodec) encodeToolCalls(calls []ToolCall) []openAIToolCall {
 	if len(calls) == 0 {
 		return nil
 	}
@@ -79,7 +77,7 @@ func (c *openAICodec) encodeToolCalls(calls []llm.ToolCall) []openAIToolCall {
 	return result
 }
 
-func (c *openAICodec) encodeTools(tools []llm.Tool) []openAITool {
+func (c *openAICodec) encodeTools(tools []Tool) []openAITool {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -98,21 +96,21 @@ func (c *openAICodec) encodeTools(tools []llm.Tool) []openAITool {
 	return result
 }
 
-func (c *openAICodec) decodeCompletionResponse(resp openAIChatCompletionResponse) *llm.CompletionResponse {
+func (c *openAICodec) decodeCompletionResponse(resp openAIChatCompletionResponse) *CompletionResponse {
 	if len(resp.Choices) == 0 {
-		return &llm.CompletionResponse{
+		return &CompletionResponse{
 			ID:    resp.ID,
 			Model: resp.Model,
 		}
 	}
 
 	choice := resp.Choices[0]
-	result := &llm.CompletionResponse{
+	result := &CompletionResponse{
 		ID:           resp.ID,
 		Model:        resp.Model,
 		Content:      choice.Message.Content,
-		FinishReason: llm.FinishReason(choice.FinishReason),
-		Usage: llm.Usage{
+		FinishReason: FinishReason(choice.FinishReason),
+		Usage: Usage{
 			PromptTokens:     resp.Usage.PromptTokens,
 			CompletionTokens: resp.Usage.CompletionTokens,
 			TotalTokens:      resp.Usage.TotalTokens,
@@ -123,23 +121,23 @@ func (c *openAICodec) decodeCompletionResponse(resp openAIChatCompletionResponse
 		return result
 	}
 
-	result.ToolCalls = make([]llm.ToolCall, len(choice.Message.ToolCalls))
+	result.ToolCalls = make([]ToolCall, len(choice.Message.ToolCalls))
 	for i, tc := range choice.Message.ToolCalls {
-		result.ToolCalls[i] = llm.ToolCall{
+		result.ToolCalls[i] = ToolCall{
 			ID:   tc.ID,
 			Type: tc.Type,
-			Function: llm.ToolCallFunc{
+			Function: ToolCallFunc{
 				Name:      tc.Function.Name,
 				Arguments: json.RawMessage(tc.Function.Arguments),
 			},
 		}
 	}
-	result.FinishReason = llm.FinishToolCalls
+	result.FinishReason = FinishToolCalls
 
 	return result
 }
 
-func (c *openAICodec) newStreamIterator(body io.ReadCloser) llm.StreamIterator {
+func (c *openAICodec) newStreamIterator(body io.ReadCloser) StreamIterator {
 	return &openAIStreamIterator{
 		reader: bufio.NewReader(body),
 		closer: body,
@@ -159,9 +157,9 @@ type openAITool struct {
 }
 
 type openAIToolFunction struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Parameters  llm.ToolSchema `json:"parameters"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Parameters  ToolSchema `json:"parameters"`
 }
 
 type openAIToolCall struct {
@@ -244,12 +242,12 @@ type openAIStreamIterator struct {
 	reader      *bufio.Reader
 	closer      io.Closer
 	done        bool
-	accumulated llm.StreamChunk
+	accumulated StreamChunk
 	toolState   map[int]openAIToolCall
 	toolOrder   []int
 }
 
-func (it *openAIStreamIterator) Next() (*llm.StreamChunk, error) {
+func (it *openAIStreamIterator) Next() (*StreamChunk, error) {
 	if it.done {
 		return nil, io.EOF
 	}
@@ -260,7 +258,7 @@ func (it *openAIStreamIterator) Next() (*llm.StreamChunk, error) {
 			if err == io.EOF {
 				it.done = true
 				if it.accumulated.Content != "" || len(it.accumulated.ToolCalls) > 0 {
-					return &llm.StreamChunk{
+					return &StreamChunk{
 						Content:   it.accumulated.Content,
 						ToolCalls: it.accumulated.ToolCalls,
 					}, io.EOF
@@ -276,7 +274,7 @@ func (it *openAIStreamIterator) Next() (*llm.StreamChunk, error) {
 		if line == "data: [DONE]" {
 			it.done = true
 			if it.accumulated.Content != "" || len(it.accumulated.ToolCalls) > 0 {
-				return &llm.StreamChunk{
+				return &StreamChunk{
 					Content:   it.accumulated.Content,
 					ToolCalls: it.accumulated.ToolCalls,
 				}, nil
@@ -296,7 +294,7 @@ func (it *openAIStreamIterator) Next() (*llm.StreamChunk, error) {
 		}
 
 		choice := resp.Choices[0]
-		chunk := &llm.StreamChunk{
+		chunk := &StreamChunk{
 			Content: choice.Delta.Content,
 		}
 		if chunk.Content != "" {
@@ -304,15 +302,15 @@ func (it *openAIStreamIterator) Next() (*llm.StreamChunk, error) {
 		}
 		if len(choice.Delta.ToolCalls) > 0 {
 			it.applyToolCallDelta(choice.Delta.ToolCalls)
-			chunk.ToolCalls = make([]llm.ToolCall, len(it.accumulated.ToolCalls))
+			chunk.ToolCalls = make([]ToolCall, len(it.accumulated.ToolCalls))
 			copy(chunk.ToolCalls, it.accumulated.ToolCalls)
 		}
 		if choice.FinishReason != nil {
-			chunk.FinishReason = llm.FinishReason(*choice.FinishReason)
+			chunk.FinishReason = FinishReason(*choice.FinishReason)
 			it.done = true
 		}
 		if resp.Usage != nil {
-			chunk.Usage = &llm.Usage{
+			chunk.Usage = &Usage{
 				PromptTokens:     resp.Usage.PromptTokens,
 				CompletionTokens: resp.Usage.CompletionTokens,
 				TotalTokens:      resp.Usage.TotalTokens,
@@ -362,16 +360,16 @@ func (it *openAIStreamIterator) applyToolCallDelta(calls []openAIStreamToolCall)
 		it.toolState[idx] = toolCall
 	}
 
-	ordered := make([]llm.ToolCall, 0, len(it.toolOrder))
+	ordered := make([]ToolCall, 0, len(it.toolOrder))
 	for _, idx := range it.toolOrder {
 		toolCall, ok := it.toolState[idx]
 		if !ok {
 			continue
 		}
-		ordered = append(ordered, llm.ToolCall{
+		ordered = append(ordered, ToolCall{
 			ID:   toolCall.ID,
 			Type: toolCall.Type,
-			Function: llm.ToolCallFunc{
+			Function: ToolCallFunc{
 				Name:      toolCall.Function.Name,
 				Arguments: json.RawMessage(toolCall.Function.Arguments),
 			},

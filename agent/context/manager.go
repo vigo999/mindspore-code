@@ -217,6 +217,29 @@ func (m *Manager) GetNonSystemMessages() []llm.Message {
 	return result
 }
 
+// SetNonSystemMessages replaces all non-system messages.
+func (m *Manager) SetNonSystemMessages(msgs []llm.Message) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.messages = make([]llm.Message, len(msgs))
+	copy(m.messages, msgs)
+
+	if m.budget != nil {
+		m.budget.SetHistoryUsage(m.tokenizer.EstimateMessages(m.messages))
+	}
+
+	m.stats.MessageCount = len(m.messages)
+	m.stats.ToolCallCount = 0
+	for _, msg := range m.messages {
+		if msg.Role == "tool" {
+			m.stats.ToolCallCount++
+		}
+	}
+
+	m.recalculateUsage()
+}
+
 // Clear clears all messages except system prompt.
 func (m *Manager) Clear() {
 	m.mu.Lock()
@@ -353,10 +376,11 @@ func (m *Manager) compactLocked() error {
 		// 简单压缩
 		keepCount := m.config.MaxHistoryRounds * 2
 		if keepCount < len(m.messages) {
-			removed := len(m.messages) - keepCount
+			kept := keepRecentMessages(m.messages, keepCount)
+			removed := len(m.messages) - len(kept)
 			summary := fmt.Sprintf("[Earlier conversation: %d messages summarized]", removed)
 			summaryMsg := llm.NewSystemMessage(summary)
-			m.messages = append([]llm.Message{summaryMsg}, m.messages[removed:]...)
+			m.messages = append([]llm.Message{summaryMsg}, kept...)
 			m.stats.CompactCount++
 			now := time.Now()
 			m.stats.LastCompactAt = &now
@@ -381,8 +405,7 @@ func (m *Manager) emergencyCompactLocked() error {
 	}
 
 	if len(m.messages) > keepCount {
-		removed := len(m.messages) - keepCount
-		m.messages = m.messages[removed:]
+		m.messages = keepRecentMessages(m.messages, keepCount)
 		m.stats.CompactCount++
 		now := time.Now()
 		m.stats.LastCompactAt = &now
@@ -459,6 +482,6 @@ func (m *Manager) TruncateTo(count int) {
 		return
 	}
 
-	m.messages = m.messages[len(m.messages)-count:]
+	m.messages = keepRecentMessages(m.messages, count)
 	m.recalculateUsage()
 }

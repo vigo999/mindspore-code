@@ -1,4 +1,4 @@
-# Anthropic + OpenAI/OpenAI-Compatible Provider Unified Design
+# Anthropic + OpenAI Completion/Responses Provider Unified Design
 
 Date: 2026-03-19
 Status: Draft Approved by User (Conversation)
@@ -8,8 +8,8 @@ Scope: ms-cli provider architecture and protocol-path support
 
 Implement first-class, configuration-driven support for:
 
-- OpenAI
-- OpenAI-compatible
+- OpenAI Chat Completions
+- OpenAI Responses
 - Anthropic Messages API
 
 Constraints:
@@ -22,7 +22,7 @@ Constraints:
 
 ### Functional
 
-1. Support runtime routing to `openai`, `openai-compatible`, or `anthropic`.
+1. Support runtime routing to `openai-completion`, `openai-responses`, or `anthropic`.
 2. Support provider selection via config and environment variables.
 3. Support provider-specific message construction and response parsing.
 4. Support tool call roundtrip in both protocol families.
@@ -30,7 +30,7 @@ Constraints:
 
 ### Non-Functional
 
-1. Minimal behavioral regression for existing OpenAI-compatible users.
+1. Minimal behavioral regression for existing Chat Completions compatible users.
 2. Provider concerns concentrated in one module.
 3. Clear error context for diagnosis.
 4. Easy extension for future providers.
@@ -41,7 +41,7 @@ Constraints:
 
 Under `model`:
 
-- `provider`: `openai` | `openai-compatible` | `anthropic`
+- `provider`: `openai-completion` | `openai-responses` | `anthropic`
 - `url`: provider base URL
 - `key`: generic key fallback
 - `headers`: optional custom headers
@@ -49,7 +49,7 @@ Under `model`:
 
 Default in config:
 
-- `model.provider = openai-compatible`
+- `model.provider = openai-completion`
 
 ## 3.2 Resolution Priority
 
@@ -57,11 +57,11 @@ Provider resolution priority:
 
 1. `MSCLI_PROVIDER`
 2. `model.provider`
-3. default `openai-compatible`
+3. default `openai-completion`
 
 API key resolution (by resolved provider):
 
-- `openai` / `openai-compatible`:
+- `openai-completion` / `openai-responses`:
   1. `MSCLI_API_KEY`
   2. `OPENAI_API_KEY`
   3. `model.key`
@@ -88,15 +88,15 @@ The resolver must produce a fully explicit runtime transport config:
 
 Provider defaults:
 
-1. `openai`:
+1. `openai-completion`:
 - default `base_url = https://api.openai.com/v1`
 - auth header: `Authorization: Bearer <key>`
 - default endpoint path: `/chat/completions`
 
-2. `openai-compatible`:
+2. `openai-responses`:
 - default `base_url = https://api.openai.com/v1`
 - auth header: `Authorization: Bearer <key>`
-- default endpoint path: `/chat/completions`
+- default endpoint path: `/responses`
 
 3. `anthropic`:
 - default `base_url = https://api.anthropic.com/v1`
@@ -108,7 +108,7 @@ Base URL precedence (applies to all providers):
 
 1. `MSCLI_BASE_URL`
 2. provider-specific env override:
-- `OPENAI_BASE_URL` for `openai` and `openai-compatible`
+- `OPENAI_BASE_URL` for `openai-completion` and `openai-responses`
 - `ANTHROPIC_BASE_URL` for `anthropic`
 3. `model.url`
 4. provider default base URL
@@ -126,20 +126,21 @@ Conflict rule:
 
 All provider code is centralized under one directory:
 
-`integrations/llm/provider/`
+`integrations/llm/`
 
 Planned files:
 
 - `manager.go`: unified provider entrypoint and orchestration
 - `resolver.go`: config/env -> resolved provider settings
-- `registry.go`: provider kind -> factory mapping
+- `builder_registry.go`: provider kind -> factory mapping
 - `cache.go`: client instance cache
 - `http.go`: shared request send/error decode/header injection
-- `types.go`: shared internal transport structs
-- `client_openai.go`: OpenAI implementation
-- `client_openai_compatible.go`: OpenAI-compatible implementation
+- `provider_types.go`: shared provider kind and resolver types
+- `client_openai_completion.go`: OpenAI Chat Completions implementation
+- `client_openai_responses.go`: OpenAI Responses implementation
 - `client_anthropic.go`: Anthropic Messages implementation
-- `codec_openai.go`: internal message <-> OpenAI payload/chunks
+- `codec_openai_completion.go`: internal message <-> OpenAI Chat Completions payload/chunks
+- `codec_openai_responses.go`: internal message <-> OpenAI Responses payload/chunks
 - `codec_anthropic.go`: internal message <-> Anthropic payload/chunks
 
 Application wiring change:
@@ -153,7 +154,7 @@ Internal model remains based on existing `llm.Message`, `llm.ToolCall`, `llm.Com
 
 Protocol-specific conversion happens only in codecs.
 
-### 5.1 OpenAI / OpenAI-Compatible Path
+### 5.1 OpenAI Chat Completions Path
 
 Request:
 
@@ -173,7 +174,31 @@ Streaming:
 - accumulate `delta.content`
 - incrementally assemble `delta.tool_calls`
 
-### 5.2 Anthropic Path (Messages API)
+### 5.2 OpenAI Responses Path
+
+Request:
+
+- top-level `instructions` from internal system messages
+- `input[]` carries user/assistant/tool history
+- assistant tool calls encode as `function_call`
+- tool output encodes as `function_call_output`
+- tool schemas are sent with `strict: true`
+- intra-task continuation uses `previous_response_id`
+
+Response parse:
+
+- aggregate output text into `CompletionResponse.Content`
+- convert `function_call` output items into `CompletionResponse.ToolCalls`
+- map response status/stop conditions into internal finish reason
+
+Streaming:
+
+- parse Responses SSE event sequence
+- emit `response.output_text.delta` as text chunks immediately
+- accumulate function call argument deltas until item completion
+- use final `response.completed` event for response id/model/usage
+
+### 5.3 Anthropic Path (Messages API)
 
 Request:
 
@@ -231,8 +256,8 @@ Add provider dimensions to trace/debug (masked secrets):
 `/model` should accept:
 
 - `/model <model-name>` (current behavior)
-- `/model openai:<model>`
-- `/model openai-compatible:<model>`
+- `/model openai-completion:<model>`
+- `/model openai-responses:<model>`
 - `/model anthropic:<model>`
 
 Model status display includes provider kind and key status.
@@ -249,14 +274,15 @@ State mutation rules:
 - persists both changes to state
 
 3. Invalid provider prefix:
-- fail fast with explicit supported values (`openai`, `openai-compatible`, `anthropic`)
+- fail fast with explicit supported values (`openai-completion`, `openai-responses`, `anthropic`)
 - do not mutate state
 
 ## 8. Migration and Compatibility
 
-1. Existing configs without `model.provider` continue to work using default `openai-compatible`.
-2. Existing OpenAI-compatible endpoint/key usage remains valid.
-3. Anthropic users can opt in by setting `model.provider=anthropic` and auth token env.
+1. Existing configs without `model.provider` now resolve to default `openai-completion`.
+2. Existing OpenAI-compatible endpoint/key usage remains valid after renaming provider to `openai-completion`.
+3. The legacy provider value `openai-compatible` is removed and should fail fast during validation.
+4. Anthropic users can opt in by setting `model.provider=anthropic` and auth token env.
 
 ## 9. Test Plan (Acceptance)
 
@@ -269,7 +295,7 @@ Required tests:
 3. OpenAI codec tests (request + response + stream + tool calls)
 4. Anthropic codec tests (request + response + stream + tool use/result)
 5. Unified error parse tests
-6. Regression tests for existing openai-compatible behavior
+6. Regression tests for existing openai-completion behavior
 7. `/model` mutation tests:
    - unprefixed model switch keeps provider
    - prefixed model switch updates provider+model
@@ -284,11 +310,11 @@ Required tests:
 
 Acceptance criteria:
 
-1. `openai-compatible` default path works out of the box.
+1. `openai-completion` default path works out of the box.
 2. `model.provider=anthropic` + token env routes to Anthropic path.
-3. Tool call loop works in both protocol families.
-4. Streaming works in both protocol families.
-5. Existing openai-compatible flows are not regressed.
+3. Tool call loop works in all three provider paths.
+4. Streaming works in all three provider paths.
+5. Existing openai-completion flows are not regressed.
 
 ## 10. Out of Scope (This Change)
 

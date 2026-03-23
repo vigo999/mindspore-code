@@ -134,6 +134,8 @@ type StreamIterator interface {
 
 // StreamChunk represents a chunk in a streaming response.
 type StreamChunk struct {
+	ID           string
+	Model        string
 	Content      string
 	ToolCalls    []ToolCall
 	FinishReason FinishReason

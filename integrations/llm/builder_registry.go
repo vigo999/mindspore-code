@@ -1,30 +1,28 @@
-package provider
+package llm
 
 import (
 	"fmt"
 	"sync"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 // Builder constructs a provider from a resolved configuration.
-type Builder func(ResolvedConfig) (llm.Provider, error)
+type Builder func(ResolvedConfig) (Provider, error)
 
-// Registry stores provider builders by provider kind.
-type Registry struct {
+// BuilderRegistry stores provider builders by provider kind.
+type BuilderRegistry struct {
 	mu       sync.RWMutex
 	builders map[ProviderKind]Builder
 }
 
-// NewRegistry creates an empty provider registry.
-func NewRegistry() *Registry {
-	return &Registry{
+// NewBuilderRegistry creates an empty provider registry.
+func NewBuilderRegistry() *BuilderRegistry {
+	return &BuilderRegistry{
 		builders: make(map[ProviderKind]Builder),
 	}
 }
 
 // Register associates a provider kind with a builder.
-func (r *Registry) Register(kind ProviderKind, builder Builder) error {
+func (r *BuilderRegistry) Register(kind ProviderKind, builder Builder) error {
 	if builder == nil {
 		return fmt.Errorf("builder is nil")
 	}
@@ -44,7 +42,7 @@ func (r *Registry) Register(kind ProviderKind, builder Builder) error {
 }
 
 // Build constructs a provider for the resolved configuration.
-func (r *Registry) Build(cfg ResolvedConfig) (llm.Provider, error) {
+func (r *BuilderRegistry) Build(cfg ResolvedConfig) (Provider, error) {
 	r.mu.RLock()
 	builder, ok := r.builders[cfg.Kind]
 	r.mu.RUnlock()

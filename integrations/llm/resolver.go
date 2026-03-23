@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"errors"
@@ -59,7 +59,7 @@ func resolveProviderKind(cfgProvider string) (ProviderKind, error) {
 	if raw := NormalizeProvider(cfgProvider); raw != "" {
 		return parseProviderKind(raw)
 	}
-	return ProviderOpenAICompatible, nil
+	return ProviderOpenAICompletion, nil
 }
 
 func resolveAPIKey(kind ProviderKind, cfgKey string, opts ResolveOptions) (string, error) {
@@ -167,7 +167,7 @@ func NormalizeProvider(v string) string {
 // explicitly supported provider kinds.
 func IsSupportedProvider(v string) bool {
 	switch NormalizeProvider(v) {
-	case string(ProviderOpenAI), string(ProviderOpenAICompatible), string(ProviderAnthropic):
+	case string(ProviderOpenAICompletion), string(ProviderOpenAIResponses), string(ProviderAnthropic):
 		return true
 	default:
 		return false
@@ -180,10 +180,10 @@ func normalizeURLForComparison(v string) string {
 
 func parseProviderKind(raw string) (ProviderKind, error) {
 	switch normalizeProviderName(raw) {
-	case string(ProviderOpenAI):
-		return ProviderOpenAI, nil
-	case string(ProviderOpenAICompatible):
-		return ProviderOpenAICompatible, nil
+	case string(ProviderOpenAICompletion):
+		return ProviderOpenAICompletion, nil
+	case string(ProviderOpenAIResponses):
+		return ProviderOpenAIResponses, nil
 	case string(ProviderAnthropic):
 		return ProviderAnthropic, nil
 	default:

@@ -35,12 +35,13 @@ const (
 
 // Message is a single entry in the chat stream.
 type Message struct {
-	Kind     MessageKind
-	Content  string
-	ToolName string
-	Display  DisplayMode
-	Summary  string // shown when collapsed, e.g. "5 matches", "23 files"
-	Pending  bool
+	Kind      MessageKind
+	Content   string
+	ToolName  string
+	Display   DisplayMode
+	Summary   string // shown when collapsed, e.g. "5 matches", "23 files"
+	Pending   bool
+	Streaming bool
 }
 
 // EventType identifies the kind of UI event.
@@ -54,7 +55,10 @@ const (
 	CmdFinished     EventType = "CmdFinished"
 	AnalysisReady   EventType = "AnalysisReady"
 	AgentReply      EventType = "AgentReply"
+	AgentReplyDelta EventType = "AgentReplyDelta"
 	AgentThinking   EventType = "AgentThinking"
+	UserInput       EventType = "UserInput"
+	ToolReplay      EventType = "ToolReplay"
 	TokenUpdate     EventType = "TokenUpdate"
 	ToolRead        EventType = "ToolRead"
 	ToolGrep        EventType = "ToolGrep"

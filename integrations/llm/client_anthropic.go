@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 const anthropicDefaultTimeout = 180 * time.Second
@@ -24,7 +22,7 @@ type anthropicClient struct {
 }
 
 // NewAnthropicProvider builds the Anthropic Messages API provider implementation.
-func NewAnthropicProvider(cfg ResolvedConfig) (llm.Provider, error) {
+func NewAnthropicProvider(cfg ResolvedConfig) (Provider, error) {
 	return newAnthropicClient(cfg, string(ProviderAnthropic), nil)
 }
 
@@ -69,7 +67,7 @@ func (c *anthropicClient) Name() string {
 	return c.name
 }
 
-func (c *anthropicClient) Complete(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
+func (c *anthropicClient) Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
 	body, err := c.codec.encodeRequest(req, false)
 	if err != nil {
 		return nil, fmt.Errorf("build request body: %w", err)
@@ -99,7 +97,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req *llm.CompletionReque
 	return c.codec.decodeCompletionResponse(decoded), nil
 }
 
-func (c *anthropicClient) CompleteStream(ctx context.Context, req *llm.CompletionRequest) (llm.StreamIterator, error) {
+func (c *anthropicClient) CompleteStream(ctx context.Context, req *CompletionRequest) (StreamIterator, error) {
 	body, err := c.codec.encodeRequest(req, true)
 	if err != nil {
 		return nil, fmt.Errorf("build request body: %w", err)
@@ -124,11 +122,11 @@ func (c *anthropicClient) SupportsTools() bool {
 	return true
 }
 
-func (c *anthropicClient) AvailableModels() []llm.ModelInfo {
+func (c *anthropicClient) AvailableModels() []ModelInfo {
 	if c.model == "" {
 		return nil
 	}
-	return []llm.ModelInfo{
+	return []ModelInfo{
 		{ID: c.model, Provider: c.name},
 	}
 }

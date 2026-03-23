@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"crypto/sha256"

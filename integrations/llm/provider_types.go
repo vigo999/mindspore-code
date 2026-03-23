@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import "time"
 
@@ -6,10 +6,10 @@ import "time"
 type ProviderKind string
 
 const (
-	// ProviderOpenAI represents the native OpenAI API.
-	ProviderOpenAI ProviderKind = "openai"
-	// ProviderOpenAICompatible represents an OpenAI-compatible endpoint.
-	ProviderOpenAICompatible ProviderKind = "openai-compatible"
+	// ProviderOpenAICompletion represents the OpenAI Chat Completions API.
+	ProviderOpenAICompletion ProviderKind = "openai-completion"
+	// ProviderOpenAIResponses represents the OpenAI Responses API.
+	ProviderOpenAIResponses ProviderKind = "openai-responses"
 	// ProviderAnthropic represents the Anthropic Messages API.
 	ProviderAnthropic ProviderKind = "anthropic"
 )

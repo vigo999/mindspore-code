@@ -49,7 +49,7 @@ Under `model`:
 
 Default in config:
 
-- `model.provider = openai-responses`
+- `model.provider = openai-completion`
 
 ## 3.2 Resolution Priority
 
@@ -57,7 +57,7 @@ Provider resolution priority:
 
 1. `MSCLI_PROVIDER`
 2. `model.provider`
-3. default `openai-responses`
+3. default `openai-completion`
 
 API key resolution (by resolved provider):
 
@@ -279,7 +279,7 @@ State mutation rules:
 
 ## 8. Migration and Compatibility
 
-1. Existing configs without `model.provider` now resolve to default `openai-responses`.
+1. Existing configs without `model.provider` now resolve to default `openai-completion`.
 2. Existing OpenAI-compatible endpoint/key usage remains valid after renaming provider to `openai-completion`.
 3. The legacy provider value `openai-compatible` is removed and should fail fast during validation.
 4. Anthropic users can opt in by setting `model.provider=anthropic` and auth token env.
@@ -310,7 +310,7 @@ Required tests:
 
 Acceptance criteria:
 
-1. `openai-responses` default path works out of the box.
+1. `openai-completion` default path works out of the box.
 2. `model.provider=anthropic` + token env routes to Anthropic path.
 3. Tool call loop works in all three provider paths.
 4. Streaming works in all three provider paths.

@@ -148,7 +148,7 @@ func (a *Application) cmdModel(args []string) {
 func (a *Application) showCurrentModel() {
 	providerName := a.Config.Model.Provider
 	if providerName == "" {
-		providerName = "openai-responses"
+		providerName = "openai-completion"
 	}
 	modelName := a.Config.Model.Model
 	url := a.Config.Model.URL
@@ -175,7 +175,7 @@ To switch model:
 Examples:
   /model gpt-4o
   /model openai-completion:gpt-4o-mini
-  /model openai-responses:gpt-4o-mini
+  /model openai-responses:gpt-4o
   /model anthropic:claude-3-5-sonnet`, providerName, url, modelName, apiKeyStatus)
 
 	a.EventCh <- model.Event{Type: model.AgentReply, Message: msg}
@@ -459,7 +459,7 @@ Model Commands:
   /model                  Show current configuration
   /model gpt-4o           Switch to gpt-4o
   /model openai-completion:gpt-4o
-  /model openai-responses:gpt-4o-mini
+  /model openai-responses:gpt-4o
   /model anthropic:claude-3-5-sonnet
 
 Permission Commands:

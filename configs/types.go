@@ -20,7 +20,7 @@ type Config struct {
 
 func (c *Config) normalize() {
 	if strings.TrimSpace(c.Model.Provider) == "" {
-		c.Model.Provider = "openai-responses"
+		c.Model.Provider = "openai-completion"
 	}
 }
 
@@ -107,7 +107,7 @@ func DefaultConfig() *Config {
 	cfg := &Config{
 		Model: ModelConfig{
 			URL:         "https://api.openai.com/v1",
-			Provider:    "openai-responses",
+			Provider:    "openai-completion",
 			Model:       "gpt-4o-mini",
 			Temperature: 0.7,
 			MaxTokens:   4096,

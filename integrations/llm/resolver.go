@@ -59,7 +59,7 @@ func resolveProviderKind(cfgProvider string) (ProviderKind, error) {
 	if raw := NormalizeProvider(cfgProvider); raw != "" {
 		return parseProviderKind(raw)
 	}
-	return ProviderOpenAIResponses, nil
+	return ProviderOpenAICompletion, nil
 }
 
 func resolveAPIKey(kind ProviderKind, cfgKey string, opts ResolveOptions) (string, error) {

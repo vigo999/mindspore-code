@@ -125,7 +125,7 @@ func (r *Registry) registerDefaults() {
 	r.Register(Command{
 		Name:        "/model",
 		Description: "Show or switch model",
-		Usage:       "/model [openai-responses:]model",
+		Usage:       "/model [openai-completion:]model",
 	})
 
 	r.Register(Command{

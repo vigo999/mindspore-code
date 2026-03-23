@@ -10,10 +10,14 @@ type meResponse struct {
 	Role string `json:"role"`
 }
 
-func HandleMe(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(meResponse{
-		User: UserFromContext(r.Context()),
-		Role: RoleFromContext(r.Context()),
-	})
+func HandleMe(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		store.TouchSession(user)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(meResponse{
+			User: user,
+			Role: RoleFromContext(r.Context()),
+		})
+	}
 }

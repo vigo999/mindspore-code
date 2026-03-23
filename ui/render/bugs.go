@@ -2,9 +2,34 @@ package render
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/vigo999/ms-cli/internal/issues"
 )
+
+func visPad(s string, w int) string {
+	visible := lipgloss.Width(s)
+	if visible >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-visible)
+}
+
+func visTruncate(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	// Truncate rune by rune until it fits.
+	runes := []rune(s)
+	for i := len(runes) - 1; i >= 0; i-- {
+		candidate := string(runes[:i]) + "..."
+		if lipgloss.Width(candidate) <= w {
+			return candidate
+		}
+	}
+	return "..."
+}
 
 func BugList(bugs []issues.Bug) string {
 	idW, titleW, statusW, leadW, reporterW := 2, 12, 6, 4, 8
@@ -12,49 +37,34 @@ func BugList(bugs []issues.Bug) string {
 		if l := len(fmt.Sprintf("%d", b.ID)); l > idW {
 			idW = l
 		}
-		if len(b.Title) > titleW {
-			titleW = len(b.Title)
+		if w := lipgloss.Width(b.Title); w > titleW {
+			titleW = w
 		}
-		if len(b.Status) > statusW {
-			statusW = len(b.Status)
+		if w := lipgloss.Width(b.Status); w > statusW {
+			statusW = w
 		}
 		lead := b.Lead
 		if lead == "" {
 			lead = "-"
 		}
-		if len(lead) > leadW {
-			leadW = len(lead)
+		if w := lipgloss.Width(lead); w > leadW {
+			leadW = w
 		}
-		if len(b.Reporter) > reporterW {
-			reporterW = len(b.Reporter)
+		if w := lipgloss.Width(b.Reporter); w > reporterW {
+			reporterW = w
 		}
 	}
 	if titleW > 50 {
 		titleW = 50
 	}
 
-	centerPad := func(s string, w int) string {
-		gap := w - len(s)
-		if gap <= 0 {
-			return s
-		}
-		left := gap / 2
-		right := gap - left
-		return fmt.Sprintf("%*s%s%*s", left, "", s, right, "")
-	}
-
 	var lines []string
-	header := fmt.Sprintf("  %-*s  %-*s  %-*s  %-*s  %-*s",
-		idW, "id", titleW, "title", statusW, "status", leadW, "lead", reporterW, "reporter")
+	header := visPad("  "+visPad("id", idW)+"  "+visPad("title", titleW)+"  "+visPad("status", statusW)+"  "+visPad("lead", leadW)+"  "+visPad("reporter", reporterW), 0)
 	lines = append(lines, TitleStyle.Render("BUG LIST"))
 	lines = append(lines, TitleStyle.Render(header))
 
 	for _, b := range bugs {
-		idStr := centerPad(fmt.Sprintf("%d", b.ID), idW)
-		title := b.Title
-		if len(title) > titleW {
-			title = title[:titleW-3] + "..."
-		}
+		title := visTruncate(b.Title, titleW)
 		lead := b.Lead
 		if lead == "" {
 			lead = "-"
@@ -63,11 +73,13 @@ func BugList(bugs []issues.Bug) string {
 		if b.Status == "doing" {
 			statusStyle = StatusDoingStyle
 		}
-		line := fmt.Sprintf("  %s  %-*s  %s  %s  %s",
-			idStr, titleW, title,
-			statusStyle.Render(centerPad(b.Status, statusW)),
-			centerPad(lead, leadW),
-			centerPad(b.Reporter, reporterW))
+
+		line := "  " +
+			visPad(fmt.Sprintf("%d", b.ID), idW) + "  " +
+			visPad(title, titleW) + "  " +
+			statusStyle.Render(visPad(b.Status, statusW)) + "  " +
+			visPad(lead, leadW) + "  " +
+			visPad(b.Reporter, reporterW)
 		lines = append(lines, line)
 	}
 	return Box(lines)
@@ -75,11 +87,13 @@ func BugList(bugs []issues.Bug) string {
 
 func Dock(data *issues.DockData) string {
 	lines := []string{
-		TitleStyle.Render("dock"),
+		TitleStyle.Render("DOCK"),
 		"",
-		fmt.Sprintf("  %s %s",
+		fmt.Sprintf("  %s %s    %s %s",
 			LabelStyle.Render("open bugs"),
 			ValueStyle.Render(fmt.Sprintf("%d", data.OpenCount)),
+			LabelStyle.Render("online (24h)"),
+			ValueStyle.Render(fmt.Sprintf("%d", data.OnlineCount)),
 		),
 	}
 

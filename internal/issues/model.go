@@ -30,7 +30,8 @@ type Activity struct {
 }
 
 type DockData struct {
-	OpenCount  int        `json:"open_count"`
-	ReadyBugs  []Bug      `json:"ready_bugs"`
-	RecentFeed []Activity `json:"recent_feed"`
+	OpenCount   int        `json:"open_count"`
+	OnlineCount int        `json:"online_count"`
+	ReadyBugs   []Bug      `json:"ready_bugs"`
+	RecentFeed  []Activity `json:"recent_feed"`
 }

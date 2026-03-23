@@ -69,6 +69,10 @@ func (s *Store) migrate() error {
 			created_at  TEXT    NOT NULL,
 			updated_at  TEXT    NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS user_sessions (
+			user       TEXT PRIMARY KEY,
+			last_seen  TEXT NOT NULL
+		)`,
 	}
 	for _, stmt := range stmts {
 		if _, err := s.db.Exec(stmt); err != nil {
@@ -238,11 +242,29 @@ func (s *Store) DockSummary() (*issues.DockData, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	onlineCount, _ := s.RecentUserCount(24 * time.Hour)
+
 	return &issues.DockData{
-		OpenCount:  openCount,
-		ReadyBugs:  readyBugs,
-		RecentFeed: feed,
+		OpenCount:   openCount,
+		OnlineCount: onlineCount,
+		ReadyBugs:   readyBugs,
+		RecentFeed:  feed,
 	}, nil
+}
+
+// --- Session methods ---
+
+func (s *Store) TouchSession(user string) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	s.db.Exec(`INSERT INTO user_sessions (user, last_seen) VALUES (?, ?)
+		ON CONFLICT(user) DO UPDATE SET last_seen = ?`, user, now, now)
+}
+
+func (s *Store) RecentUserCount(since time.Duration) (int, error) {
+	cutoff := time.Now().UTC().Add(-since).Format(time.RFC3339)
+	var count int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM user_sessions WHERE last_seen >= ?`, cutoff).Scan(&count)
+	return count, err
 }
 
 // --- Project methods ---

@@ -18,7 +18,7 @@ func NewMux(store *Store, tokens []configs.TokenEntry) *http.ServeMux {
 		return AuthMiddleware(tokens, h)
 	}
 
-	mux.Handle("GET /me", auth(http.HandlerFunc(HandleMe)))
+	mux.Handle("GET /me", auth(http.HandlerFunc(HandleMe(store))))
 	mux.Handle("POST /bugs", auth(http.HandlerFunc(HandleCreateBug(store))))
 	mux.Handle("GET /bugs", auth(http.HandlerFunc(HandleListBugs(store))))
 	mux.Handle("GET /bugs/{id}", auth(http.HandlerFunc(HandleGetBug(store))))

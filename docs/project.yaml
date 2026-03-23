@@ -1,0 +1,65 @@
+top_msg: this is ms-cli project status
+top_msg_color: blue
+
+overview:
+  project: mindspore ai infra agent
+  color: blue
+  phase: refactor / dogfood
+  owner: vigo999
+  focus: project status stream card
+  repo: http://github.com/vigo999/ms-cli
+
+milestones:
+  color: blue
+  items:
+    - title: release v0.1 version on 330
+      color: magenta
+      progress: 70
+      progress_color: magenta
+      empty_color: gray
+      owner: weizheng
+
+tasks:
+  color: blue
+  date: 2026-03-19
+  items:
+    - title: train HUD switched to shared chat layout
+      color: green
+      status: done
+      progress: 100
+      progress_color: green
+      empty_color: gray
+      due-date: 03-18
+      owner: weizheng
+    - title: /project renders as stream snapshot
+      color: green
+      status: done
+      progress: 100
+      progress_color: green
+      empty_color: gray
+      owner: weizheng
+    - title: wire editable docs/project.yaml data
+      color: white
+      status: doing
+      progress: 80
+      progress_color: yellow
+      empty_color: gray
+      owner: weizheng
+
+tomorrow:
+  color: blue
+  items:
+    - title: define richer project schema if needed
+      color: gray
+      status: todo
+      progress: 0
+      progress_color: cyan
+      empty_color: gray
+      owner: fzl
+    - title: split boss view vs dev view
+      color: gray
+      status: todo
+      progress: 0
+      progress_color: cyan
+      empty_color: gray
+      owner: fzl

@@ -23,6 +23,9 @@ type TextInput struct {
 	showSuggestions bool
 	suggestions     []string
 	selectedIdx     int
+	history         []string
+	historyIndex    int
+	historyDraft    string
 }
 
 // NewTextInput creates a focused text input with "> " prompt.
@@ -35,6 +38,7 @@ func NewTextInput() TextInput {
 	return TextInput{
 		Model:         ti,
 		slashRegistry: slash.DefaultRegistry,
+		historyIndex:  -1,
 	}
 }
 
@@ -49,6 +53,8 @@ func (t TextInput) Reset() TextInput {
 	t.showSuggestions = false
 	t.suggestions = nil
 	t.selectedIdx = 0
+	t.historyIndex = -1
+	t.historyDraft = ""
 	return t
 }
 
@@ -61,6 +67,15 @@ func (t TextInput) Focus() (TextInput, tea.Cmd) {
 // Blur removes focus from the input.
 func (t TextInput) Blur() TextInput {
 	t.Model.Blur()
+	return t
+}
+
+// SetWidth updates the rendered input width.
+func (t TextInput) SetWidth(width int) TextInput {
+	if width < 1 {
+		width = 1
+	}
+	t.Model.Width = width
 	return t
 }
 
@@ -90,7 +105,9 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 			case "tab", "enter":
 				// Accept selected suggestion
 				if t.selectedIdx < len(t.suggestions) {
-					t.Model.SetValue(t.suggestions[t.selectedIdx] + " ")
+					val := t.suggestions[t.selectedIdx] + " "
+					t.Model.SetValue(val)
+					t.Model.SetCursor(len(val))
 					t.showSuggestions = false
 					t.suggestions = nil
 				}
@@ -111,6 +128,60 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 	t.updateSuggestions()
 
 	return t, cmd
+}
+
+// PushHistory stores a submitted input line for later up/down recall.
+func (t TextInput) PushHistory(value string) TextInput {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return t
+	}
+	if n := len(t.history); n > 0 && t.history[n-1] == value {
+		t.historyIndex = -1
+		t.historyDraft = ""
+		return t
+	}
+	t.history = append(t.history, value)
+	t.historyIndex = -1
+	t.historyDraft = ""
+	return t
+}
+
+// PrevHistory recalls the previous submitted line.
+func (t TextInput) PrevHistory() TextInput {
+	if len(t.history) == 0 {
+		return t
+	}
+	if t.historyIndex == -1 {
+		t.historyDraft = t.Model.Value()
+		t.historyIndex = len(t.history) - 1
+	} else if t.historyIndex > 0 {
+		t.historyIndex--
+	}
+	t.Model.SetValue(t.history[t.historyIndex])
+	t.Model.SetCursor(len(t.history[t.historyIndex]))
+	t.updateSuggestions()
+	return t
+}
+
+// NextHistory moves forward in submitted-line history, restoring the draft at the end.
+func (t TextInput) NextHistory() TextInput {
+	if len(t.history) == 0 || t.historyIndex == -1 {
+		return t
+	}
+	if t.historyIndex < len(t.history)-1 {
+		t.historyIndex++
+		t.Model.SetValue(t.history[t.historyIndex])
+		t.Model.SetCursor(len(t.history[t.historyIndex]))
+		t.updateSuggestions()
+		return t
+	}
+	t.historyIndex = -1
+	t.Model.SetValue(t.historyDraft)
+	t.Model.SetCursor(len(t.historyDraft))
+	t.historyDraft = ""
+	t.updateSuggestions()
+	return t
 }
 
 // updateSuggestions updates the slash command suggestions based on current input.

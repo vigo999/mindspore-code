@@ -62,6 +62,7 @@ type Application struct {
 	trainRunID      uint64
 	trainTasks      map[uint64]struct{}
 	trainController *wtrain.Controller
+	pendingTrain    *pendingTrainStart
 	trainMu         sync.RWMutex
 }
 

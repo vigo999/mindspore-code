@@ -40,6 +40,8 @@ func (a *Application) handleCommand(input string) {
 		a.cmdYolo()
 	case "/train":
 		a.cmdTrain(parts[1:])
+	case "/project":
+		a.cmdProject(parts[1:])
 	case "/mouse":
 		a.cmdMouse(parts[1:])
 	case "/skill":
@@ -442,7 +444,9 @@ func (a *Application) cmdHelp() {
 	helpText := `Available commands:
 
   /skill [name] [request] Load and run a skill (e.g. /skill pdf extract text from report.pdf)
-  /train <model> <method> Set up and run model training (e.g. /train qwen3 lora)
+  /train <model> <method> Start train workflow (e.g. /train qwen3 lora)
+  /train <action>         Control active train HUD (start, stop, analyze, apply fix, retry, view diff, exit)
+  /project [status]        Show a formatted project status snapshot in the chat stream
   /roadmap status [path]  Check roadmap status (default: roadmap.yaml)
   /weekly status [path]   Check weekly update status (default: weekly.md)
   /model [model-name]     Show or switch model

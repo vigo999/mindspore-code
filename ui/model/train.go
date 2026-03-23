@@ -164,6 +164,7 @@ type TrainRequestSummary struct {
 	RawInput   string
 	Model      string
 	Mode       string
+	Dataset    string
 	TargetName string
 	TargetKind string
 	Provider   string
@@ -367,9 +368,9 @@ type TrainWorkspaceState struct {
 	SetupContext SetupContext
 	TrainPlan    *TrainPlan
 	RunConfig    *RunConfig
-	ActiveRunID string
-	Compare     *CompareViewState
-	Hosts       []TrainHostView
+	ActiveRunID  string
+	Compare      *CompareViewState
+	Hosts        []TrainHostView
 
 	Panels map[TrainPanelID]*PanelDisplayState
 	Focus  TrainPanelID

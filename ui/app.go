@@ -14,15 +14,16 @@ import (
 )
 
 const (
-	topBarHeight   = 3 // brand line + info line + divider
-	chatLineHeight = 2
-	hintBarHeight  = 2
-	inputHeight    = 1
-	verticalPad    = 2
-	bootDuration   = 2 * time.Second
-	bootTickRate   = 80 * time.Millisecond
-	maxToolLines   = 120
-	maxToolRunes   = 12000
+	topBarHeight              = 3 // brand line + info line + divider
+	chatLineHeight            = 2
+	hintBarHeight             = 2
+	inputHeight               = 1
+	verticalPad               = 2
+	bootDuration              = 2 * time.Second
+	bootTickRate              = 80 * time.Millisecond
+	maxToolLines              = 120
+	maxToolRunes              = 12000
+	interruptQueuedTrainToken = "__interrupt_queued_train__"
 )
 
 var (
@@ -30,6 +31,7 @@ var (
 	trainErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	trainSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("114"))
 	trainWorkingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("220"))
+	queueBannerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("220")).PaddingLeft(2)
 )
 
 // agentMsg formats an agent message with a status marker and fixed-width source prefix.
@@ -82,10 +84,14 @@ func formatDiffLine(line string) string {
 
 // evSource extracts ActionSource from a train event, or returns fallback.
 func evSource(data *model.TrainEventData, fallback string) string {
+	source := fallback
 	if data != nil && data.ActionSource != "" {
-		return data.ActionSource
+		source = data.ActionSource
 	}
-	return fallback
+	if source == "setup-helper" {
+		return "setup-agent"
+	}
+	return source
 }
 
 type bootDoneMsg struct{}
@@ -105,11 +111,13 @@ type App struct {
 	mouseEnabled  bool
 
 	// Train mode
-	trainView  model.TrainViewState
-	trainFocus model.TrainPanelID
+	trainView   model.TrainViewState
+	trainFocus  model.TrainPanelID
+	projectView model.ProjectViewState
 
 	bootActive    bool
 	bootHighlight int
+	queuedInputs  []string
 }
 
 // New creates a new App driven by the given event channel.
@@ -147,24 +155,20 @@ func (a App) Init() tea.Cmd {
 }
 
 func (a App) chatHeight() int {
-	h := a.height - topBarHeight - chatLineHeight - hintBarHeight - inputHeight - verticalPad
-	// Adjust for input height (including suggestions)
-	inputH := a.input.Height()
-	if inputH > 1 {
-		h -= (inputH - 1)
-	}
+	h := a.height - topBarHeight - chatLineHeight - hintBarHeight - a.input.Height()
+	h -= a.activeHUDHeight()
+	h -= a.queueBannerHeight()
 	if h < 1 {
 		return 1
 	}
 	return h
 }
 
-func (a App) trainBodyHeight() int {
-	h := a.height - topBarHeight - 1 - hintBarHeight - a.input.Height()
-	if h < 1 {
-		return 1
+func (a App) queueBannerHeight() int {
+	if len(a.queuedInputs) == 0 {
+		return 0
 	}
-	return h
+	return 1
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -190,11 +194,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		if a.trainView.Active {
-			a.resizeTrainViewport()
-		} else {
-			a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
-		}
+		a.resizeActiveLayout()
 		return a, nil
 
 	case bootTickMsg:
@@ -241,44 +241,29 @@ func (a App) chatWidth() int {
 	return a.width
 }
 
+func (a *App) resizeInput() {
+	inputWidth := a.chatWidth() - 4
+	if inputWidth < 1 {
+		inputWidth = 1
+	}
+	a.input = a.input.SetWidth(inputWidth)
+}
+
+func (a *App) resizeActiveLayout() {
+	a.resizeInput()
+	a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+}
+
 func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Check if we're in slash suggestion mode
 	if a.input.IsSlashMode() {
 		switch msg.String() {
-		case "up", "down", "tab", "enter", "esc":
+		case "tab", "enter", "esc":
 			// Let input handle these for suggestion navigation
 			var cmd tea.Cmd
 			a.input, cmd = a.input.Update(msg)
-			// Recalculate chat height if suggestions changed
-			a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+			a.resizeActiveLayout()
 			return a, cmd
-		}
-	}
-
-	// Train mode focus cycling
-	if a.trainView.Active {
-		switch msg.String() {
-		case "tab":
-			return a, a.cycleTrainFocus(1)
-		case "shift+tab":
-			return a, a.cycleTrainFocus(-1)
-		case "c":
-			// Collapse only boxed panels (Status, Metrics, Logs).
-			switch a.trainFocus {
-			case model.TrainPanelStatus, model.TrainPanelMetrics, model.TrainPanelLogs:
-				a.trainView.TogglePanelCollapse(a.trainFocus)
-				a.resizeTrainViewport()
-			}
-			return a, nil
-		case "z":
-			a.trainView.TogglePanelMaximize(a.trainFocus)
-			a.resizeTrainViewport()
-			return a, nil
-		case "esc":
-			if a.trainFocus != model.TrainPanelActions {
-				return a, a.setTrainFocusPanel(model.TrainPanelActions)
-			}
-			return a, nil
 		}
 	}
 
@@ -303,9 +288,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			var input string
 			switch p.ActionID {
 			case "add_algo_feature":
-				input = "add algo-feature " + selected.ID
+				input = "/train add algo-feature " + selected.ID
 			case "add_perf_feature":
-				input = "add perf-feature " + selected.ID
+				input = "/train add perf-feature " + selected.ID
 			}
 			if input != "" && a.userCh != nil {
 				select {
@@ -321,108 +306,14 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Train mode action navigation
-	if a.trainView.Active && a.trainFocus == model.TrainPanelActions {
+	if a.trainView.Active && strings.TrimSpace(a.input.Value()) == "" && len(a.trainView.GlobalActions.Items) > 0 {
 		switch msg.String() {
-		case "right", "down":
-			if len(a.trainView.GlobalActions.Items) > 0 {
-				a.trainView.GlobalActions.SelectedIndex = (a.trainView.GlobalActions.SelectedIndex + 1) % len(a.trainView.GlobalActions.Items)
-				return a, nil
-			}
-		case "left", "up":
-			if len(a.trainView.GlobalActions.Items) > 0 {
-				a.trainView.GlobalActions.SelectedIndex--
-				if a.trainView.GlobalActions.SelectedIndex < 0 {
-					a.trainView.GlobalActions.SelectedIndex = len(a.trainView.GlobalActions.Items) - 1
-				}
-				return a, nil
-			}
-		case "enter":
-			// If user typed text, send it to backend instead of firing button.
-			if val := a.input.Value(); val != "" {
-				a.state = a.state.ResetStats()
-				a.state = a.state.WithThinking(false)
-				a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
-				a.input = a.input.Reset()
-				a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
-				a.updateViewport()
-				// Confirmation words fire the current button action.
-				if isConfirmation(val) {
-					return a.handleTrainAction()
-				}
-				if a.userCh != nil {
-					select {
-					case a.userCh <- val:
-					default:
-					}
-				}
-				return a, nil
-			}
-			return a.handleTrainAction()
-		}
-	}
-
-	if a.trainView.Active && a.trainFocus == model.TrainPanelRunList {
-		switch msg.String() {
-		case "down", "right":
-			a.trainView.SelectNextRun()
+		case "tab", "right":
+			a.selectTrainAction(1)
 			return a, nil
-		case "up", "left":
-			a.trainView.SelectPrevRun()
+		case "shift+tab", "left":
+			a.selectTrainAction(-1)
 			return a, nil
-		case "enter":
-			return a, a.setTrainFocusPanel(model.TrainPanelStatus)
-		}
-	}
-
-	if a.trainView.Active && a.trainFocus == model.TrainPanelStatus {
-		switch msg.String() {
-		case "enter", "esc":
-			return a, a.setTrainFocusPanel(model.TrainPanelActions)
-		}
-	}
-
-	if a.trainView.Active && a.trainFocus == model.TrainPanelMetrics {
-		switch msg.String() {
-		case "enter", "esc":
-			return a, a.setTrainFocusPanel(model.TrainPanelActions)
-		}
-	}
-
-	// Train mode agent panel scrolling
-	if a.trainView.Active && a.trainFocus == model.TrainPanelAgent {
-		switch msg.String() {
-		case "up", "k":
-			a.viewport.Model.LineUp(1)
-			return a, nil
-		case "down", "j":
-			a.viewport.Model.LineDown(1)
-			return a, nil
-		case "pgup":
-			a.viewport.Model.HalfViewUp()
-			return a, nil
-		case "pgdown":
-			a.viewport.Model.HalfViewDown()
-			return a, nil
-		case "home", "g":
-			a.viewport.Model.GotoTop()
-			return a, nil
-		case "end", "G":
-			a.viewport.Model.GotoBottom()
-			return a, nil
-		case "enter", "esc":
-			return a, a.setTrainFocusPanel(model.TrainPanelActions)
-		}
-	}
-
-	// Train mode logs panel scrolling
-	if a.trainView.Active && a.trainFocus == model.TrainPanelLogs {
-		switch msg.String() {
-		case "up", "down", "pgup", "pgdown":
-			// TODO: implement log viewport scrolling
-			return a, nil
-		case "enter":
-			return a, a.setTrainFocusPanel(model.TrainPanelActions)
 		}
 	}
 
@@ -436,6 +327,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Otherwise, cancel current input and show hint
 		a.lastInterrupt = now
 		a.input = a.input.Reset()
+		a.resizeActiveLayout()
 		a.state = a.state.WithMessage(model.Message{
 			Kind:    model.MsgAgent,
 			Content: "Interrupted. Press Ctrl+C again within 1 second to exit.",
@@ -443,25 +335,49 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.updateViewport()
 		return a, nil
 
+	case "esc":
+		if len(a.queuedInputs) > 0 && a.trainView.Active && a.isTrainBusy() && strings.TrimSpace(a.input.Value()) == "" && a.userCh != nil {
+			select {
+			case a.userCh <- "/train exit":
+			default:
+			}
+			return a, nil
+		}
+		var cmd tea.Cmd
+		a.input, cmd = a.input.Update(msg)
+		a.resizeActiveLayout()
+		return a, cmd
+
 	case "enter":
 		// Don't process enter if in slash mode (handled above)
 		if a.input.IsSlashMode() {
 			var cmd tea.Cmd
 			a.input, cmd = a.input.Update(msg)
-			a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+			a.resizeActiveLayout()
 			return a, cmd
 		}
 
-		val := a.input.Value()
+		val := strings.TrimSpace(a.input.Value())
 		if val == "" {
+			if a.trainView.Active && len(a.trainView.GlobalActions.Items) > 0 {
+				return a.handleTrainAction()
+			}
+			return a, nil
+		}
+		if a.shouldQueueInput(val) {
+			a.queuedInputs = append(a.queuedInputs, val)
+			a.input = a.input.PushHistory(val)
+			a.input = a.input.Reset()
+			a.resizeActiveLayout()
 			return a, nil
 		}
 		// Reset stats for new task
 		a.state = a.state.ResetStats()
 		a.state = a.state.WithThinking(false)
 		a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
+		a.input = a.input.PushHistory(val)
 		a.input = a.input.Reset()
-		a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+		a.resizeActiveLayout()
 		a.updateViewport()
 		if a.userCh != nil {
 			select {
@@ -478,16 +394,60 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, cmd
 
 	case "up", "down":
-		var cmd tea.Cmd
-		a.viewport, cmd = a.viewport.Update(msg)
-		return a, cmd
+		if msg.String() == "up" {
+			a.input = a.input.PrevHistory()
+		} else {
+			a.input = a.input.NextHistory()
+		}
+		a.resizeActiveLayout()
+		return a, nil
 
 	default:
 		var cmd tea.Cmd
 		a.input, cmd = a.input.Update(msg)
-		a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+		a.resizeActiveLayout()
 		return a, cmd
 	}
+}
+
+func (a App) shouldQueueInput(val string) bool {
+	if strings.TrimSpace(val) == "" {
+		return false
+	}
+	return a.trainView.Active && a.isTrainBusy()
+}
+
+func (a App) isTrainBusy() bool {
+	if !a.trainView.Active {
+		return false
+	}
+	run := a.trainView.ActiveRun()
+	if run == nil {
+		return false
+	}
+	switch run.Phase {
+	case model.TrainPhaseSetup, model.TrainPhaseRunning, model.TrainPhaseAnalyzing, model.TrainPhaseFixing, model.TrainPhaseEvaluating:
+		return true
+	default:
+		return false
+	}
+}
+
+func (a App) maybeDispatchQueuedInput() App {
+	if len(a.queuedInputs) == 0 || a.isTrainBusy() || a.userCh == nil {
+		return a
+	}
+	next := a.queuedInputs[0]
+	a.queuedInputs = append([]string{}, a.queuedInputs[1:]...)
+	a.state = a.state.ResetStats()
+	a.state = a.state.WithThinking(false)
+	a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: next})
+	select {
+	case a.userCh <- next:
+	default:
+	}
+	a.resizeActiveLayout()
+	return a
 }
 
 func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
@@ -509,7 +469,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		if ev.Train != nil && ev.Train.IsDiff {
 			content = formatDiffLine(ev.Message)
 		} else if ev.Train != nil && ev.Train.ActionSource != "" {
-			content = agentMsg(ev.Train.ActionSource, ev.Message, false)
+			content = agentMsg(evSource(ev.Train, ""), ev.Message, false)
 		}
 		a.state = a.finalizeAgentMessage(content)
 
@@ -645,13 +605,26 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	// ── Train events ──────────────────────────────────────────
 
 	case model.TrainModeOpen:
+		a.projectView.Active = false
 		a.handleTrainModeOpen(ev)
 
 	case model.TrainModeClose:
 		a.trainView = model.TrainViewState{}
 		a.trainFocus = model.TrainPanelActions
 		a.input, _ = a.input.Focus()
-		a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+		a.resizeActiveLayout()
+
+	case model.ProjectModeOpen:
+		if ev.Project != nil {
+			a.projectView.Status = *ev.Project
+		}
+		a.projectView.Active = true
+		a.trainView.Active = false
+		a.resizeActiveLayout()
+
+	case model.ProjectModeClose:
+		a.projectView = model.ProjectViewState{}
+		a.resizeActiveLayout()
 
 	case model.TrainSetup:
 		a.handleTrainSetup(ev)
@@ -689,6 +662,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 				RunID:      trainEventRunID(ev.Train),
 				Model:      valueOr(a.trainView.Request.Model, "bootstrap-model"),
 				Method:     valueOr(a.trainView.Request.Mode, "lora"),
+				Dataset:    a.trainView.Request.Dataset,
 				Framework:  valueOr(a.ensureTrainRun(ev.Train).Framework, "PyTorch"),
 				Device:     valueOr(a.ensureTrainRun(ev.Train).Device, "Ascend"),
 				TargetName: valueOr(ev.Train.Host, a.trainView.Request.TargetName),
@@ -703,6 +677,9 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		a.trainView.SetRunPhase(trainEventRunID(ev.Train), model.TrainPhaseReady)
 		if run := a.ensureTrainRun(ev.Train); run != nil {
 			run.StatusMessage = ev.Message
+		}
+		if summary := a.renderTrainSetupSummary(trainEventRunID(ev.Train)); summary != "" {
+			a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: summary})
 		}
 		rid := trainEventRunID(ev.Train)
 		a.trainView.SetAgentActions(rid, nil)
@@ -961,12 +938,13 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	}
 
 	// Keep App.trainFocus in sync with model focus (SetRunPhase/SetStage
-	// may call SetFocus internally) and resize viewport for stacked layout.
+	// may call SetFocus internally) and keep the unified layout sized correctly.
 	if a.trainView.Active {
 		a.trainFocus = a.trainView.Focus
-		a.resizeTrainViewport()
+		a.resizeActiveLayout()
 	}
 
+	a = a.maybeDispatchQueuedInput()
 	a.updateViewport()
 	if eventCmd != nil {
 		return a, tea.Batch(eventCmd, a.waitForEvent)
@@ -988,19 +966,19 @@ func (a App) handleTrainAction() (tea.Model, tea.Cmd) {
 	var input string
 	switch action.ID {
 	case "start", "rerun":
-		input = "start"
+		input = "/train start"
 	case "stop":
-		input = "stop"
+		input = "/train stop"
 	case "retry":
-		input = "retry"
+		input = "/train retry"
 	case "close":
-		input = "exit"
+		input = "/train exit"
 	case "diagnose":
-		input = "analyze"
+		input = "/train analyze"
 	case "apply_fix":
-		input = "apply fix"
+		input = "/train apply fix"
 	case "analyze_perf":
-		input = "analyze perf"
+		input = "/train analyze perf"
 	case "add_algo_feature":
 		a.trainView.SelectionPopup = &model.SelectionPopup{
 			Title:    "select algo-feature",
@@ -1036,12 +1014,16 @@ func (a App) handleTrainAction() (tea.Model, tea.Cmd) {
 		}
 		return a, nil
 	case "view_diff":
-		input = "view diff"
+		input = "/train view diff"
 	case "inspect_logs":
-		return a, a.setTrainFocusPanel(model.TrainPanelLogs)
+		a.state = a.state.WithMessage(model.Message{
+			Kind:    model.MsgAgent,
+			Content: "runtime logs now stream in the shared chat area",
+		})
+		return a, nil
 	default:
 		// AgentAction buttons (e.g. "fix-dsa-op") → route as "apply fix".
-		input = "apply fix"
+		input = "/train apply fix"
 	}
 
 	if input != "" && a.userCh != nil {
@@ -1053,40 +1035,15 @@ func (a App) handleTrainAction() (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// ── Focus management ─────────────────────────────────────────
-
-func (a *App) setTrainFocusPanel(panel model.TrainPanelID) tea.Cmd {
-	a.trainFocus = panel
-	a.trainView.SetFocus(panel)
-	// Panel focus controls navigation ownership only; the input remains available
-	// whenever focus is not on the action row so users can keep typing commands.
-	if panel == model.TrainPanelActions {
-		a.input = a.input.Blur()
-		return nil
+func (a *App) selectTrainAction(delta int) {
+	if len(a.trainView.GlobalActions.Items) == 0 {
+		return
 	}
-	var cmd tea.Cmd
-	a.input, cmd = a.input.Focus()
-	return cmd
-}
-
-func (a *App) cycleTrainFocus(direction int) tea.Cmd {
-	order := []model.TrainPanelID{
-		model.TrainPanelRunList,
-		model.TrainPanelStatus,
-		model.TrainPanelMetrics,
-		model.TrainPanelLogs,
-		model.TrainPanelAgent,
-		model.TrainPanelActions,
+	next := a.trainView.GlobalActions.SelectedIndex + delta
+	for next < 0 {
+		next += len(a.trainView.GlobalActions.Items)
 	}
-	current := 0
-	for i, panel := range order {
-		if panel == a.trainFocus {
-			current = i
-			break
-		}
-	}
-	next := order[(current+direction+len(order))%len(order)]
-	return a.setTrainFocusPanel(next)
+	a.trainView.GlobalActions.SelectedIndex = next % len(a.trainView.GlobalActions.Items)
 }
 
 // ── Train event helpers ──────────────────────────────────────
@@ -1096,6 +1053,25 @@ func (a *App) handleTrainModeOpen(ev model.Event) {
 	if ev.Train != nil {
 		mdl = ev.Train.Model
 		method = ev.Train.Method
+	}
+	if !a.trainView.Active && len(a.trainView.Runs) > 0 {
+		a.trainView.Active = true
+		if strings.TrimSpace(mdl) != "" {
+			a.trainView.Request.Model = mdl
+		}
+		if strings.TrimSpace(method) != "" {
+			a.trainView.Request.Mode = method
+		}
+		if ev.Train != nil && strings.TrimSpace(ev.Train.RawInput) != "" {
+			a.trainView.Request.RawInput = strings.TrimSpace(ev.Train.RawInput)
+		}
+		if ev.Train != nil && strings.TrimSpace(ev.Train.RunID) != "" {
+			a.trainView.SetActiveRun(ev.Train.RunID)
+		}
+		a.trainFocus = a.trainView.Focus
+		a.input, _ = a.input.Focus()
+		a.resizeActiveLayout()
+		return
 	}
 	if a.trainView.Active && ev.Train != nil && ev.Train.RunID != "" {
 		run := a.ensureTrainRun(ev.Train)
@@ -1114,10 +1090,15 @@ func (a *App) handleTrainModeOpen(ev model.Event) {
 	}
 	a.trainView = *model.NewTrainViewState()
 	a.trainView.Active = true
+	dataset := ""
+	if ev.Train != nil {
+		dataset = parseTrainDataset(ev.Train.RawInput)
+	}
 	a.trainView.Request = model.TrainRequestSummary{
 		RawInput: strings.TrimSpace(valueOr(ev.Train.RawInput, mdl+" "+method)),
 		Model:    mdl,
 		Mode:     method,
+		Dataset:  dataset,
 	}
 	a.trainView.SetRunPhase("primary", model.TrainPhaseSetup)
 	a.trainView.SetStage(model.StageSetup)
@@ -1131,8 +1112,7 @@ func (a *App) handleTrainModeOpen(ev model.Event) {
 	run.StatusMessage = "Running setup checks..."
 	a.trainFocus = a.trainView.Focus
 	a.input, _ = a.input.Focus()
-	// Resize viewport for stacked layout.
-	a.resizeTrainViewport()
+	a.resizeActiveLayout()
 }
 
 func (a *App) handleTrainSetup(ev model.Event) {
@@ -1145,11 +1125,11 @@ func (a *App) handleTrainSetup(ev model.Event) {
 	}
 	if run.StatusMessage == "Fixing..." && ev.Train.Check == "ssh" && ev.Train.Status == "passed" {
 		run.StatusMessage = ""
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg("setup-helper", "ssh connectivity repaired", true))})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg("setup-agent", "ssh connectivity repaired", true))})
 	}
 	if run.StatusMessage == "Installing..." && ev.Train.Check == "libs" && ev.Train.Status == "passed" {
 		run.StatusMessage = ""
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg("setup-helper", "missing library installed successfully", true))})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainSuccessStyle.Render(agentMsg("setup-agent", "missing library installed successfully", true))})
 	}
 	// Skip checklist update for post-repair failures — the original probe result
 	// is re-emitted after auto-resolve returns, but we don't want the UI
@@ -1165,15 +1145,17 @@ func (a *App) handleTrainSetup(ev model.Event) {
 			Critical: ev.Train.Critical,
 		})
 	}
-	// Post failures to agent viewport, but suppress for checks that have
-	// dedicated auto-resolve flows (SSH, libs) — those already show messages
-	// via TrainIssueDetected. Also suppress if already being repaired.
-	if (ev.Train.Status == "failed" || ev.Train.Status == "fail") &&
-		run.StatusMessage != "Fixing..." && run.StatusMessage != "Installing..." &&
-		ev.Train.Check != "ssh" && ev.Train.Check != "libs" {
-		checkName := displayCheckNameFromEvent(ev.Train.Check)
-		msg := fmt.Sprintf("%s failed: %s", checkName, ev.Train.Detail)
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: trainErrorStyle.Render(agentMsg("setup-helper", msg, false))})
+	if msg, style := renderTrainSetupStreamMessage(ev.Train); msg != "" {
+		content := agentMsg("setup-agent", msg, style != "working")
+		switch style {
+		case "success":
+			content = trainSuccessStyle.Render(content)
+		case "error":
+			content = trainErrorStyle.Render(content)
+		default:
+			content = trainWorkingStyle.Render(content)
+		}
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: content})
 	}
 }
 
@@ -1204,7 +1186,18 @@ func (a *App) handleTrainConnect(ev model.Event) {
 			run.TargetName = ev.Train.Host
 		}
 	}
-	// Connection failures are reported via TrainIssueDetected; no separate message here.
+	if msg, style := renderTrainConnectStreamMessage(ev.Train); msg != "" {
+		content := agentMsg("setup-agent", msg, style != "working")
+		switch style {
+		case "success":
+			content = trainSuccessStyle.Render(content)
+		case "error":
+			content = trainErrorStyle.Render(content)
+		default:
+			content = trainWorkingStyle.Render(content)
+		}
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: content})
+	}
 }
 
 func (a *App) handleTrainStarted(ev model.Event) {
@@ -1378,16 +1371,6 @@ func dataHost(data *model.TrainEventData) string {
 		return ""
 	}
 	return data.Host
-}
-
-// isConfirmation returns true if the input is a confirmation word
-// that should fire the current focused button action.
-func isConfirmation(input string) bool {
-	switch strings.ToLower(strings.TrimSpace(input)) {
-	case "yes", "ok", "do it", "go ahead", "confirm", "sure", "yep", "y":
-		return true
-	}
-	return false
 }
 
 func valueOr(v, fallback string) string {
@@ -1800,6 +1783,195 @@ func valueOrString(value, fallback string) string {
 	return value
 }
 
+func renderTrainSetupStreamMessage(data *model.TrainEventData) (string, string) {
+	if data == nil {
+		return "", ""
+	}
+	checkName := displayCheckNameFromEvent(data.Check)
+	switch strings.ToLower(strings.TrimSpace(data.Status)) {
+	case "checking":
+		return fmt.Sprintf("checking %s...", checkName), "working"
+	case "passed", "pass":
+		if strings.TrimSpace(data.Detail) != "" {
+			return fmt.Sprintf("%s ok: %s", checkName, data.Detail), "success"
+		}
+		return fmt.Sprintf("%s ok", checkName), "success"
+	case "failed", "fail":
+		if strings.TrimSpace(data.Detail) != "" {
+			return fmt.Sprintf("%s failed: %s", checkName, data.Detail), "error"
+		}
+		return fmt.Sprintf("%s failed", checkName), "error"
+	default:
+		return "", ""
+	}
+}
+
+func renderTrainConnectStreamMessage(data *model.TrainEventData) (string, string) {
+	if data == nil {
+		return "", ""
+	}
+	host := strings.TrimSpace(data.Host)
+	addr := strings.TrimSpace(data.Address)
+	target := host
+	if target == "" {
+		target = "target host"
+	}
+	if addr != "" {
+		target += " (" + addr + ")"
+	}
+	switch strings.ToLower(strings.TrimSpace(data.Status)) {
+	case "connecting":
+		return "connecting to " + target + "...", "working"
+	case "connected":
+		return "connected to " + target, "success"
+	default:
+		return "", ""
+	}
+}
+
+func (a *App) renderTrainSetupSummary(runID string) string {
+	run := a.trainView.RunByID(runID)
+	if run == nil {
+		return ""
+	}
+	lines := []string{"setup summary"}
+	if header := a.trainSetupSummaryHeader(run); header != "" {
+		lines = append(lines, header, "")
+	}
+	lines = append(lines, "local checks")
+	lines = append(lines, formatTrainCheckSummary(a.trainView.ChecksByGroup(run.ID, model.TrainCheckGroupLocal))...)
+	lines = append(lines, "")
+	lines = append(lines, "target checks")
+	lines = append(lines, formatTrainCheckSummary(a.trainView.ChecksByGroup(run.ID, model.TrainCheckGroupTarget))...)
+	return renderTrainSummaryBox(lines)
+}
+
+func (a *App) trainSetupSummaryHeader(run *model.TrainRunState) string {
+	parts := []string{}
+	if run != nil && strings.TrimSpace(run.ID) != "" {
+		parts = append(parts, "run_id: "+run.ID)
+	}
+	if machine := appTrainMachineValue(a.trainView, run); strings.TrimSpace(machine) != "" && machine != "-" {
+		parts = append(parts, "machine: "+machine)
+	}
+	if modelName := appTrainModelValue(a.trainView); strings.TrimSpace(modelName) != "" {
+		parts = append(parts, "model: "+modelName)
+	}
+	return strings.Join(parts, " | ")
+}
+
+func formatTrainCheckSummary(items []model.ChecklistItem) []string {
+	if len(items) == 0 {
+		return []string{"  - no checks recorded"}
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		label := displayCheckNameFromEvent(item.Name)
+		summary := strings.TrimSpace(item.Summary)
+		if summary == "" {
+			summary = string(item.Status)
+		}
+		lines = append(lines, fmt.Sprintf("  %s %s: %s", trainCheckStatusMarker(item.Status), label, summary))
+	}
+	return lines
+}
+
+func trainCheckStatusMarker(status model.TrainCheckStatus) string {
+	switch status {
+	case model.TrainCheckPass:
+		return "[x]"
+	case model.TrainCheckFail:
+		return "[!]"
+	case model.TrainCheckRunning:
+		return "[~]"
+	default:
+		return "[ ]"
+	}
+}
+
+func renderTrainSummaryBox(lines []string) string {
+	width := 0
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > width {
+			width = w
+		}
+	}
+	if width < 24 {
+		width = 24
+	}
+	boxed := make([]string, 0, len(lines)+2)
+	boxed = append(boxed, "╭"+strings.Repeat("─", width+2)+"╮")
+	for _, line := range lines {
+		pad := width - lipgloss.Width(line)
+		if pad < 0 {
+			pad = 0
+		}
+		boxed = append(boxed, "│ "+line+strings.Repeat(" ", pad)+" │")
+	}
+	boxed = append(boxed, "╰"+strings.Repeat("─", width+2)+"╯")
+	return strings.Join(boxed, "\n")
+}
+
+func appTrainMachineValue(tv model.TrainWorkspaceState, run *model.TrainRunState) string {
+	target := ""
+	switch {
+	case tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.TargetName) != "":
+		target = tv.RunConfig.TargetName
+	case run != nil && strings.TrimSpace(run.TargetName) != "":
+		target = run.TargetName
+	case strings.TrimSpace(tv.SetupContext.TargetName) != "":
+		target = tv.SetupContext.TargetName
+	case strings.TrimSpace(tv.Request.TargetName) != "":
+		target = tv.Request.TargetName
+	}
+	device := ""
+	switch {
+	case tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.Device) != "":
+		device = tv.RunConfig.Device
+	case run != nil && strings.TrimSpace(run.Device) != "":
+		device = run.Device
+	}
+	device = appNormalizeTrainDevice(device)
+	switch {
+	case target != "" && device != "":
+		return target + " " + device
+	case target != "":
+		return target
+	case device != "":
+		return device
+	default:
+		return ""
+	}
+}
+
+func appTrainModelValue(tv model.TrainWorkspaceState) string {
+	if tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.Model) != "" {
+		return tv.RunConfig.Model
+	}
+	return strings.TrimSpace(tv.Request.Model)
+}
+
+func appNormalizeTrainDevice(device string) string {
+	switch strings.ToLower(strings.TrimSpace(device)) {
+	case "ascend", "npu":
+		return "npu"
+	case "cuda", "gpu", "nvidia":
+		return "gpu"
+	}
+	if strings.TrimSpace(device) == "" {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(device))
+}
+
+func parseTrainDataset(rawInput string) string {
+	fields := strings.Fields(strings.TrimSpace(rawInput))
+	if len(fields) < 3 {
+		return ""
+	}
+	return strings.Join(fields[2:], " ")
+}
+
 // agentStatus returns the spinner text for the current agent phase, or "" if idle.
 func (a *App) agentStatus() string {
 	if !a.trainView.Active {
@@ -1845,6 +2017,16 @@ func (a *App) updateViewport() {
 	}
 }
 
+func (a App) activeHUDHeight() int {
+	if a.projectView.Active {
+		return lipgloss.Height(panels.RenderProjectHUD(a.projectView.Status, a.width))
+	}
+	if a.trainView.Active {
+		return lipgloss.Height(panels.RenderTrainHUD(a.trainView, a.width, a.agentStatus()))
+	}
+	return 0
+}
+
 func (a App) chatLine() string {
 	w := a.chatWidth()
 	return chatLineStyle.Render(strings.Repeat("─", w))
@@ -1856,118 +2038,43 @@ func (a App) View() string {
 	}
 
 	topBar := panels.RenderTopBar(a.state, a.width)
-
-	if a.trainView.Active {
-		return a.renderTrainLayout(topBar)
-	}
-
 	line := a.chatLine()
 	chat := a.viewport.View()
+	queueBanner := ""
+	if len(a.queuedInputs) > 0 {
+		queueBanner = queueBannerStyle.Render("messages queued (press esc to interrupt)")
+	}
 	input := "  " + a.input.View()
 	hintBar := panels.RenderHintBar(a.width)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		topBar,
+	parts := []string{topBar}
+	if a.projectView.Active {
+		parts = append(parts, panels.RenderProjectHUD(a.projectView.Status, a.width))
+		hintBar = panels.RenderProjectHUDHintBar(a.width)
+	} else if a.trainView.Active {
+		parts = append(parts, panels.RenderTrainHUD(a.trainView, a.width, a.agentStatus()))
+		hintBar = panels.RenderTrainHUDHintBar(a.width)
+	}
+	parts = append(parts,
 		line,
 		chat,
 		line,
+	)
+	if queueBanner != "" {
+		parts = append(parts, queueBanner)
+	}
+	parts = append(parts,
 		input,
 		hintBar,
 	)
-}
 
-// trainAvailableHeight returns the vertical budget shared between the
-// three train panels (Status, Metrics, Logs) and the agent viewport.
-func (a App) trainAvailableHeight() int {
-	// Fixed costs: topBar(3) + stageBar(1) + runBar(dynamic) + actionStrip(3) + input + hintBar(2)
-	runBarH := panels.TrainRunBarHeight(a.trainView)
-	inputH := a.input.Height()
-	fixed := topBarHeight + 1 + runBarH + 3 + inputH + hintBarHeight
-	avail := a.height - fixed
-	if avail < 6 {
-		return 6
-	}
-	return avail
-}
+	layout := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
-// resizeTrainViewport recalculates the viewport size for the stacked layout.
-// Must be called from Update() paths that change panel collapse/phase/size.
-func (a *App) resizeTrainViewport() {
-	if !a.trainView.Active {
-		a.viewport = a.viewport.SetSize(a.width-4, a.chatHeight())
-		return
-	}
-	avail := a.trainAvailableHeight()
-	ph := panels.StackedPanelHeights(a.trainView, avail)
-	vpH := avail - ph[0] - ph[1] - ph[2] - 2 // -2 for agent box border
-	if vpH < 3 {
-		vpH = 3
-	}
-	a.viewport = a.viewport.SetSize(a.width-4, vpH)
-}
-
-func (a App) renderTrainLayout(topBar string) string {
-	w := a.width
-
-	// Maximized panel — full screen.
-	if panel, ok := a.trainView.MaximizedPanel(); ok {
-		body := panels.RenderTrainWorkspacePanel(panel, a.trainView, w, a.trainBodyHeight())
-		input := "  " + a.input.View()
-		hintBar := panels.RenderTrainHintBar(w, a.trainFocus, true)
-		return trimViewHeight(lipgloss.JoinVertical(lipgloss.Left,
-			topBar,
-			body,
-			chatLineStyle.Render(strings.Repeat("─", w)),
-			input,
-			hintBar,
-		), a.height)
+	if a.trainView.Active && a.trainView.SelectionPopup != nil {
+		layout = overlayPopup(layout, panels.RenderSelectionPopup(a.trainView.SelectionPopup), a.width, a.height)
 	}
 
-	// ── Stacked full-width layout ────────────────────────────
-	avail := a.trainAvailableHeight()
-	ph := panels.StackedPanelHeights(a.trainView, avail)
-	vpH := avail - ph[0] - ph[1] - ph[2] - 2 // -2 for agent box border
-	if vpH < 3 {
-		vpH = 3
-	}
-
-	stageBar := panels.RenderWorkspaceStatusBar(a.trainView.Stage, w)
-	runBarH := panels.TrainRunBarHeight(a.trainView)
-	runBar := panels.RenderTrainRunBar(a.trainView, w, runBarH, a.trainFocus == model.TrainPanelRunList)
-	statusPanel := panels.RenderTrainWorkspacePanel(model.TrainPanelStatus, a.trainView, w, ph[0])
-	metricsPanel := panels.RenderTrainWorkspacePanel(model.TrainPanelMetrics, a.trainView, w, ph[1])
-	logsPanel := panels.RenderTrainWorkspacePanel(model.TrainPanelLogs, a.trainView, w, ph[2])
-
-	// Agent message viewport in a boxed panel.
-	vpContent := a.viewport.View()
-	agentSpinner := ""
-	if status := a.agentStatus(); status != "" {
-		agentSpinner = a.thinking.FrameView() + " " + status
-	}
-	agentBox := panels.RenderAgentBox(vpContent, w, vpH+2, a.trainFocus == model.TrainPanelAgent, a.viewport.TotalLines(), a.viewport.YOffset(), agentSpinner)
-
-	actionStrip := panels.RenderTrainActionStrip(a.trainView, w, a.trainFocus == model.TrainPanelActions)
-	input := "  " + a.input.View()
-	hintBar := panels.RenderTrainHintBar(w, a.trainFocus)
-
-	layout := trimViewHeight(lipgloss.JoinVertical(lipgloss.Left,
-		topBar,
-		stageBar,
-		runBar,
-		statusPanel,
-		metricsPanel,
-		logsPanel,
-		agentBox,
-		actionStrip,
-		input,
-		hintBar,
-	), a.height)
-
-	if a.trainView.SelectionPopup != nil {
-		layout = overlayPopup(layout, panels.RenderSelectionPopup(a.trainView.SelectionPopup), w, a.height)
-	}
-
-	return layout
+	return trimViewHeight(layout, a.height)
 }
 
 func trimViewHeight(content string, height int) string {

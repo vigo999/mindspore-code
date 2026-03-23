@@ -65,14 +65,13 @@ func (a *Application) processInput(input string) {
 		return
 	}
 
-	if strings.HasPrefix(trimmed, "/") {
-		a.handleCommand(trimmed)
+	if trimmed == interruptQueuedTrainToken {
+		a.interruptQueuedTrain()
 		return
 	}
 
-	// Train mode intercepts non-slash input
-	if a.isTrainMode() {
-		a.handleTrainInput(trimmed)
+	if strings.HasPrefix(trimmed, "/") {
+		a.handleCommand(trimmed)
 		return
 	}
 

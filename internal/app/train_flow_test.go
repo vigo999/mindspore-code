@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -51,29 +52,51 @@ func TestTrainPhase1Flow(t *testing.T) {
 	}
 }
 
-func TestCmdTrainAppendsRunTasks(t *testing.T) {
+func TestCmdTrainDuplicateStartQueuesUntilCurrentStepFinishes(t *testing.T) {
 	app := newTestApp()
 
 	app.cmdTrain([]string{"qwen3", "lora", "dataset1"})
 	app.cmdTrain([]string{"qwen3", "lora", "dataset2"})
 
+	if !app.trainMode {
+		t.Fatal("expected trainMode=true after first /train")
+	}
+	ev := drainUntil(t, app, model.AgentReply, 2*time.Second)
+	if !strings.Contains(ev.Message, "messages queued (press esc to interrupt)") {
+		t.Fatalf("expected queue message, got %q", ev.Message)
+	}
+
+	app.trainMu.RLock()
+	if got := len(app.trainReqs); got != 1 {
+		app.trainMu.RUnlock()
+		t.Fatalf("expected duplicate /train to be blocked until current step finishes, got %d requests", got)
+	}
+	if app.pendingTrain == nil {
+		app.trainMu.RUnlock()
+		t.Fatal("expected queued train request")
+	}
+	app.trainMu.RUnlock()
+
+	drainUntil(t, app, model.TrainReady, 90*time.Second)
+	ev = drainUntil(t, app, model.AgentReply, 2*time.Second)
+	if !strings.Contains(ev.Message, "starting queued train") {
+		t.Fatalf("expected queued train to start after current step, got %q", ev.Message)
+	}
+	drainUntil(t, app, model.TrainModeOpen, 2*time.Second)
+
 	app.trainMu.RLock()
 	defer app.trainMu.RUnlock()
-
-	if !app.trainMode {
-		t.Fatal("expected trainMode=true after appending run tasks")
-	}
-	if got := len(app.trainReqs); got != 2 {
-		t.Fatalf("expected 2 train requests in workspace, got %d", got)
+	if got := len(app.trainReqs); got != 1 {
+		t.Fatalf("expected replacement train workspace after queued restart, got %d requests", got)
 	}
 	if _, ok := app.trainReqs["primary"]; !ok {
-		t.Fatal("expected primary run request to remain in workspace")
+		t.Fatal("expected queued train request to replace workspace as primary")
 	}
-	if _, ok := app.trainReqs["run-2"]; !ok {
-		t.Fatal("expected appended run request to be stored as run-2")
+	if app.trainCurrentRun != "primary" {
+		t.Fatalf("expected current run to move back to primary, got %q", app.trainCurrentRun)
 	}
-	if app.trainCurrentRun != "run-2" {
-		t.Fatalf("expected current run to move to run-2, got %q", app.trainCurrentRun)
+	if app.pendingTrain != nil {
+		t.Fatal("expected queued train to be cleared after auto-start")
 	}
 }
 
@@ -104,6 +127,38 @@ func TestTrainBootstrapFlowReady(t *testing.T) {
 		drainUntil(t, app, model.TrainReady, 30*time.Second)
 	}
 	assertPhase(t, app, "ready")
+}
+
+func TestProcessInputKeepsPlainChatGlobalDuringTrainMode(t *testing.T) {
+	app := newTestApp()
+	app.trainMode = true
+	app.trainPhase = "ready"
+
+	app.processInput("hello")
+
+	ev := drainUntil(t, app, model.AgentReply, 2*time.Second)
+	if ev.Message != provideAPIKeyFirstMsg {
+		t.Fatalf("expected plain text to route to agent path, got %q", ev.Message)
+	}
+	if !app.isTrainMode() {
+		t.Fatal("expected train mode to remain active after plain chat input")
+	}
+}
+
+func TestProcessInputUsesSlashTrainControlsForActiveWorkspace(t *testing.T) {
+	app := newTestApp()
+	app.trainMode = true
+	app.trainPhase = "ready"
+
+	app.processInput("/train exit")
+
+	if app.isTrainMode() {
+		t.Fatal("expected /train exit to close the active train workspace")
+	}
+	ev := drainUntil(t, app, model.TrainModeClose, 2*time.Second)
+	if ev.Type != model.TrainModeClose {
+		t.Fatalf("expected TrainModeClose, got %s", ev.Type)
+	}
 }
 
 // TestTrainFullFlow exercises the complete Phase 2 train state machine

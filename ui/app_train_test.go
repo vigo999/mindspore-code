@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vigo999/ms-cli/ui/model"
 )
 
@@ -93,5 +94,305 @@ func TestTrainFixActionClearsStaleButtonAndKeepsCompletionMessage(t *testing.T) 
 	last := app.state.Messages[len(app.state.Messages)-1]
 	if !strings.Contains(last.Content, "DSA operator finished") {
 		t.Fatalf("expected final agent message to include fix completion text, got %#v", last)
+	}
+}
+
+func TestTrainViewUsesSharedChatSurface(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	app = next.(App)
+
+	next, _ = app.handleEvent(model.Event{
+		Type: model.TrainModeOpen,
+		Train: &model.TrainEventData{
+			RunID:    "primary",
+			RawInput: "qwen3 lora",
+			Model:    "qwen3",
+			Method:   "lora",
+		},
+	})
+	app = next.(App)
+
+	view := app.View()
+	if !strings.Contains(view, "train job") {
+		t.Fatalf("expected train HUD in view, got:\n%s", view)
+	}
+	if strings.Contains(view, "setup env") {
+		t.Fatalf("expected old train panel layout to be gone, got:\n%s", view)
+	}
+	if !strings.Contains(view, "> ") {
+		t.Fatalf("expected global composer to stay visible, got:\n%s", view)
+	}
+}
+
+func TestTrainHUDShowsSingleVIPLine(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	app = next.(App)
+
+	next, _ = app.handleEvent(model.Event{
+		Type: model.TrainModeOpen,
+		Train: &model.TrainEventData{
+			RunID:    "primary",
+			RawInput: "qwen3 lora",
+			Model:    "qwen3",
+			Method:   "lora",
+		},
+	})
+	app = next.(App)
+
+	app.trainView.Request.Dataset = "alpaca_gpt4_zh"
+	app.trainView.SetupContext.BaseModelRef = "models/qwen3-7b"
+	app.trainView.Request.TargetName = "torch-npu-910b-0"
+	if run := app.trainView.RunByID("primary"); run != nil {
+		run.TargetName = "torch-npu-910b-0"
+		run.Device = "Ascend"
+	}
+	app.trainView.UpsertCheck("primary", model.ChecklistItem{
+		Group:   model.TrainCheckGroupLocal,
+		Name:    "local_repo",
+		Status:  model.TrainCheckPass,
+		Summary: "repo detected",
+	})
+	app.trainView.UpsertCheck("primary", model.ChecklistItem{
+		Group:   model.TrainCheckGroupTarget,
+		Name:    "ssh",
+		Status:  model.TrainCheckRunning,
+		Summary: "checking target ssh",
+	})
+
+	view := app.View()
+	if !strings.Contains(view, "run_id") || !strings.Contains(view, "machine") || !strings.Contains(view, "model") || !strings.Contains(view, "ckpt") || !strings.Contains(view, "dataset") {
+		t.Fatalf("expected train HUD VIP fields, got:\n%s", view)
+	}
+	for _, want := range []string{"primary", "torch-npu-910b-0 npu", "qwen3", "qwen3-7b", "alpaca_gpt4_zh"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected train HUD to contain %q, got:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "local checks") || strings.Contains(view, "target checks") {
+		t.Fatalf("expected checklist details to stay out of train HUD, got:\n%s", view)
+	}
+}
+
+func TestTrainSetupStreamsProgressAndSummaryToChat(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	app = next.(App)
+
+	next, _ = app.handleEvent(model.Event{
+		Type: model.TrainModeOpen,
+		Train: &model.TrainEventData{
+			RunID:    "primary",
+			RawInput: "qwen3 lora alpaca_gpt4_zh",
+			Model:    "qwen3",
+			Method:   "lora",
+		},
+	})
+	app = next.(App)
+
+	events := []model.Event{
+		{
+			Type: model.TrainConnect,
+			Train: &model.TrainEventData{
+				RunID:   "primary",
+				Host:    "torch-npu-910b-0",
+				Address: "8.9.72.194:22",
+				Status:  "connecting",
+			},
+		},
+		{
+			Type: model.TrainConnect,
+			Train: &model.TrainEventData{
+				RunID:   "primary",
+				Host:    "torch-npu-910b-0",
+				Address: "8.9.72.194:22",
+				Status:  "connected",
+			},
+		},
+		{
+			Type: model.TrainSetup,
+			Train: &model.TrainEventData{
+				RunID:  "primary",
+				Check:  "local_repo",
+				Status: "checking",
+				Scope:  "local",
+			},
+		},
+		{
+			Type: model.TrainSetup,
+			Train: &model.TrainEventData{
+				RunID:  "primary",
+				Check:  "local_repo",
+				Status: "passed",
+				Detail: "repo detected",
+				Scope:  "local",
+			},
+		},
+		{
+			Type: model.TrainSetup,
+			Train: &model.TrainEventData{
+				RunID:  "primary",
+				Check:  "ssh",
+				Status: "checking",
+				Scope:  "target",
+			},
+		},
+		{
+			Type: model.TrainSetup,
+			Train: &model.TrainEventData{
+				RunID:  "primary",
+				Check:  "ssh",
+				Status: "passed",
+				Detail: "weizheng@8.9.72.194:22",
+				Scope:  "target",
+			},
+		},
+		{
+			Type:    model.TrainReady,
+			Message: "all preflight checks passed. ready to start training.",
+			Train: &model.TrainEventData{
+				RunID:        "primary",
+				ActionSource: "setup-helper",
+			},
+		},
+	}
+
+	for _, ev := range events {
+		next, _ = app.handleEvent(ev)
+		app = next.(App)
+	}
+
+	var contents []string
+	for _, msg := range app.state.Messages {
+		contents = append(contents, msg.Content)
+	}
+	all := strings.Join(contents, "\n")
+
+	for _, want := range []string{
+		"setup-agent",
+		"connecting to torch-npu-910b-0 (8.9.72.194:22)...",
+		"connected to torch-npu-910b-0 (8.9.72.194:22)",
+		"checking repo...",
+		"repo ok: repo detected",
+		"checking ssh...",
+		"ssh ok: weizheng@8.9.72.194:22",
+		"setup summary",
+		"local checks",
+		"target checks",
+		"[x] repo: repo detected",
+		"[x] ssh: weizheng@8.9.72.194:22",
+		"all preflight checks passed. ready to start training.",
+		"╭",
+		"╰",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("expected streamed setup content %q, got:\n%s", want, all)
+		}
+	}
+}
+
+func TestUpDownRecallInputHistoryInsteadOfScrollingViewport(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	app.input.Model.SetValue("first message")
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	app.input.Model.SetValue("second message")
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	app = next.(App)
+	if got := app.input.Value(); got != "second message" {
+		t.Fatalf("expected up to recall latest history entry, got %q", got)
+	}
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+	app = next.(App)
+	if got := app.input.Value(); got != "first message" {
+		t.Fatalf("expected second up to recall earlier history entry, got %q", got)
+	}
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	app = next.(App)
+	if got := app.input.Value(); got != "second message" {
+		t.Fatalf("expected down to move forward in history, got %q", got)
+	}
+}
+
+func TestEscInterruptTokenSentForQueuedTrain(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+	app.trainView.Active = true
+	app.queuedInputs = []string{"/train qwen3 lora"}
+	app.trainView.Runs = []model.TrainRunState{{
+		ID:    "primary",
+		Phase: model.TrainPhaseSetup,
+	}}
+	app.trainView.ActiveRunID = "primary"
+
+	next, _ := app.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	app = next.(App)
+	_ = app
+
+	select {
+	case msg := <-userCh:
+		if msg != "/train exit" {
+			t.Fatalf("expected esc to send /train exit for queued interrupt, got %q", msg)
+		}
+	default:
+		t.Fatal("expected esc to send /train exit for queued interrupt")
+	}
+}
+
+func TestBusyTrainQueuesInputInBannerInsteadOfChatStream(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	app = next.(App)
+	app.trainView.Active = true
+	app.trainView.Runs = []model.TrainRunState{{
+		ID:    "primary",
+		Phase: model.TrainPhaseSetup,
+	}}
+	app.trainView.ActiveRunID = "primary"
+
+	app.input.Model.SetValue("/train qwen3 lora")
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	if got := len(app.queuedInputs); got != 1 {
+		t.Fatalf("expected one queued input, got %d", got)
+	}
+	if len(app.state.Messages) != 0 {
+		t.Fatalf("expected queued input to stay out of chat stream, got %#v", app.state.Messages)
+	}
+	select {
+	case msg := <-userCh:
+		t.Fatalf("expected no immediate backend submit while busy, got %q", msg)
+	default:
+	}
+
+	view := app.View()
+	if !strings.Contains(view, "messages queued (press esc to interrupt)") {
+		t.Fatalf("expected queued-input banner in view, got:\n%s", view)
+	}
+	if strings.Contains(view, "> /train qwen3 lora") {
+		t.Fatalf("expected queued command to stay out of chat stream, got:\n%s", view)
 	}
 }

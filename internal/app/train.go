@@ -21,26 +21,26 @@ type trainSnapshot struct {
 // Used for demo: the user can type natural phrases instead of exact commands.
 var trainTextAliases = map[string]string{
 	// start / rerun
-	"run it":              "start",
-	"run the training":    "start",
-	"rerun":               "start",
-	"rerun training":      "start",
-	"rerun experiment":    "start",
-	"go":                  "start",
-	"launch":              "start",
-	"start it":            "start",
-	"start it up":         "start",
-	"run again":           "start",
-	"run it again":        "start",
-	"begin":               "start",
-	"begin training":      "start",
-	"let's go":            "start",
-	"let's run it":        "start",
-	"kick it off":         "start",
-	"proceed":             "start",
-	"execute":             "start",
-	"run experiment":      "start",
-	"start the run":       "start",
+	"run it":           "start",
+	"run the training": "start",
+	"rerun":            "start",
+	"rerun training":   "start",
+	"rerun experiment": "start",
+	"go":               "start",
+	"launch":           "start",
+	"start it":         "start",
+	"start it up":      "start",
+	"run again":        "start",
+	"run it again":     "start",
+	"begin":            "start",
+	"begin training":   "start",
+	"let's go":         "start",
+	"let's run it":     "start",
+	"kick it off":      "start",
+	"proceed":          "start",
+	"execute":          "start",
+	"run experiment":   "start",
+	"start the run":    "start",
 	// analyze / diagnose
 	"analysis":            "analyze",
 	"what went wrong":     "analyze",
@@ -61,39 +61,39 @@ var trainTextAliases = map[string]string{
 	"explain the failure": "analyze",
 	"figure it out":       "analyze",
 	// diagnose (explicit)
-	"diagnose it":         "diagnose",
-	"find the issue":      "diagnose",
-	"root cause":          "diagnose",
-	"diagnose the issue":  "diagnose",
+	"diagnose it":        "diagnose",
+	"find the issue":     "diagnose",
+	"root cause":         "diagnose",
+	"diagnose the issue": "diagnose",
 	// retry
-	"try again":           "retry",
-	"one more time":       "retry",
-	"retry it":            "retry",
+	"try again":     "retry",
+	"one more time": "retry",
+	"retry it":      "retry",
 	// apply fix (confirmation words like "yes"/"ok"/"do it" are
 	// handled in the UI layer — they fire the current focused button)
-	"fix it":              "apply fix",
-	"apply the fix":       "apply fix",
-	"patch it":            "apply fix",
-	"apply":               "apply fix",
-	"apply patch":         "apply fix",
-	"apply the change":    "apply fix",
-	"make the change":     "apply fix",
+	"fix it":           "apply fix",
+	"apply the fix":    "apply fix",
+	"patch it":         "apply fix",
+	"apply":            "apply fix",
+	"apply patch":      "apply fix",
+	"apply the change": "apply fix",
+	"make the change":  "apply fix",
 	// analyze perf
-	"check performance":   "analyze perf",
-	"profile it":          "analyze perf",
-	"why is it slow":      "analyze perf",
-	"check perf":          "analyze perf",
-	"perf analysis":       "analyze perf",
-	"optimize":            "analyze perf",
-	"optimize it":         "analyze perf",
-	"make it faster":      "analyze perf",
-	"speed it up":         "analyze perf",
-	"check throughput":    "analyze perf",
-	"check speed":         "analyze perf",
-	"profile":             "analyze perf",
-	"tune performance":    "analyze perf",
-	"bottleneck":          "analyze perf",
-	"why slow":            "analyze perf",
+	"check performance": "analyze perf",
+	"profile it":        "analyze perf",
+	"why is it slow":    "analyze perf",
+	"check perf":        "analyze perf",
+	"perf analysis":     "analyze perf",
+	"optimize":          "analyze perf",
+	"optimize it":       "analyze perf",
+	"make it faster":    "analyze perf",
+	"speed it up":       "analyze perf",
+	"check throughput":  "analyze perf",
+	"check speed":       "analyze perf",
+	"profile":           "analyze perf",
+	"tune performance":  "analyze perf",
+	"bottleneck":        "analyze perf",
+	"why slow":          "analyze perf",
 	// algo-feature
 	"add mhc":             "add algo-feature mhc",
 	"try mhc":             "add algo-feature mhc",
@@ -123,12 +123,12 @@ var trainTextAliases = map[string]string{
 	"boost perf":          "add perf-feature fa2",
 	"optimize perf":       "add perf-feature fa2",
 	// stop
-	"cancel":              "stop",
-	"abort":               "stop",
-	"stop it":             "stop",
-	"halt":                "stop",
-	"kill it":             "stop",
-	"stop training":       "stop",
+	"cancel":        "stop",
+	"abort":         "stop",
+	"stop it":       "stop",
+	"halt":          "stop",
+	"kill it":       "stop",
+	"stop training": "stop",
 }
 
 type bootstrapRunState struct {
@@ -136,10 +136,39 @@ type bootstrapRunState struct {
 	PendingActionID string
 }
 
+type pendingTrainStart struct {
+	req      train.Request
+	rawInput string
+}
+
+const interruptQueuedTrainToken = "__interrupt_queued_train__"
+
 // cmdTrain handles the /train command.
 func (a *Application) cmdTrain(args []string) {
 	rawInput := strings.Join(args, " ")
-	workspaceRunID := a.nextWorkspaceRunID()
+	if isTrainControlInput(rawInput) {
+		if !a.isTrainMode() {
+			a.EventCh <- model.Event{
+				Type:    model.AgentReply,
+				Message: "train workspace not active. start one with /train <model> <method>",
+			}
+			return
+		}
+		snapshot := a.getTrainSnapshot()
+		trainData := &model.TrainEventData{RawInput: rawInput}
+		if snapshot.req != nil {
+			trainData.RunID = snapshot.req.RunID
+			trainData.Model = snapshot.req.Model
+			trainData.Method = snapshot.req.Method
+		}
+		a.EventCh <- model.Event{
+			Type:  model.TrainModeOpen,
+			Train: trainData,
+		}
+		a.handleTrainInput(rawInput)
+		return
+	}
+	workspaceRunID := "primary"
 
 	modelName := ""
 	method := ""
@@ -159,22 +188,22 @@ func (a *Application) cmdTrain(args []string) {
 			Backend:  train.BackendSSHHost,
 			Name:     "torch-npu-910b-0",
 			Config: map[string]any{
-				"address":            "8.9.72.194:22",
-				"env_manager":        "docker",
-				"demo_ssh_flaky":     true,
-				"demo_libs_missing":  true,
-				"demo_fail_at_step":  50,
+				"address":           "8.9.72.194:22",
+				"env_manager":       "docker",
+				"demo_ssh_flaky":    true,
+				"demo_libs_missing": true,
+				"demo_fail_at_step": 50,
 			},
 		},
 	}
 
 	var ctx context.Context
 	var runID uint64
-	if a.isTrainMode() {
-		ctx, runID = a.appendTrainRun(req)
-	} else {
-		ctx, runID = a.beginTrainMode(req)
+	if a.isTrainBusy() {
+		a.queueTrainStart(req, rawInput)
+		return
 	}
+	ctx, runID = a.beginTrainMode(req)
 
 	// Initialize controller
 	a.trainController = wtrain.NewDemoController()
@@ -190,6 +219,100 @@ func (a *Application) cmdTrain(args []string) {
 	}
 
 	go a.runTrainSetup(ctx, runID, req)
+}
+
+func (a *Application) queueTrainStart(req train.Request, rawInput string) {
+	a.trainMu.Lock()
+	a.pendingTrain = &pendingTrainStart{
+		req:      req,
+		rawInput: rawInput,
+	}
+	a.trainMu.Unlock()
+
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("messages queued (press esc to interrupt): %s", strings.TrimSpace(rawInput)),
+	}
+}
+
+func (a *Application) startQueuedTrainIfIdle() bool {
+	if a.isTrainBusy() {
+		return false
+	}
+	a.trainMu.Lock()
+	pending := a.pendingTrain
+	a.pendingTrain = nil
+	a.trainMu.Unlock()
+	if pending == nil {
+		return false
+	}
+	ctx, runID := a.beginTrainMode(pending.req)
+	a.trainController = wtrain.NewDemoController()
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("starting queued train: %s", pending.rawInput),
+	}
+	a.EventCh <- model.Event{
+		Type: model.TrainModeOpen,
+		Train: &model.TrainEventData{
+			RunID:    pending.req.RunID,
+			RawInput: pending.rawInput,
+			Model:    pending.req.Model,
+			Method:   pending.req.Method,
+		},
+	}
+	go a.runTrainSetup(ctx, runID, pending.req)
+	return true
+}
+
+func (a *Application) interruptQueuedTrain() bool {
+	a.trainMu.RLock()
+	hasPending := a.pendingTrain != nil
+	a.trainMu.RUnlock()
+	if !hasPending {
+		return false
+	}
+	a.stopTrainTask("stopped")
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: "interrupting current train and starting queued train...",
+	}
+	return a.startQueuedTrainIfIdle()
+}
+
+func isTrainControlInput(input string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	if canonical, ok := trainTextAliases[lower]; ok {
+		lower = canonical
+	}
+
+	switch {
+	case lower == "start" || lower == "start training":
+		return true
+	case lower == "stop":
+		return true
+	case lower == "exit" || lower == "back":
+		return true
+	case lower == "retry" || lower == "retry npu":
+		return true
+	case lower == "analyze" || lower == "analyze npu" || lower == "analyze drift" || lower == "diagnose":
+		return true
+	case lower == "analyze perf" || lower == "analyze performance":
+		return true
+	case lower == "apply fix" || lower == "apply runtime fix" || lower == "apply accuracy fix":
+		return true
+	case strings.HasPrefix(lower, "add algo-feature"):
+		return true
+	case strings.HasPrefix(lower, "add perf-feature"):
+		return true
+	case lower == "view diff":
+		return true
+	}
+
+	return false
 }
 
 // runTrainSetup runs the training setup workflow via the controller.
@@ -482,6 +605,7 @@ func (a *Application) stopTraining() {
 		Type:    model.AgentReply,
 		Message: "training stopped.",
 	}
+	a.startQueuedTrainIfIdle()
 }
 
 func (a *Application) viewDiff() {
@@ -787,6 +911,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				ActionSource: ev.ActionSource,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	case wtrain.EventTrainStarted:
 		a.setTrainPhase("running")
@@ -843,6 +968,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				RunLabel: ev.RunLabel,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	case wtrain.EventTrainStopped:
 		a.setTrainPhase("stopped")
@@ -854,6 +980,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				Lane:  ev.Lane,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	case wtrain.EventTrainFailed:
 		a.setTrainPhase("failed")
@@ -872,6 +999,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				IssueDetail: ev.IssueDetail,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	// ── Phase 2 events ──
 
@@ -923,6 +1051,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				Drift:        ev.Drift,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	case wtrain.EventAnalysisStarted:
 		a.setTrainPhase("analyzing")
@@ -986,6 +1115,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				ActionSource: ev.ActionSource,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	case wtrain.EventFixApplied:
 		a.setTrainPhase("ready")
@@ -1000,6 +1130,7 @@ func (a *Application) convertAndEmitTrainEvent(runID uint64, ev wtrain.Event) {
 				ActionSource: ev.ActionSource,
 			},
 		}
+		a.startQueuedTrainIfIdle()
 
 	case wtrain.EventRerunStarted:
 		a.setTrainPhase("running")
@@ -1040,6 +1171,20 @@ func (a *Application) isTrainMode() bool {
 	a.trainMu.RLock()
 	defer a.trainMu.RUnlock()
 	return a.trainMode
+}
+
+func (a *Application) isTrainBusy() bool {
+	a.trainMu.RLock()
+	defer a.trainMu.RUnlock()
+	if !a.trainMode {
+		return false
+	}
+	switch a.trainPhase {
+	case "setup", "running", "analyzing", "fixing", "evaluating":
+		return true
+	default:
+		return false
+	}
 }
 
 func (a *Application) getTrainPhase() string {
@@ -1199,6 +1344,7 @@ func (a *Application) resetTrainState() {
 	a.trainTasks = nil
 	a.trainBootstrap = nil
 	a.trainController = nil
+	a.pendingTrain = nil
 	a.trainMu.Unlock()
 
 	if oldCancel != nil {

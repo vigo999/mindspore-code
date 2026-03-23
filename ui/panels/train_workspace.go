@@ -2,6 +2,7 @@ package panels
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -50,6 +51,187 @@ func RenderWorkspaceStatusBar(stage model.WorkspaceStage, width int) string {
 
 	line := "  " + labelStyle.Render("train workspace") + "  " + strings.Join(parts, "")
 	return line
+}
+
+// RenderTrainHUD renders a compact train workspace summary above the global chat stream.
+func RenderTrainHUD(tv model.TrainWorkspaceState, width int, status string) string {
+	_ = status
+	run := tv.ActiveRun()
+	if run == nil {
+		return checkPendingStyle.Render("  train job: no active run")
+	}
+	parts := []string{
+		"  " + panelTitleStyle.Render("train job"),
+		trainVIPField("run_id", firstNonEmptyTrainValue(run.ID, "primary")),
+		trainVIPField("machine", trainMachineValue(tv, run)),
+		trainVIPField("model", firstNonEmptyTrainValue(trainModelValue(tv), "-")),
+		trainVIPField("ckpt", firstNonEmptyTrainValue(trainCheckpointValue(tv), "-")),
+		trainVIPField("dataset", firstNonEmptyTrainValue(trainDatasetValue(tv), "-")),
+	}
+	line := strings.Join(parts, " | ")
+	maxWidth := maxInt(24, width)
+	if lipgloss.Width(line) > maxWidth {
+		line = truncateRunText(line, maxWidth)
+	}
+	return line
+}
+
+func trainVIPField(name, value string) string {
+	return metricLabelStyle.Render(name) + " " + checkDetailStyle.Render(value)
+}
+
+func trainMachineValue(tv model.TrainWorkspaceState, run *model.TrainRunState) string {
+	target := ""
+	switch {
+	case tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.TargetName) != "":
+		target = tv.RunConfig.TargetName
+	case run != nil && strings.TrimSpace(run.TargetName) != "":
+		target = run.TargetName
+	case strings.TrimSpace(tv.SetupContext.TargetName) != "":
+		target = tv.SetupContext.TargetName
+	case strings.TrimSpace(tv.Request.TargetName) != "":
+		target = tv.Request.TargetName
+	}
+	device := ""
+	switch {
+	case tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.Device) != "":
+		device = tv.RunConfig.Device
+	case run != nil && strings.TrimSpace(run.Device) != "":
+		device = run.Device
+	}
+	device = normalizeTrainDevice(device)
+	switch {
+	case target != "" && device != "":
+		return target + " " + device
+	case target != "":
+		return target
+	case device != "":
+		return device
+	default:
+		return "-"
+	}
+}
+
+func trainModelValue(tv model.TrainWorkspaceState) string {
+	if tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.Model) != "" {
+		return tv.RunConfig.Model
+	}
+	return strings.TrimSpace(tv.Request.Model)
+}
+
+func trainCheckpointValue(tv model.TrainWorkspaceState) string {
+	switch {
+	case tv.TrainPlan != nil && strings.TrimSpace(tv.TrainPlan.BaseModel) != "":
+		return filepath.Base(tv.TrainPlan.BaseModel)
+	case strings.TrimSpace(tv.SetupContext.BaseModelRef) != "":
+		return filepath.Base(tv.SetupContext.BaseModelRef)
+	default:
+		return ""
+	}
+}
+
+func trainDatasetValue(tv model.TrainWorkspaceState) string {
+	if tv.RunConfig != nil && strings.TrimSpace(tv.RunConfig.Dataset) != "" {
+		return tv.RunConfig.Dataset
+	}
+	return strings.TrimSpace(tv.Request.Dataset)
+}
+
+func normalizeTrainDevice(device string) string {
+	switch strings.ToLower(strings.TrimSpace(device)) {
+	case "ascend", "npu":
+		return "npu"
+	case "cuda", "gpu", "nvidia":
+		return "gpu"
+	}
+	if strings.TrimSpace(device) == "" {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(device))
+}
+
+func firstNonEmptyTrainValue(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func renderHUDMetrics(run *model.TrainRunState) []string {
+	lines := []string{}
+	if len(run.Metrics) > 0 {
+		lines = append(lines, "   "+metricLabelStyle.Render(strings.Join(metricPairs(run.Metrics), "  ")))
+		return lines
+	}
+	m := run.CurrentMetrics
+	if m.TotalSteps > 0 {
+		lines = append(lines, fmt.Sprintf("   %s", metricLabelStyle.Render(fmt.Sprintf("step %d/%d", m.Step, m.TotalSteps))))
+	}
+	parts := []string{}
+	if m.Loss > 0 {
+		parts = append(parts, fmt.Sprintf("loss %.4f", m.Loss))
+	}
+	if m.LR > 0 {
+		parts = append(parts, fmt.Sprintf("lr %.1e", m.LR))
+	}
+	if m.Throughput > 0 {
+		parts = append(parts, fmt.Sprintf("tput %.0f tok/s", m.Throughput))
+	}
+	if len(parts) > 0 {
+		lines = append(lines, "   "+metricLabelStyle.Render(strings.Join(parts, "  ")))
+	}
+	return lines
+}
+
+func metricPairs(metrics []model.MetricItem) []string {
+	parts := make([]string, 0, len(metrics))
+	for _, metric := range metrics {
+		if strings.TrimSpace(metric.Value) == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %s", metric.Name, metric.Value))
+	}
+	return parts
+}
+
+func renderHUDRecentLogs(run *model.TrainRunState, width int) []string {
+	if run == nil || len(run.Logs.Lines) == 0 {
+		return nil
+	}
+	lines := run.Logs.Lines
+	start := len(lines) - 3
+	if start < 0 {
+		start = 0
+	}
+	out := make([]string, 0, len(lines)-start)
+	for _, line := range lines[start:] {
+		out = append(out, "   "+checkDetailStyle.Render(truncateRunText(line, maxInt(12, width-6))))
+	}
+	return out
+}
+
+func renderHUDIssue(run *model.TrainRunState, width int) []string {
+	if run == nil {
+		return nil
+	}
+	lines := []string{}
+	if run.Issue != nil {
+		if strings.TrimSpace(run.Issue.Title) != "" {
+			lines = append(lines, "   "+checkFailedStyle.Render(truncateRunText(run.Issue.Title, maxInt(12, width-6))))
+		}
+		if strings.TrimSpace(run.Issue.Detail) != "" {
+			lines = append(lines, "   "+checkDetailStyle.Render(truncateRunText(run.Issue.Detail, maxInt(12, width-6))))
+		}
+		if strings.TrimSpace(run.Issue.FixSummary) != "" {
+			lines = append(lines, "   "+checkRunningStyle.Render("fix: "+truncateRunText(run.Issue.FixSummary, maxInt(12, width-11))))
+		}
+	}
+	if len(lines) == 0 && strings.TrimSpace(run.StatusMessage) != "" {
+		lines = append(lines, "   "+checkDetailStyle.Render(truncateRunText(run.StatusMessage, maxInt(12, width-6))))
+	}
+	return lines
 }
 
 // ── Stacked layout API ──────────────────────────────────────

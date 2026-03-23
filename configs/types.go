@@ -25,7 +25,7 @@ type IssuesConfig struct {
 	TokenPath string `yaml:"token_path,omitempty"`
 }
 
-const DefaultIssuesServerURL = "http://13.229.44.116:9473"
+const DefaultIssuesServerURL = ""
 
 func (c *Config) normalize() {
 	if strings.TrimSpace(c.Model.Provider) == "" {

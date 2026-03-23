@@ -162,6 +162,26 @@ func (s *Store) ClaimBug(id int, lead string) error {
 	return err
 }
 
+func (s *Store) CloseBug(id int, user string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(
+		`UPDATE bugs SET status = 'closed', updated_at = ? WHERE id = ?`,
+		now, id,
+	)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("bug %d not found", id)
+	}
+	_, err = s.db.Exec(
+		`INSERT INTO activities (bug_id, actor, type, text, created_at) VALUES (?, ?, 'close', ?, ?)`,
+		id, user, fmt.Sprintf("%s closed bug", user), now,
+	)
+	return err
+}
+
 func (s *Store) AddNote(bugID int, author, content string) (*issues.Note, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	res, err := s.db.Exec(

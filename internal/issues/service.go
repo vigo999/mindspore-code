@@ -24,6 +24,10 @@ func (s *Service) ClaimBug(id int, lead string) error {
 	return s.store.ClaimBug(id, lead)
 }
 
+func (s *Service) CloseBug(id int) error {
+	return s.store.CloseBug(id)
+}
+
 func (s *Service) AddNote(bugID int, author, content string) (*Note, error) {
 	return s.store.AddNote(bugID, author, content)
 }

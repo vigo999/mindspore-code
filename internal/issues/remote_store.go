@@ -112,6 +112,17 @@ func (r *RemoteStore) ClaimBug(id int, lead string) error {
 	return nil
 }
 
+func (r *RemoteStore) CloseBug(id int) error {
+	body, status, err := r.do("POST", fmt.Sprintf("/bugs/%d/close", id), nil)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusOK {
+		return fmt.Errorf("close bug: server returned %d: %s", status, body)
+	}
+	return nil
+}
+
 func (r *RemoteStore) AddNote(bugID int, author, content string) (*Note, error) {
 	body, status, err := r.do("POST", fmt.Sprintf("/bugs/%d/notes", bugID), map[string]string{"content": content})
 	if err != nil {

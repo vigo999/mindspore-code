@@ -6,6 +6,23 @@ import (
 	"strconv"
 )
 
+func HandleCloseBug(store *Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		bugID, err := strconv.Atoi(r.PathValue("id"))
+		if err != nil {
+			http.Error(w, `{"error":"invalid bug id"}`, http.StatusBadRequest)
+			return
+		}
+		user := UserFromContext(r.Context())
+		if err := store.CloseBug(bugID, user); err != nil {
+			http.Error(w, `{"error":"failed to close bug"}`, http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"ok":true}`))
+	}
+}
+
 func HandleClaimBug(store *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		bugID, err := strconv.Atoi(r.PathValue("id"))

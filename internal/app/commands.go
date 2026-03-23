@@ -46,6 +46,8 @@ func (a *Application) handleCommand(input string) {
 		a.cmdBugs(parts[1:])
 	case "/claim":
 		a.cmdClaim(parts[1:])
+	case "/close":
+		a.cmdClose(parts[1:])
 	case "/dock":
 		a.cmdDock()
 	case "/skill":

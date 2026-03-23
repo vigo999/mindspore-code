@@ -75,6 +75,29 @@ func (a *Application) cmdClaim(args []string) {
 	}
 }
 
+func (a *Application) cmdClose(args []string) {
+	if !a.ensureIssueService() {
+		return
+	}
+	if len(args) == 0 {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Usage: /close <bug-id>"}
+		return
+	}
+	id, err := strconv.Atoi(args[0])
+	if err != nil {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: "invalid bug id"}
+		return
+	}
+	if err := a.issueService.CloseBug(id); err != nil {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: fmt.Sprintf("close failed: %v", err)}
+		return
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("closed bug #%d", id),
+	}
+}
+
 func (a *Application) cmdDock() {
 	if !a.ensureIssueService() {
 		return

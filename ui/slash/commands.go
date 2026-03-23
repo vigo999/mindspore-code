@@ -195,6 +195,12 @@ func (r *Registry) registerDefaults() {
 	})
 
 	r.Register(Command{
+		Name:        "/close",
+		Description: "Close a resolved bug",
+		Usage:       "/close <id>",
+	})
+
+	r.Register(Command{
 		Name:        "/dock",
 		Description: "Show bug dashboard",
 		Usage:       "/dock",

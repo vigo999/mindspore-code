@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/internal/issues"
 	projectpkg "github.com/vigo999/ms-cli/internal/project"
 	"github.com/vigo999/ms-cli/ui/model"
@@ -62,7 +61,11 @@ func (a *Application) cmdLogin(args []string) {
 	}
 	serverURL := strings.TrimRight(a.Config.Issues.ServerURL, "/")
 	if serverURL == "" {
-		serverURL = strings.TrimRight(configs.DefaultIssuesServerURL, "/")
+		a.EventCh <- model.Event{
+			Type:    model.AgentReply,
+			Message: "server URL not set. Run: export MSCLI_SERVER_URL=http://<host>:9473",
+		}
+		return
 	}
 	token := args[0]
 

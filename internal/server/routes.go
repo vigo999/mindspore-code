@@ -24,6 +24,7 @@ func NewMux(store *Store, tokens []configs.TokenEntry) *http.ServeMux {
 	mux.Handle("GET /bugs/{id}", auth(http.HandlerFunc(HandleGetBug(store))))
 	mux.Handle("POST /bugs/{id}/notes", auth(http.HandlerFunc(HandleAddNote(store))))
 	mux.Handle("POST /bugs/{id}/claim", auth(http.HandlerFunc(HandleClaimBug(store))))
+	mux.Handle("POST /bugs/{id}/close", auth(http.HandlerFunc(HandleCloseBug(store))))
 	mux.Handle("GET /bugs/{id}/activity", auth(http.HandlerFunc(HandleListActivity(store))))
 	mux.Handle("GET /dock", auth(http.HandlerFunc(HandleDock(store))))
 

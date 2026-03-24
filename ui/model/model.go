@@ -37,38 +37,42 @@ const (
 
 // Message is a single entry in the chat stream.
 type Message struct {
-	Kind     MessageKind
-	Content  string
-	ToolName string
-	Display  DisplayMode
-	Summary  string // shown when collapsed, e.g. "5 matches", "23 files"
-	Pending  bool
+	Kind      MessageKind
+	Content   string
+	ToolName  string
+	Display   DisplayMode
+	Summary   string // shown when collapsed, e.g. "5 matches", "23 files"
+	Pending   bool
+	Streaming bool
 }
 
 // EventType identifies the kind of UI event.
 type EventType string
 
 const (
-	TaskUpdated       EventType = "TaskUpdated"
-	ToolCallStart     EventType = "ToolCallStart"
-	CmdStarted        EventType = "CmdStarted"
-	CmdOutput         EventType = "CmdOutput"
-	CmdFinished       EventType = "CmdFinished"
-	AnalysisReady     EventType = "AnalysisReady"
-	AgentReply        EventType = "AgentReply"
-	AgentThinking     EventType = "AgentThinking"
-	TokenUpdate       EventType = "TokenUpdate"
-	ToolRead          EventType = "ToolRead"
-	ToolGrep          EventType = "ToolGrep"
-	ToolGlob          EventType = "ToolGlob"
-	ToolEdit          EventType = "ToolEdit"
-	ToolWrite         EventType = "ToolWrite"
-	ToolSkill         EventType = "ToolSkill"
-	ToolError         EventType = "ToolError"
-	ClearScreen       EventType = "ClearScreen"
-	ModelUpdate       EventType = "ModelUpdate"
-	MouseModeToggle   EventType = "MouseModeToggle"
-	IssueUserUpdate   EventType = "IssueUserUpdate"
+	TaskUpdated     EventType = "TaskUpdated"
+	ToolCallStart   EventType = "ToolCallStart"
+	CmdStarted      EventType = "CmdStarted"
+	CmdOutput       EventType = "CmdOutput"
+	CmdFinished     EventType = "CmdFinished"
+	AnalysisReady   EventType = "AnalysisReady"
+	AgentReply      EventType = "AgentReply"
+	AgentReplyDelta EventType = "AgentReplyDelta"
+	AgentThinking   EventType = "AgentThinking"
+	UserInput       EventType = "UserInput"
+	ToolReplay      EventType = "ToolReplay"
+	TokenUpdate     EventType = "TokenUpdate"
+	ToolRead        EventType = "ToolRead"
+	ToolGrep        EventType = "ToolGrep"
+	ToolGlob        EventType = "ToolGlob"
+	ToolEdit        EventType = "ToolEdit"
+	ToolWrite       EventType = "ToolWrite"
+	ToolSkill       EventType = "ToolSkill"
+	ToolError       EventType = "ToolError"
+	ClearScreen     EventType = "ClearScreen"
+	ModelUpdate     EventType = "ModelUpdate"
+	MouseModeToggle EventType = "MouseModeToggle"
+	IssueUserUpdate  EventType = "IssueUserUpdate"
 	ReleaseNoteUpdate EventType = "ReleaseNoteUpdate"
 	Done              EventType = "Done"
 )

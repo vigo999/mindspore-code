@@ -12,9 +12,9 @@ import (
 
 	agentctx "github.com/vigo999/ms-cli/agent/context"
 	"github.com/vigo999/ms-cli/agent/loop"
+	"github.com/vigo999/ms-cli/agent/session"
 	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/integrations/llm"
-	providerpkg "github.com/vigo999/ms-cli/integrations/llm/provider"
 	"github.com/vigo999/ms-cli/integrations/skills"
 	"github.com/vigo999/ms-cli/internal/issues"
 	projectpkg "github.com/vigo999/ms-cli/internal/project"
@@ -26,7 +26,6 @@ import (
 	"github.com/vigo999/ms-cli/tools/fs"
 	"github.com/vigo999/ms-cli/tools/shell"
 	skillstool "github.com/vigo999/ms-cli/tools/skills"
-	"github.com/vigo999/ms-cli/trace"
 	"github.com/vigo999/ms-cli/ui/model"
 	"github.com/vigo999/ms-cli/ui/slash"
 	wtrain "github.com/vigo999/ms-cli/workflow/train"
@@ -38,17 +37,18 @@ var Version = "MindSpore AI Infra Agent CLI. " + version.Version
 
 // Application is the top-level composition container.
 type Application struct {
-	Engine       *loop.Engine
-	EventCh      chan model.Event
-	llmReady     bool
-	WorkDir      string
-	RepoURL      string
-	Config       *configs.Config
-	provider     llm.Provider
-	toolRegistry *tools.Registry
-	ctxManager   *agentctx.Manager
-	permService  permission.PermissionService
-	traceWriter  trace.Writer
+	Engine        *loop.Engine
+	EventCh       chan model.Event
+	llmReady      bool
+	WorkDir       string
+	RepoURL       string
+	Config        *configs.Config
+	provider      llm.Provider
+	toolRegistry  *tools.Registry
+	ctxManager    *agentctx.Manager
+	permService   permission.PermissionService
+	session       *session.Session
+	replayBacklog []model.Event
 
 	// Skills
 	skillLoader *skills.Loader
@@ -79,9 +79,11 @@ type Application struct {
 
 // BootstrapConfig holds bootstrap configuration.
 type BootstrapConfig struct {
-	URL   string
-	Model string
-	Key   string
+	URL             string
+	Model           string
+	Key             string
+	Resume          bool
+	ResumeSessionID string
 }
 
 // Wire builds and returns the Application.
@@ -109,7 +111,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	var provider llm.Provider
 	llmReady := true
-	resolveOpts := providerpkg.ResolveOptions{
+	resolveOpts := llm.ResolveOptions{
 		PreferConfigAPIKey:  strings.TrimSpace(cfg.Key) != "",
 		PreferConfigBaseURL: strings.TrimSpace(cfg.URL) != "",
 	}
@@ -125,16 +127,26 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	toolRegistry := initTools(config, workDir)
 
-	// Skills: discover from binary dir, home dir, and project dir.
+	// Skills: refresh the shared repo under ~/.ms-cli, then discover from
+	// legacy local dirs plus the synced repo (highest priority).
 	homeDir, _ := os.UserHomeDir()
 	execSkillsDir := ""
 	if ep, err := os.Executable(); err == nil {
 		execSkillsDir = filepath.Join(filepath.Dir(ep), ".ms-cli", "skills")
 	}
+	syncedSkillsDir := ""
+	if strings.TrimSpace(homeDir) != "" {
+		repoSync := skills.NewDefaultRepoSync(homeDir)
+		syncedSkillsDir = repoSync.SkillsDir()
+		if err := repoSync.Sync(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: sync shared skills repo: %v\n", err)
+		}
+	}
 	skillLoader := skills.NewLoader(
 		execSkillsDir,
 		filepath.Join(homeDir, ".ms-cli", "skills"),
 		filepath.Join(workDir, ".ms-cli", "skills"),
+		syncedSkillsDir,
 	)
 	toolRegistry.MustRegister(skillstool.NewLoadSkillTool(skillLoader))
 
@@ -156,17 +168,40 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		MaxHistoryRounds:    config.Context.MaxHistoryRounds,
 	})
 
-	traceWriter, err := trace.NewTimestampWriter(filepath.Join(workDir, ".cache"))
-	if err != nil {
-		return nil, fmt.Errorf("init trace writer: %w", err)
-	}
-
 	// Build system prompt: base + skill summaries.
 	systemPrompt := loop.DefaultSystemPrompt()
 	if summaries := skillLoader.List(); len(summaries) > 0 {
 		systemPrompt += "\n\n## Available Skills\n\n" +
 			"Use the load_skill tool to load a skill when the user's task matches one:\n\n" +
 			skills.FormatSummaries(summaries)
+	}
+
+	var (
+		runtimeSession *session.Session
+		replayBacklog  []model.Event
+	)
+	if cfg.Resume {
+		if strings.TrimSpace(cfg.ResumeSessionID) != "" {
+			runtimeSession, err = session.LoadByID(workDir, cfg.ResumeSessionID)
+			if err != nil {
+				return nil, fmt.Errorf("load session %s: %w", cfg.ResumeSessionID, err)
+			}
+		} else {
+			runtimeSession, err = session.LoadLatest(workDir)
+			if err != nil {
+				return nil, fmt.Errorf("load latest session: %w", err)
+			}
+		}
+		systemPrompt, restoredMessages := runtimeSession.RestoreContext()
+		ctxManager.SetSystemPrompt(systemPrompt)
+		ctxManager.SetNonSystemMessages(restoredMessages)
+		replayBacklog = runtimeSession.ReplayEvents()
+	} else {
+		runtimeSession, err = session.Create(workDir, systemPrompt)
+		if err != nil {
+			return nil, fmt.Errorf("create session: %w", err)
+		}
+		ctxManager.SetSystemPrompt(systemPrompt)
 	}
 
 	engineCfg := loop.EngineConfig{
@@ -178,24 +213,25 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	}
 	engine := loop.NewEngine(engineCfg, provider, toolRegistry)
 	engine.SetContextManager(ctxManager)
-	engine.SetTraceWriter(traceWriter)
+	engine.SetTrajectoryRecorder(newTrajectoryRecorder(runtimeSession))
 
 	permService := permission.NewDefaultPermissionService(config.Permissions)
 	engine.SetPermissionService(permService)
 
 	app := &Application{
-		Engine:       engine,
-		EventCh:      make(chan model.Event, 64),
-		WorkDir:      workDir,
-		RepoURL:      "github.com/vigo999/ms-cli",
-		Config:       config,
-		provider:     provider,
-		toolRegistry: toolRegistry,
-		ctxManager:   ctxManager,
-		permService:  permService,
-		traceWriter:  traceWriter,
-		llmReady:     llmReady,
-		skillLoader:  skillLoader,
+		Engine:        engine,
+		EventCh:       make(chan model.Event, 64),
+		WorkDir:       workDir,
+		RepoURL:       "github.com/vigo999/ms-cli",
+		Config:        config,
+		provider:      provider,
+		toolRegistry:  toolRegistry,
+		ctxManager:    ctxManager,
+		permService:   permService,
+		session:       runtimeSession,
+		replayBacklog: replayBacklog,
+		llmReady:      llmReady,
+		skillLoader:   skillLoader,
 	}
 
 	// Auto-login from saved credentials.
@@ -211,8 +247,8 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 // SetProvider updates model/key and reinitializes the engine.
 func (a *Application) SetProvider(providerName, modelName, apiKey string) error {
-	normalizedProvider := providerpkg.NormalizeProvider(providerName)
-	if normalizedProvider != "" && !providerpkg.IsSupportedProvider(normalizedProvider) {
+	normalizedProvider := llm.NormalizeProvider(providerName)
+	if normalizedProvider != "" && !llm.IsSupportedProvider(normalizedProvider) {
 		return fmt.Errorf("unsupported provider: %s", providerName)
 	}
 
@@ -227,7 +263,7 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 		a.Config.Model.Key = apiKey
 	}
 
-	resolveOpts := providerpkg.ResolveOptions{
+	resolveOpts := llm.ResolveOptions{
 		PreferConfigAPIKey: strings.TrimSpace(apiKey) != "",
 	}
 	provider, err := initProvider(a.Config.Model, resolveOpts)
@@ -251,7 +287,7 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 	newEngine := loop.NewEngine(engineCfg, provider, a.toolRegistry)
 	newEngine.SetContextManager(a.ctxManager)
 	newEngine.SetPermissionService(a.permService)
-	newEngine.SetTraceWriter(a.traceWriter)
+	newEngine.SetTrajectoryRecorder(newTrajectoryRecorder(a.session))
 
 	a.Engine = newEngine
 	a.provider = provider
@@ -259,20 +295,55 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 	return nil
 }
 
-func initProvider(cfg configs.ModelConfig, opts providerpkg.ResolveOptions) (llm.Provider, error) {
-	resolved, err := providerpkg.ResolveConfigWithOptions(cfg, opts)
+func initProvider(cfg configs.ModelConfig, opts llm.ResolveOptions) (llm.Provider, error) {
+	resolved, err := llm.ResolveConfigWithOptions(cfg, opts)
 	if err != nil {
-		if errors.Is(err, providerpkg.ErrMissingAPIKey) {
+		if errors.Is(err, llm.ErrMissingAPIKey) {
 			return nil, errAPIKeyNotFound
 		}
 		return nil, fmt.Errorf("resolve provider config: %w", err)
 	}
 
-	client, err := providerpkg.DefaultManager().Build(resolved)
+	client, err := llm.DefaultManager().Build(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("build provider: %w", err)
 	}
 	return client, nil
+}
+
+func newTrajectoryRecorder(s *session.Session) *loop.TrajectoryRecorder {
+	return &loop.TrajectoryRecorder{
+		RecordUserInput: func(content string) error {
+			if s == nil {
+				return nil
+			}
+			return s.AppendUserInput(content)
+		},
+		RecordAssistant: func(content string) error {
+			if s == nil {
+				return nil
+			}
+			return s.AppendAssistant(content)
+		},
+		RecordToolCall: func(tc llm.ToolCall) error {
+			if s == nil {
+				return nil
+			}
+			return s.AppendToolCall(tc)
+		},
+		RecordToolResult: func(tc llm.ToolCall, content string) error {
+			if s == nil {
+				return nil
+			}
+			return s.AppendToolResult(tc.ID, tc.Function.Name, content)
+		},
+		RecordSkillActivate: func(skillName string) error {
+			if s == nil {
+				return nil
+			}
+			return s.AppendSkillActivation(skillName)
+		},
+	}
 }
 
 func initTools(cfg *configs.Config, workDir string) *tools.Registry {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -11,7 +12,6 @@ import (
 	"github.com/vigo999/ms-cli/integrations/llm"
 	"github.com/vigo999/ms-cli/permission"
 	"github.com/vigo999/ms-cli/tools"
-	"github.com/vigo999/ms-cli/trace"
 )
 
 // EngineConfig holds engine configuration.
@@ -30,7 +30,16 @@ type Engine struct {
 	tools      *tools.Registry
 	ctxManager *ctxmanager.Manager
 	permission permission.PermissionService
-	trace      trace.Writer
+	recorder   *TrajectoryRecorder
+}
+
+// TrajectoryRecorder records runtime conversation events for persistence.
+type TrajectoryRecorder struct {
+	RecordUserInput     func(string) error
+	RecordAssistant     func(string) error
+	RecordToolCall      func(llm.ToolCall) error
+	RecordToolResult    func(llm.ToolCall, string) error
+	RecordSkillActivate func(string) error
 }
 
 // NewEngine creates a new engine.
@@ -79,9 +88,9 @@ func (e *Engine) SetPermissionService(ps permission.PermissionService) {
 	e.permission = ps
 }
 
-// SetTraceWriter sets the trace writer.
-func (e *Engine) SetTraceWriter(w trace.Writer) {
-	e.trace = w
+// SetTrajectoryRecorder records runtime conversation events for persistence.
+func (e *Engine) SetTrajectoryRecorder(recorder *TrajectoryRecorder) {
+	e.recorder = recorder
 }
 
 // ToolNames returns the names of registered tools.
@@ -111,35 +120,14 @@ func (e *Engine) RunWithContextStream(ctx context.Context, task Task, sink func(
 }
 
 func (e *Engine) runWithContext(ctx context.Context, task Task, sink func(Event)) ([]Event, error) {
-	startedAt := time.Now()
-	e.writeTrace("run_started", map[string]any{
-		"task_id":     task.ID,
-		"description": task.Description,
-		"started_at":  startedAt,
-	})
-
 	exec := &executor{
 		engine:    e,
 		task:      task,
 		events:    make([]Event, 0),
 		sink:      sink,
-		startTime: startedAt,
+		startTime: time.Now(),
 	}
-	events, err := exec.run(ctx)
-
-	e.writeTrace("run_finished", map[string]any{
-		"task_id":     task.ID,
-		"duration_ms": time.Since(startedAt).Milliseconds(),
-		"event_count": len(events),
-	})
-	return events, err
-}
-
-func (e *Engine) writeTrace(eventType string, payload any) {
-	if e.trace == nil {
-		return
-	}
-	_ = e.trace.Write(eventType, payload)
+	return exec.run(ctx)
 }
 
 // executor manages a single ReAct loop run.
@@ -151,10 +139,22 @@ type executor struct {
 	startTime  time.Time
 	totalUsage llm.Usage
 	sink       func(Event)
+
+	responsesPreviousID string
+	responsesFollowup   []llm.Message
 }
 
 func (ex *executor) run(ctx context.Context) ([]Event, error) {
-	ex.engine.ctxManager.AddMessage(llm.NewUserMessage(ex.task.Description))
+	if err := ex.engine.ctxManager.AddMessage(llm.NewUserMessage(ex.task.Description)); err != nil {
+		ex.addEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Persist message error: %v", err)))
+		return ex.events, err
+	}
+	if ex.engine.recorder != nil && ex.engine.recorder.RecordUserInput != nil {
+		if err := ex.engine.recorder.RecordUserInput(ex.task.Description); err != nil {
+			ex.addEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Persist message error: %v", err)))
+			return ex.events, err
+		}
+	}
 	ex.addEvent(NewEvent(EventTaskStarted, fmt.Sprintf("Task: %s", ex.task.Description)))
 
 	for ex.engine.config.MaxIterations == 0 || ex.iterCount < ex.engine.config.MaxIterations {
@@ -202,15 +202,16 @@ func (ex *executor) callLLM(ctx context.Context) (*llm.CompletionResponse, error
 	defer cancel()
 
 	req := &llm.CompletionRequest{
-		Messages:    ex.engine.ctxManager.GetMessages(),
+		Messages:    ex.requestMessages(),
 		Tools:       ex.engine.tools.ToLLMTools(),
 		Temperature: ex.engine.config.Temperature,
 	}
-	ex.engine.writeTrace("llm_request", map[string]any{
-		"iteration": ex.iterCount,
-	})
 
-	resp, err := ex.engine.provider.Complete(llmCtx, req)
+	if ex.usesResponsesChain() && ex.responsesPreviousID != "" {
+		llmCtx = llm.WithPreviousResponseID(llmCtx, ex.responsesPreviousID)
+	}
+
+	resp, err := ex.streamCompletion(llmCtx, req)
 	if err != nil {
 		errMsg := fmt.Sprintf("LLM error: %v", err)
 		if ctx.Err() == context.DeadlineExceeded || llmCtx.Err() == context.DeadlineExceeded {
@@ -221,18 +222,112 @@ func (ex *executor) callLLM(ctx context.Context) (*llm.CompletionResponse, error
 		return nil, fmt.Errorf("LLM completion: %w", err)
 	}
 
-	ex.engine.writeTrace("llm_response", map[string]any{
-		"iteration": ex.iterCount,
-	})
 	return resp, nil
 }
 
+func (ex *executor) requestMessages() []llm.Message {
+	if !ex.usesResponsesChain() || ex.responsesPreviousID == "" || len(ex.responsesFollowup) == 0 {
+		return ex.engine.ctxManager.GetMessages()
+	}
+
+	msgs := make([]llm.Message, 0, len(ex.responsesFollowup)+1)
+	if system := ex.engine.ctxManager.GetSystemPrompt(); system != nil {
+		msgs = append(msgs, *system)
+	}
+	msgs = append(msgs, ex.responsesFollowup...)
+	return msgs
+}
+
+func (ex *executor) usesResponsesChain() bool {
+	return ex.engine.provider != nil && ex.engine.provider.Name() == string(llm.ProviderOpenAIResponses)
+}
+
+func (ex *executor) streamCompletion(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
+	iter, err := ex.engine.provider.CompleteStream(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("stream completion: %w", err)
+	}
+	defer iter.Close()
+
+	resp := &llm.CompletionResponse{}
+	for {
+		chunk, nextErr := iter.Next()
+		if chunk != nil {
+			ex.applyStreamChunk(resp, chunk)
+		}
+		if nextErr != nil {
+			if nextErr == io.EOF {
+				break
+			}
+			return nil, nextErr
+		}
+	}
+
+	if resp.FinishReason == "" {
+		if len(resp.ToolCalls) > 0 {
+			resp.FinishReason = llm.FinishToolCalls
+		} else {
+			resp.FinishReason = llm.FinishStop
+		}
+	}
+
+	return resp, nil
+}
+
+func (ex *executor) applyStreamChunk(resp *llm.CompletionResponse, chunk *llm.StreamChunk) {
+	if chunk.ID != "" {
+		resp.ID = chunk.ID
+	}
+	if chunk.Model != "" {
+		resp.Model = chunk.Model
+	}
+	if chunk.Content != "" {
+		resp.Content += chunk.Content
+		ex.addEvent(NewEvent(EventAgentReplyDelta, chunk.Content))
+	}
+	if len(chunk.ToolCalls) > 0 {
+		resp.ToolCalls = make([]llm.ToolCall, len(chunk.ToolCalls))
+		copy(resp.ToolCalls, chunk.ToolCalls)
+	}
+	if chunk.FinishReason != "" {
+		resp.FinishReason = chunk.FinishReason
+	}
+	if chunk.Usage != nil {
+		resp.Usage = *chunk.Usage
+	}
+}
+
 func (ex *executor) handleResponse(ctx context.Context, resp *llm.CompletionResponse) (bool, error) {
-	ex.engine.ctxManager.AddMessage(llm.Message{
+	if err := ex.engine.ctxManager.AddMessage(llm.Message{
 		Role:      "assistant",
 		Content:   resp.Content,
 		ToolCalls: resp.ToolCalls,
-	})
+	}); err != nil {
+		return false, err
+	}
+	if ex.engine.recorder != nil {
+		if strings.TrimSpace(resp.Content) != "" && ex.engine.recorder.RecordAssistant != nil {
+			if err := ex.engine.recorder.RecordAssistant(resp.Content); err != nil {
+				return false, err
+			}
+		}
+		for _, tc := range resp.ToolCalls {
+			if ex.engine.recorder.RecordToolCall != nil {
+				if err := ex.engine.recorder.RecordToolCall(tc); err != nil {
+					return false, err
+				}
+			}
+		}
+	}
+
+	if ex.usesResponsesChain() && strings.TrimSpace(resp.ID) != "" {
+		ex.responsesPreviousID = strings.TrimSpace(resp.ID)
+		ex.responsesFollowup = nil
+	}
+
+	if resp.Content != "" {
+		ex.addEvent(NewEvent(EventAgentReply, resp.Content))
+	}
 
 	if len(resp.ToolCalls) > 0 {
 		for _, tc := range resp.ToolCalls {
@@ -243,9 +338,6 @@ func (ex *executor) handleResponse(ctx context.Context, resp *llm.CompletionResp
 		return true, nil
 	}
 
-	if resp.Content != "" {
-		ex.addEvent(NewEvent(EventAgentReply, resp.Content))
-	}
 	return false, nil
 }
 
@@ -259,7 +351,9 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 	if !ok {
 		errMsg := fmt.Sprintf("Tool not found: %s", toolName)
 		ex.addEvent(NewEvent(EventToolError, errMsg))
-		ex.engine.ctxManager.AddToolResult(tc.ID, errMsg)
+		if err := ex.addToolResult(tc.ID, errMsg); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -273,7 +367,9 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 	if !granted {
 		errMsg := fmt.Sprintf("Permission denied for tool: %s", toolName)
 		ex.addEvent(NewEvent(EventToolError, errMsg))
-		ex.engine.ctxManager.AddToolResult(tc.ID, errMsg)
+		if err := ex.addToolResult(tc.ID, errMsg); err != nil {
+			return err
+		}
 		return nil
 	}
 
@@ -282,19 +378,32 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 	if err != nil {
 		errMsg := fmt.Sprintf("Tool execution error: %v", err)
 		ex.addEvent(NewEvent(EventToolError, errMsg))
-		ex.engine.ctxManager.AddToolResult(tc.ID, errMsg)
+		if err := ex.addToolResult(tc.ID, errMsg); err != nil {
+			return err
+		}
 		return nil
 	}
 
 	if result.Error != nil {
 		errMsg := result.Error.Error()
 		ex.addEvent(NewEvent(EventToolError, fmt.Sprintf("Tool %s failed: %s", toolName, errMsg)))
-		ex.engine.ctxManager.AddToolResult(tc.ID, errMsg)
+		if err := ex.addToolResult(tc.ID, errMsg); err != nil {
+			return err
+		}
 		return nil
 	}
 
 	ex.addToolEvent(toolName, result)
-	ex.engine.ctxManager.AddToolResult(tc.ID, result.Content)
+	if err := ex.addToolResult(tc.ID, result.Content); err != nil {
+		return err
+	}
+	if toolName == "load_skill" && ex.engine.recorder != nil && ex.engine.recorder.RecordSkillActivate != nil {
+		if skillName := skillNameFromToolCall(tc); skillName != "" {
+			if err := ex.engine.recorder.RecordSkillActivate(skillName); err != nil {
+				return err
+			}
+		}
+	}
 	return nil
 }
 
@@ -328,13 +437,62 @@ func (ex *executor) addEvent(ev Event) {
 	if ex.sink != nil {
 		ex.sink(ev)
 	}
-	ex.engine.writeTrace("event", ev)
 }
 
 func (ex *executor) trackUsage(u llm.Usage) {
 	ex.totalUsage.PromptTokens += u.PromptTokens
 	ex.totalUsage.CompletionTokens += u.CompletionTokens
 	ex.totalUsage.TotalTokens += u.TotalTokens
+}
+
+func (ex *executor) addToolResult(callID, content string) error {
+	msg := llm.NewToolMessage(callID, content)
+	if err := ex.engine.ctxManager.AddMessage(msg); err != nil {
+		return err
+	}
+	if ex.usesResponsesChain() && ex.responsesPreviousID != "" {
+		ex.responsesFollowup = append(ex.responsesFollowup, msg)
+	}
+	if ex.engine.recorder != nil && ex.engine.recorder.RecordToolResult != nil {
+		var toolCall llm.ToolCall
+		toolCall.ID = callID
+		if tc := ex.findToolCall(callID); tc != nil {
+			toolCall = *tc
+		}
+		if err := ex.engine.recorder.RecordToolResult(toolCall, content); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ex *executor) findToolCall(callID string) *llm.ToolCall {
+	for _, msg := range ex.engine.ctxManager.GetNonSystemMessages() {
+		if msg.Role != "assistant" {
+			continue
+		}
+		for _, tc := range msg.ToolCalls {
+			if tc.ID == callID {
+				copy := tc
+				return &copy
+			}
+		}
+	}
+	return nil
+}
+
+func skillNameFromToolCall(tc llm.ToolCall) string {
+	if tc.Function.Name != "load_skill" {
+		return ""
+	}
+
+	var args struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(tc.Function.Arguments, &args); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(args.Name)
 }
 
 func extractAction(toolName string, raw json.RawMessage) string {

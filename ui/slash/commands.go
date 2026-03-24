@@ -113,7 +113,7 @@ func (r *Registry) registerDefaults() {
 	r.Register(Command{
 		Name:        "/model",
 		Description: "Show or switch model",
-		Usage:       "/model [openai:]model",
+		Usage:       "/model [openai-completion:]model",
 	})
 
 	r.Register(Command{
@@ -166,8 +166,8 @@ func (r *Registry) registerDefaults() {
 
 	r.Register(Command{
 		Name:        "/skill",
-		Description: "Load and run a skill",
-		Usage:       "/skill [name] [request...]",
+		Description: "Load a skill and start it",
+		Usage:       "/skill <name> [request...]",
 	})
 
 	r.Register(Command{

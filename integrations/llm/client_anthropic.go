@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	"net/http"
 	"strings"
 	"time"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 const anthropicDefaultTimeout = 180 * time.Second
@@ -24,7 +22,7 @@ type anthropicClient struct {
 }
 
 // NewAnthropicProvider builds the Anthropic Messages API provider implementation.
-func NewAnthropicProvider(cfg ResolvedConfig) (llm.Provider, error) {
+func NewAnthropicProvider(cfg ResolvedConfig) (Provider, error) {
 	return newAnthropicClient(cfg, string(ProviderAnthropic), nil)
 }
 
@@ -41,6 +39,7 @@ func newAnthropicClient(cfg ResolvedConfig, name string, httpClient HTTPClient) 
 
 	headers := copyHeaders(cfg.Headers)
 	ensureAuthHeader(headers, "x-api-key", apiKey)
+	ensureAuthHeader(headers, "Authorization", "Bearer "+apiKey)
 	ensureRequiredHeader(headers, "anthropic-version", anthropicVersionHeader)
 
 	timeout := cfg.Timeout
@@ -69,7 +68,7 @@ func (c *anthropicClient) Name() string {
 	return c.name
 }
 
-func (c *anthropicClient) Complete(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
+func (c *anthropicClient) Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
 	body, err := c.codec.encodeRequest(req, false)
 	if err != nil {
 		return nil, fmt.Errorf("build request body: %w", err)
@@ -99,7 +98,7 @@ func (c *anthropicClient) Complete(ctx context.Context, req *llm.CompletionReque
 	return c.codec.decodeCompletionResponse(decoded), nil
 }
 
-func (c *anthropicClient) CompleteStream(ctx context.Context, req *llm.CompletionRequest) (llm.StreamIterator, error) {
+func (c *anthropicClient) CompleteStream(ctx context.Context, req *CompletionRequest) (StreamIterator, error) {
 	body, err := c.codec.encodeRequest(req, true)
 	if err != nil {
 		return nil, fmt.Errorf("build request body: %w", err)
@@ -113,7 +112,7 @@ func (c *anthropicClient) CompleteStream(ctx context.Context, req *llm.Completio
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		defer resp.Body.Close()
 		return nil, parseAnthropicError(resp)
 	}
 
@@ -124,11 +123,11 @@ func (c *anthropicClient) SupportsTools() bool {
 	return true
 }
 
-func (c *anthropicClient) AvailableModels() []llm.ModelInfo {
+func (c *anthropicClient) AvailableModels() []ModelInfo {
 	if c.model == "" {
 		return nil
 	}
-	return []llm.ModelInfo{
+	return []ModelInfo{
 		{ID: c.model, Provider: c.name},
 	}
 }

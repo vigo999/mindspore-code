@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"context"
@@ -9,8 +9,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 const openAIDefaultTimeout = 180 * time.Second
@@ -24,14 +22,14 @@ type openAIClient struct {
 	codec      *openAICodec
 }
 
-// NewOpenAIProvider builds the native OpenAI provider implementation.
-func NewOpenAIProvider(cfg ResolvedConfig) (llm.Provider, error) {
-	return newOpenAIClient(cfg, string(ProviderOpenAI), nil)
+// NewOpenAICompletionProvider builds the Chat Completions provider implementation.
+func NewOpenAICompletionProvider(cfg ResolvedConfig) (Provider, error) {
+	return newOpenAIClient(cfg, string(ProviderOpenAICompletion), nil)
 }
 
-// NewOpenAIProviderWithHTTPClient builds the native OpenAI provider with a supplied HTTP client.
-func NewOpenAIProviderWithHTTPClient(cfg ResolvedConfig, httpClient HTTPClient) (llm.Provider, error) {
-	return newOpenAIClient(cfg, string(ProviderOpenAI), httpClient)
+// NewOpenAICompletionProviderWithHTTPClient builds the provider with a supplied HTTP client.
+func NewOpenAICompletionProviderWithHTTPClient(cfg ResolvedConfig, httpClient HTTPClient) (Provider, error) {
+	return newOpenAIClient(cfg, string(ProviderOpenAICompletion), httpClient)
 }
 
 func newOpenAIClient(cfg ResolvedConfig, name string, httpClient HTTPClient) (*openAIClient, error) {
@@ -78,7 +76,7 @@ func (c *openAIClient) Name() string {
 	return c.name
 }
 
-func (c *openAIClient) Complete(ctx context.Context, req *llm.CompletionRequest) (*llm.CompletionResponse, error) {
+func (c *openAIClient) Complete(ctx context.Context, req *CompletionRequest) (*CompletionResponse, error) {
 	body, err := c.codec.encodeRequest(req, false)
 	if err != nil {
 		return nil, fmt.Errorf("build request body: %w", err)
@@ -108,7 +106,7 @@ func (c *openAIClient) Complete(ctx context.Context, req *llm.CompletionRequest)
 	return c.codec.decodeCompletionResponse(decoded), nil
 }
 
-func (c *openAIClient) CompleteStream(ctx context.Context, req *llm.CompletionRequest) (llm.StreamIterator, error) {
+func (c *openAIClient) CompleteStream(ctx context.Context, req *CompletionRequest) (StreamIterator, error) {
 	body, err := c.codec.encodeRequest(req, true)
 	if err != nil {
 		return nil, fmt.Errorf("build request body: %w", err)
@@ -119,7 +117,7 @@ func (c *openAIClient) CompleteStream(ctx context.Context, req *llm.CompletionRe
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
+		defer resp.Body.Close()
 		return nil, parseOpenAIError(resp)
 	}
 
@@ -130,8 +128,8 @@ func (c *openAIClient) SupportsTools() bool {
 	return true
 }
 
-func (c *openAIClient) AvailableModels() []llm.ModelInfo {
-	return []llm.ModelInfo{
+func (c *openAIClient) AvailableModels() []ModelInfo {
+	return []ModelInfo{
 		{ID: "gpt-4o", Provider: c.name, MaxTokens: 128000},
 		{ID: "gpt-4o-mini", Provider: c.name, MaxTokens: 128000},
 		{ID: "gpt-4-turbo", Provider: c.name, MaxTokens: 128000},

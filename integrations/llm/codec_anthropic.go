@@ -1,4 +1,4 @@
-package provider
+package llm
 
 import (
 	"bufio"
@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 const anthropicDefaultMaxTokens = 4096
@@ -21,7 +19,7 @@ func newAnthropicCodec(defaultModel string) *anthropicCodec {
 	return &anthropicCodec{defaultModel: strings.TrimSpace(defaultModel)}
 }
 
-func (c *anthropicCodec) encodeRequest(req *llm.CompletionRequest, stream bool) (anthropicMessagesRequest, error) {
+func (c *anthropicCodec) encodeRequest(req *CompletionRequest, stream bool) (anthropicMessagesRequest, error) {
 	if req == nil {
 		return anthropicMessagesRequest{}, fmt.Errorf("request is nil")
 	}
@@ -54,7 +52,7 @@ func (c *anthropicCodec) encodeRequest(req *llm.CompletionRequest, stream bool) 
 	}, nil
 }
 
-func (c *anthropicCodec) encodeMessages(msgs []llm.Message) (string, []anthropicMessage) {
+func (c *anthropicCodec) encodeMessages(msgs []Message) (string, []anthropicMessage) {
 	if len(msgs) == 0 {
 		return "", nil
 	}
@@ -79,7 +77,7 @@ func (c *anthropicCodec) encodeMessages(msgs []llm.Message) (string, []anthropic
 	return strings.Join(systemParts, "\n\n"), result
 }
 
-func (c *anthropicCodec) encodeMessage(msg llm.Message) (anthropicMessage, bool) {
+func (c *anthropicCodec) encodeMessage(msg Message) (anthropicMessage, bool) {
 	content := make([]anthropicContentBlock, 0, 1+len(msg.ToolCalls))
 	if msg.Content != "" {
 		content = append(content, anthropicContentBlock{
@@ -110,7 +108,7 @@ func (c *anthropicCodec) encodeMessage(msg llm.Message) (anthropicMessage, bool)
 	}, true
 }
 
-func appendToolResultMessage(messages []anthropicMessage, msg llm.Message) []anthropicMessage {
+func appendToolResultMessage(messages []anthropicMessage, msg Message) []anthropicMessage {
 	if strings.TrimSpace(msg.ToolCallID) == "" {
 		return messages
 	}
@@ -146,7 +144,7 @@ func decodeAnthropicToolResultPayload(raw string) (string, *bool) {
 	return raw, envelope.IsError
 }
 
-func (c *anthropicCodec) encodeTools(tools []llm.Tool) []anthropicTool {
+func (c *anthropicCodec) encodeTools(tools []Tool) []anthropicTool {
 	if len(tools) == 0 {
 		return nil
 	}
@@ -162,12 +160,12 @@ func (c *anthropicCodec) encodeTools(tools []llm.Tool) []anthropicTool {
 	return result
 }
 
-func (c *anthropicCodec) decodeCompletionResponse(resp anthropicMessagesResponse) *llm.CompletionResponse {
-	result := &llm.CompletionResponse{
+func (c *anthropicCodec) decodeCompletionResponse(resp anthropicMessagesResponse) *CompletionResponse {
+	result := &CompletionResponse{
 		ID:           resp.ID,
 		Model:        resp.Model,
 		FinishReason: mapAnthropicStopReason(resp.StopReason),
-		Usage: llm.Usage{
+		Usage: Usage{
 			PromptTokens:     resp.Usage.InputTokens,
 			CompletionTokens: resp.Usage.OutputTokens,
 			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
@@ -180,10 +178,10 @@ func (c *anthropicCodec) decodeCompletionResponse(resp anthropicMessagesResponse
 		case "text":
 			text.WriteString(block.Text)
 		case "tool_use":
-			result.ToolCalls = append(result.ToolCalls, llm.ToolCall{
+			result.ToolCalls = append(result.ToolCalls, ToolCall{
 				ID:   block.ID,
 				Type: "function",
-				Function: llm.ToolCallFunc{
+				Function: ToolCallFunc{
 					Name:      block.Name,
 					Arguments: normalizeRawJSON(block.Input),
 				},
@@ -193,13 +191,13 @@ func (c *anthropicCodec) decodeCompletionResponse(resp anthropicMessagesResponse
 	result.Content = text.String()
 
 	if result.FinishReason == "" && len(result.ToolCalls) > 0 {
-		result.FinishReason = llm.FinishToolCalls
+		result.FinishReason = FinishToolCalls
 	}
 
 	return result
 }
 
-func (c *anthropicCodec) newStreamIterator(body io.ReadCloser) llm.StreamIterator {
+func (c *anthropicCodec) newStreamIterator(body io.ReadCloser) StreamIterator {
 	return &anthropicStreamIterator{
 		reader: bufio.NewReader(body),
 		closer: body,
@@ -235,9 +233,9 @@ type anthropicContentBlock struct {
 }
 
 type anthropicTool struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description,omitempty"`
-	InputSchema llm.ToolSchema `json:"input_schema"`
+	Name        string     `json:"name"`
+	Description string     `json:"description,omitempty"`
+	InputSchema ToolSchema `json:"input_schema"`
 }
 
 type anthropicMessagesResponse struct {
@@ -260,7 +258,7 @@ type anthropicStreamIterator struct {
 	closer         io.Closer
 	done           bool
 	promptTokens   int
-	completedCalls []llm.ToolCall
+	completedCalls []ToolCall
 	toolBlocks     map[int]anthropicStreamToolState
 }
 
@@ -310,7 +308,7 @@ type anthropicStreamToolState struct {
 	Complete bool
 }
 
-func (it *anthropicStreamIterator) Next() (*llm.StreamChunk, error) {
+func (it *anthropicStreamIterator) Next() (*StreamChunk, error) {
 	if it.done {
 		return nil, io.EOF
 	}
@@ -367,10 +365,10 @@ func (it *anthropicStreamIterator) Next() (*llm.StreamChunk, error) {
 			if err := json.Unmarshal(event.Data, &payload); err != nil {
 				return nil, fmt.Errorf("decode message_delta: %w", err)
 			}
-			chunk := &llm.StreamChunk{
+			chunk := &StreamChunk{
 				ToolCalls:    it.snapshotCompletedCalls(),
 				FinishReason: mapAnthropicStopReason(payload.Delta.StopReason),
-				Usage: &llm.Usage{
+				Usage: &Usage{
 					PromptTokens:     it.promptTokens,
 					CompletionTokens: payload.Usage.OutputTokens,
 					TotalTokens:      it.promptTokens + payload.Usage.OutputTokens,
@@ -444,10 +442,10 @@ func (it *anthropicStreamIterator) startContentBlock(payload anthropicStreamCont
 	}
 }
 
-func (it *anthropicStreamIterator) applyContentBlockDelta(payload anthropicStreamContentBlockDeltaEvent) *llm.StreamChunk {
+func (it *anthropicStreamIterator) applyContentBlockDelta(payload anthropicStreamContentBlockDeltaEvent) *StreamChunk {
 	switch payload.Delta.Type {
 	case "text_delta":
-		return &llm.StreamChunk{Content: payload.Delta.Text}
+		return &StreamChunk{Content: payload.Delta.Text}
 	case "input_json_delta":
 		state, ok := it.toolBlocks[payload.Index]
 		if !ok {
@@ -460,7 +458,7 @@ func (it *anthropicStreamIterator) applyContentBlockDelta(payload anthropicStrea
 	return nil
 }
 
-func (it *anthropicStreamIterator) finishContentBlock(index int) (*llm.StreamChunk, error) {
+func (it *anthropicStreamIterator) finishContentBlock(index int) (*StreamChunk, error) {
 	state, ok := it.toolBlocks[index]
 	if !ok {
 		return nil, nil
@@ -476,27 +474,27 @@ func (it *anthropicStreamIterator) finishContentBlock(index int) (*llm.StreamChu
 		return nil, fmt.Errorf("decode tool_use input for block %d: invalid json", index)
 	}
 
-	call := llm.ToolCall{
+	call := ToolCall{
 		ID:   state.ID,
 		Type: "function",
-		Function: llm.ToolCallFunc{
+		Function: ToolCallFunc{
 			Name:      state.Name,
 			Arguments: arguments,
 		},
 	}
 	it.completedCalls = append(it.completedCalls, call)
 
-	return &llm.StreamChunk{
+	return &StreamChunk{
 		ToolCalls: it.snapshotCompletedCalls(),
 	}, nil
 }
 
-func (it *anthropicStreamIterator) snapshotCompletedCalls() []llm.ToolCall {
+func (it *anthropicStreamIterator) snapshotCompletedCalls() []ToolCall {
 	if len(it.completedCalls) == 0 {
 		return nil
 	}
 
-	snapshot := make([]llm.ToolCall, len(it.completedCalls))
+	snapshot := make([]ToolCall, len(it.completedCalls))
 	copy(snapshot, it.completedCalls)
 	return snapshot
 }
@@ -514,18 +512,18 @@ func decodeAnthropicStreamError(data []byte) error {
 	return fmt.Errorf("stream error: %s", strings.TrimSpace(string(data)))
 }
 
-func mapAnthropicStopReason(reason string) llm.FinishReason {
+func mapAnthropicStopReason(reason string) FinishReason {
 	switch reason {
 	case "end_turn", "stop_sequence":
-		return llm.FinishStop
+		return FinishStop
 	case "max_tokens":
-		return llm.FinishLength
+		return FinishLength
 	case "tool_use":
-		return llm.FinishToolCalls
+		return FinishToolCalls
 	case "":
 		return ""
 	default:
-		return llm.FinishReason(reason)
+		return FinishReason(reason)
 	}
 }
 

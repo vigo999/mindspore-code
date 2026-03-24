@@ -1,18 +1,16 @@
-package provider
+package llm
 
 import (
 	"errors"
 	"fmt"
 	"sync"
-
-	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
 var errProviderNotImplemented = errors.New("provider builder not implemented")
 
 // Manager coordinates provider construction and instance caching.
 type Manager struct {
-	registry *Registry
+	registry *BuilderRegistry
 	cache    *cache
 	mu       sync.Mutex
 }
@@ -25,7 +23,7 @@ var (
 // NewManager creates a manager with an empty registry and cache.
 func NewManager() *Manager {
 	return &Manager{
-		registry: NewRegistry(),
+		registry: NewBuilderRegistry(),
 		cache:    newCache(),
 	}
 }
@@ -48,14 +46,14 @@ func (m *Manager) Register(kind ProviderKind, builder Builder) error {
 }
 
 // Build returns a cached provider instance for the resolved configuration.
-func (m *Manager) Build(cfg ResolvedConfig) (llm.Provider, error) {
+func (m *Manager) Build(cfg ResolvedConfig) (Provider, error) {
 	key := cacheKey(cfg)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if cached, ok := m.cache.get(key); ok {
-		provider, ok := cached.(llm.Provider)
+		provider, ok := cached.(Provider)
 		if !ok {
 			return nil, fmt.Errorf("cached value for provider kind %q has unexpected type", cfg.Kind)
 		}
@@ -73,8 +71,8 @@ func (m *Manager) Build(cfg ResolvedConfig) (llm.Provider, error) {
 
 func mustRegisterDefaultProviders(m *Manager) {
 	builders := map[ProviderKind]Builder{
-		ProviderOpenAI:           NewOpenAIProvider,
-		ProviderOpenAICompatible: NewOpenAICompatibleProvider,
+		ProviderOpenAICompletion: NewOpenAICompletionProvider,
+		ProviderOpenAIResponses:  NewOpenAIResponsesProvider,
 		ProviderAnthropic:        NewAnthropicProvider,
 	}
 	for kind, builder := range builders {
@@ -85,7 +83,7 @@ func mustRegisterDefaultProviders(m *Manager) {
 }
 
 func notImplementedBuilder(kind ProviderKind) Builder {
-	return func(ResolvedConfig) (llm.Provider, error) {
+	return func(ResolvedConfig) (Provider, error) {
 		return nil, fmt.Errorf("provider %q builder not implemented", kind)
 	}
 }

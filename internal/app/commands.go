@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/vigo999/ms-cli/integrations/llm"
-	providerpkg "github.com/vigo999/ms-cli/integrations/llm/provider"
 	"github.com/vigo999/ms-cli/integrations/skills"
 	"github.com/vigo999/ms-cli/permission"
 	"github.com/vigo999/ms-cli/ui/model"
@@ -81,12 +80,12 @@ func (a *Application) cmdModel(args []string) {
 	modelArg := args[0]
 	if strings.Contains(modelArg, ":") {
 		parts := strings.SplitN(modelArg, ":", 2)
-		providerName := providerpkg.NormalizeProvider(parts[0])
+		providerName := llm.NormalizeProvider(parts[0])
 		modelName := strings.TrimSpace(parts[1])
-		if !providerpkg.IsSupportedProvider(providerName) {
+		if !llm.IsSupportedProvider(providerName) {
 			a.EventCh <- model.Event{
 				Type:    model.AgentReply,
-				Message: fmt.Sprintf("Unsupported provider prefix: %s (supported: openai, openai-compatible, anthropic)", providerName),
+				Message: fmt.Sprintf("Unsupported provider prefix: %s (supported: openai-completion, openai-responses, anthropic)", providerName),
 			}
 			return
 		}
@@ -100,7 +99,7 @@ func (a *Application) cmdModel(args []string) {
 func (a *Application) showCurrentModel() {
 	providerName := a.Config.Model.Provider
 	if providerName == "" {
-		providerName = "openai-compatible"
+		providerName = "openai-completion"
 	}
 	modelName := a.Config.Model.Model
 	url := a.Config.Model.URL
@@ -126,8 +125,8 @@ To switch model:
 
 Examples:
   /model gpt-4o
-  /model openai:gpt-4o-mini
-  /model openai-compatible:gpt-4o-mini
+  /model openai-completion:gpt-4o-mini
+  /model openai-responses:gpt-4o
   /model anthropic:claude-3-5-sonnet`, providerName, url, modelName, apiKeyStatus)
 
 	a.EventCh <- model.Event{Type: model.AgentReply, Message: msg}
@@ -300,7 +299,7 @@ func (a *Application) cmdSkill(args []string) {
 			a.EventCh <- model.Event{Type: model.AgentReply, Message: "No skills available."}
 			return
 		}
-		msg := "Available skills:\n\n" + skills.FormatSummaries(summaries) + "\nUsage: /skill <name> [request...]"
+		msg := "Available skills:\n\n" + skills.FormatSummaries(summaries) + "\nUsage: /skill <name> [request...] (omit request to start the skill immediately)"
 		a.EventCh <- model.Event{Type: model.AgentReply, Message: msg}
 		return
 	}
@@ -332,8 +331,18 @@ func (a *Application) cmdSkill(args []string) {
 			},
 		},
 	}
-	_ = a.ctxManager.AddMessage(assistantMsg)
-	_ = a.ctxManager.AddMessage(llm.NewToolMessage(toolCallID, content))
+	if err := a.addContextMessages(assistantMsg, llm.NewToolMessage(toolCallID, content)); err != nil {
+		a.emitToolError("load_skill", "Failed to activate skill %q: %v", skillName, err)
+		return
+	}
+	if a.session != nil {
+		if err := a.session.AppendSkillActivation(skillName); err != nil {
+			a.emitToolError("session", "Failed to persist skill activation: %v", err)
+		}
+		if err := a.persistSessionSnapshot(); err != nil {
+			a.emitToolError("session", "Failed to persist session snapshot: %v", err)
+		}
+	}
 	a.EventCh <- model.Event{
 		Type:     model.ToolSkill,
 		ToolName: "load_skill",
@@ -341,20 +350,24 @@ func (a *Application) cmdSkill(args []string) {
 		Summary:  fmt.Sprintf("loaded skill: %s", skillName),
 	}
 
-	userRequest := ""
-	if len(args) > 1 {
-		userRequest = strings.Join(args[1:], " ")
-	}
-	if strings.TrimSpace(userRequest) == "" {
-		return
+	userRequest := strings.TrimSpace(strings.Join(args[1:], " "))
+	if userRequest == "" {
+		userRequest = defaultSkillRequest(skillName)
 	}
 	go a.runTask(userRequest)
+}
+
+func defaultSkillRequest(skillName string) string {
+	return fmt.Sprintf(
+		`The %q skill is already loaded. Start following that skill now using the current workspace and conversation context. Begin with the first concrete step immediately, keep gathering evidence with tools, and only stop to ask the user if the skill cannot proceed without missing information.`,
+		skillName,
+	)
 }
 
 func (a *Application) cmdHelp() {
 	helpText := `Available commands:
 
-  /skill [name] [request] Load and run a skill (e.g. /skill pdf extract text from report.pdf)
+  /skill [name] [request] Load and run a skill; omit request to start immediately
   /train <model> <method> Start train workflow (e.g. /train qwen3 lora)
   /train <action>         Control active train HUD (start, stop, analyze, apply fix, retry, view diff, exit)
   /project [status]        Show project status snapshot (server + git status)
@@ -378,7 +391,8 @@ func (a *Application) cmdHelp() {
 Model Commands:
   /model                  Show current configuration
   /model gpt-4o           Switch to gpt-4o
-  /model openai:gpt-4o    Set provider+model
+  /model openai-completion:gpt-4o
+  /model openai-responses:gpt-4o
   /model anthropic:claude-3-5-sonnet
 
 Permission Commands:
@@ -402,7 +416,7 @@ Keybindings:
   ctrl+c     Cancel/Quit (press twice to exit)
 
 Environment Variables:
-  MSCLI_PROVIDER          Provider (openai/openai-compatible/anthropic)
+  MSCLI_PROVIDER          Provider (openai-completion/openai-responses/anthropic)
   MSCLI_BASE_URL          Base URL
   MSCLI_MODEL             Default model
   MSCLI_API_KEY           API key

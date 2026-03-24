@@ -8,7 +8,7 @@ import (
 
 func TestDefaultConfigProvider(t *testing.T) {
 	cfg := DefaultConfig()
-	if got, want := cfg.Model.Provider, "openai-compatible"; got != want {
+	if got, want := cfg.Model.Provider, "openai-responses"; got != want {
 		t.Fatalf("default provider = %q, want %q", got, want)
 	}
 }

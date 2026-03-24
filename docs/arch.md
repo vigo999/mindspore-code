@@ -36,7 +36,7 @@ ms-cli/
   integrations/
     domain/                external domain schema and client
     factory/               remote factory fetch and sync
-    llm/                   unified provider manager (openai/openai-compatible/anthropic)
+    llm/                   unified provider manager (openai-completion/openai-responses/anthropic)
     skills/                skill listing, loading, and metadata
   permission/              permission policy, types, store
   runtime/
@@ -46,7 +46,6 @@ ms-cli/
     fs/                    read, grep, glob, edit, write tools
     shell/                 shell tool wrapper
   ui/                      Bubble Tea app, shared model, panels, slash commands
-  trace/                   execution trace writing
   report/                  summary generation
   configs/                 config loading, state, shared config types
   incubating/factory/      factory schemas, cards, packs (future separate repo)
@@ -68,10 +67,10 @@ user input
      or free text -> runTask(...)
 
 runTask:
-  -> compose effective system prompt:
+  -> compose effective conversation context:
        EngineConfig.SystemPrompt
        + skill summaries (from integrations/skills)
-       + active skill SKILL.md (if command-scoped)
+       + any skill content preloaded by /skill as a load_skill tool result
   -> agent/loop.Engine.RunWithContext(task)
   -> tools.Registry
   -> tools/fs or tools/shell
@@ -84,15 +83,27 @@ directly. The LLM plans inline within the agent loop.
 
 ### Skill activation
 
-Skills are command-scoped. No sticky state.
+At startup, `internal/app.Wire(...)` runs a commit-aware sync for the shared
+skills repo under `~/.ms-cli/mindspore-skills`, logs the decisions to the
+terminal, stores the local commit id in the repo directory, compares the local
+commit with the remote branch head through a lightweight GitHub API check, and
+only updates after a `Y/n` confirmation when the commits differ. The synced
+`~/.ms-cli/mindspore-skills/skills` directory remains the highest-priority
+skill search path.
+
+Current slash-skill activation is session-visible, not purely task-scoped.
+`/skill <name>` and `/<name>` preload the skill by injecting a synthetic
+`load_skill` tool call/result into conversation history. If a request is
+provided, that request runs immediately; if omitted, the app submits a default
+"start this skill now" task so the LLM begins following the skill steps
+without waiting for another prompt.
 
 ```text
-/diagnose my training crashed
+/skill failure-agent
   -> app loads failure-agent SKILL.md from integrations/skills
-  -> sets task.SkillContext (one task only)
-  -> engine composes effective system prompt: base + active skill
-  -> engine runs
-  -> next task has no skill context (base prompt only)
+  -> app injects synthetic load_skill tool call/result into context
+  -> app submits a default start request if the user did not provide one
+  -> engine runs with base prompt + existing conversation context
 ```
 
 Free text uses the base system prompt which includes skill summaries
@@ -124,12 +135,16 @@ features migrate to agent-skills.
 
 - **`agent/loop/`**
   The core runtime. Runs the LLM/tool loop: tool calling, permission checks,
-  tracing, context updates. Composes effective system prompt per task
+  context updates. Composes effective system prompt per task
   (base + active skill).
 
+- **`agent/session/`**
+  Owns session state, trajectory persistence, and resume reconstruction.
+
 - **`integrations/skills/`**
-  Lists available skills from the ms-skills repo (summaries only).
-  Loads one skill fully on demand (SKILL.md + skill.yaml metadata).
+  Refreshes the shared skills repo into `~/.ms-cli/mindspore-skills`,
+  lists available skills across configured search paths, and loads one skill
+  fully on demand (`SKILL.md` + metadata/frontmatter).
 
 - **`internal/factory/`**
   Local card store. Search, get, list cards. Status from pack manifest.
@@ -161,8 +176,8 @@ features migrate to agent-skills.
 
 ```text
 cmd/ms-cli -> internal/app
-internal/app -> agent, workflow, ui, configs, integrations, tools, permission, trace
-agent -> integrations, permission, configs, trace
+internal/app -> agent, workflow, ui, configs, integrations, tools, permission
+agent -> integrations, permission, configs
 workflow -> internal/train, runtime/probes, configs
 tools -> runtime, integrations, configs
 runtime -> configs

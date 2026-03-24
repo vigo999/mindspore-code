@@ -40,6 +40,7 @@ type Message struct {
 	Kind     MessageKind
 	Content  string
 	ToolName string
+	ToolArgs string
 	Display  DisplayMode
 	Summary  string // shown when collapsed, e.g. "5 matches", "23 files"
 	Pending  bool
@@ -56,6 +57,8 @@ const (
 	CmdFinished       EventType = "CmdFinished"
 	AnalysisReady     EventType = "AnalysisReady"
 	AgentReply        EventType = "AgentReply"
+	PermissionPrompt  EventType = "PermissionPrompt"
+	PermissionsView   EventType = "PermissionsView"
 	AgentThinking     EventType = "AgentThinking"
 	TokenUpdate       EventType = "TokenUpdate"
 	ToolRead          EventType = "ToolRead"
@@ -76,17 +79,44 @@ const (
 // Event is sent from the agent loop to the TUI.
 // Implements tea.Msg so Bubble Tea can route it.
 type Event struct {
-	Type       EventType
-	Task       string
-	Message    string
-	ToolName   string
-	Summary    string
-	CtxUsed    int
-	CtxMax     int
-	TokensUsed int
-	Train      *TrainEventData // non-nil for train events only
-	BugView    *BugEventData   // non-nil for bug view events only
-	Bug        *issues.Bug     // reserved for lightweight bug payloads
+	Type        EventType
+	Task        string
+	Message     string
+	ToolName    string
+	Summary     string
+	CtxUsed     int
+	CtxMax      int
+	TokensUsed  int
+	Train       *TrainEventData // non-nil for train events only
+	Project     *ProjectStatusView
+	Permission  *PermissionPromptData
+	Permissions *PermissionsViewData
+	BugView     *BugEventData // non-nil for bug view events only
+	Bug         *issues.Bug   // reserved for lightweight bug payloads
+}
+
+// PermissionPromptData describes a structured permission prompt for interactive UI rendering.
+type PermissionPromptData struct {
+	Title        string
+	Message      string
+	Options      []PermissionOption
+	DefaultIndex int
+}
+
+type PermissionOption struct {
+	// Input is the token sent back to backend permission handler, e.g. "1", "2", "3", "esc".
+	Input string
+	Label string
+}
+
+// PermissionsViewData is the payload for interactive /permissions view.
+type PermissionsViewData struct {
+	Mode        string
+	Allow       []string
+	Ask         []string
+	Deny        []string
+	Workspace   []string
+	RuleSources map[string]string
 }
 
 // TaskStats tracks execution statistics for the current task.

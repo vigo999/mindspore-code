@@ -1,6 +1,7 @@
 package context
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/vigo999/ms-cli/integrations/llm"
@@ -170,6 +171,40 @@ func TestIsWithinBudget(t *testing.T) {
 	smallMsg := llm.NewUserMessage("Hi")
 	if !mgr.IsWithinBudget(smallMsg) {
 		t.Error("Small message should be within budget")
+	}
+}
+
+func TestCompactionThresholdSupportsRatioAndPercent(t *testing.T) {
+	cfgRatio := DefaultManagerConfig()
+	cfgRatio.CompactionThreshold = 0.85
+	mgrRatio := NewManager(cfgRatio)
+	mgrRatio.mu.Lock()
+	if got := mgrRatio.compactionThresholdPercentLocked(); got != 85 {
+		mgrRatio.mu.Unlock()
+		t.Fatalf("expected 85%% threshold for ratio config, got %.2f", got)
+	}
+	mgrRatio.mu.Unlock()
+
+	cfgPercent := DefaultManagerConfig()
+	cfgPercent.CompactionThreshold = 85
+	mgrPercent := NewManager(cfgPercent)
+	mgrPercent.mu.Lock()
+	if got := mgrPercent.compactionThresholdPercentLocked(); got != 85 {
+		mgrPercent.mu.Unlock()
+		t.Fatalf("expected 85%% threshold for percent config, got %.2f", got)
+	}
+	mgrPercent.mu.Unlock()
+}
+
+func TestAddMessageRejectsSingleOversizedMessage(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.MaxTokens = 100
+	cfg.ReserveTokens = 20
+	mgr := NewManager(cfg)
+
+	oversized := llm.NewToolMessage("call_1", strings.Repeat("x", 1000)) // ~250 tokens
+	if err := mgr.AddMessage(oversized); err == nil {
+		t.Fatal("expected oversized message to be rejected")
 	}
 }
 

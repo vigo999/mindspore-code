@@ -57,10 +57,12 @@ func NewEngine(cfg EngineConfig, provider llm.Provider, tools *tools.Registry) *
 		tools:    tools,
 	}
 
-	engine.ctxManager = ctxmanager.NewManager(ctxmanager.ManagerConfig{
-		MaxTokens:     cfg.MaxTokens,
-		ReserveTokens: 4000,
-	})
+	managerCfg := ctxmanager.DefaultManagerConfig()
+	if cfg.MaxTokens > 0 {
+		managerCfg.MaxTokens = cfg.MaxTokens
+	}
+	managerCfg.ReserveTokens = 4000
+	engine.ctxManager = ctxmanager.NewManager(managerCfg)
 	engine.ctxManager.SetSystemPrompt(cfg.SystemPrompt)
 	engine.permission = permission.NewNoOpPermissionService()
 

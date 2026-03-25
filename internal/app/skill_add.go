@@ -1,31 +1,88 @@
 package app
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/vigo999/ms-cli/integrations/skills"
 	"github.com/vigo999/ms-cli/ui/model"
 )
 
 const localSkillsDisplayDir = "~/.ms-cli/skills/"
+const skillAddCloneTimeout = 2 * time.Minute
+const skillAddUsage = "/skill-add <path|git-url|owner/repo>"
+
+type skillAddSourceKind int
+
+const (
+	skillAddSourceLocal skillAddSourceKind = iota
+	skillAddSourceGitURL
+	skillAddSourceGitHub
+)
+
+type skillAddSource struct {
+	kind     skillAddSourceKind
+	source   string
+	localDir string
+}
+
+type discoveredSkill struct {
+	dir string
+}
 
 func (a *Application) cmdSkillAddInput(raw string) {
 	if a.skillLoader == nil {
 		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Skills not available."}
 		return
 	}
+	if strings.TrimSpace(raw) == "" {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Usage: " + skillAddUsage}
+		return
+	}
 
-	sourceDir, err := resolveSkillAddSource(strings.TrimSpace(raw), a.WorkDir, a.skillsHomeDir)
+	source, err := classifySkillAddSource(strings.TrimSpace(raw), a.WorkDir, a.skillsHomeDir)
 	if err != nil {
 		a.EventCh <- model.Event{
 			Type:     model.ToolError,
 			ToolName: "skill-add",
 			Message:  fmt.Sprintf("Failed to add local skill: %v", err),
+		}
+		return
+	}
+	sourceRoot, cleanup, err := prepareSkillAddSource(source)
+	if err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "skill-add",
+			Message:  fmt.Sprintf("Failed to add local skill: %v", err),
+		}
+		return
+	}
+	defer cleanup()
+
+	foundSkills, err := discoverSkills(sourceRoot)
+	if err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "skill-add",
+			Message:  fmt.Sprintf("Failed to add local skill: %v", err),
+		}
+		return
+	}
+	if len(foundSkills) == 0 {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "skill-add",
+			Message:  fmt.Sprintf("Failed to add local skill: no skill.md found under %s", sourceRoot),
 		}
 		return
 	}
@@ -48,16 +105,18 @@ func (a *Application) cmdSkillAddInput(raw string) {
 		return
 	}
 
-	destDir := filepath.Join(destRoot, filepath.Base(sourceDir))
-	if !samePath(sourceDir, destDir) {
-		a.emitSkillAddLog(filepath.Base(sourceDir))
-		if err := copySkillDir(sourceDir, destDir); err != nil {
-			a.EventCh <- model.Event{
-				Type:     model.ToolError,
-				ToolName: "skill-add",
-				Message:  fmt.Sprintf("Failed to add local skill: %v", err),
+	for _, found := range foundSkills {
+		destDir := filepath.Join(destRoot, filepath.Base(found.dir))
+		if !samePath(found.dir, destDir) {
+			a.emitSkillAddLog(filepath.Base(found.dir))
+			if err := copySkillDir(found.dir, destDir); err != nil {
+				a.EventCh <- model.Event{
+					Type:     model.ToolError,
+					ToolName: "skill-add",
+					Message:  fmt.Sprintf("Failed to add local skill: %v", err),
+				}
+				return
 			}
-			return
 		}
 	}
 
@@ -112,10 +171,65 @@ func (a *Application) localSkillsDir() (string, error) {
 	return filepath.Join(home, ".ms-cli", "skills"), nil
 }
 
-func resolveSkillAddSource(rawPath, workDir, homeDir string) (string, error) {
+func classifySkillAddSource(rawPath, workDir, homeDir string) (skillAddSource, error) {
 	path := trimQuotedPath(rawPath)
 	if path == "" {
-		return "", fmt.Errorf("usage: /skill-add <local-path>")
+		return skillAddSource{}, fmt.Errorf("usage: %s", skillAddUsage)
+	}
+	if strings.Contains(strings.ToLower(path), "http") {
+		return skillAddSource{kind: skillAddSourceGitURL, source: path}, nil
+	}
+
+	localPath, err := resolveLocalSkillRoot(path, workDir, homeDir)
+	if err == nil {
+		return skillAddSource{kind: skillAddSourceLocal, source: path, localDir: localPath}, nil
+	}
+
+	if looksLikeGitHubShorthand(path) && errors.Is(err, os.ErrNotExist) {
+		return skillAddSource{
+			kind:   skillAddSourceGitHub,
+			source: "https://github.com/" + strings.TrimSuffix(path, ".git") + ".git",
+		}, nil
+	}
+
+	return skillAddSource{}, err
+}
+
+func prepareSkillAddSource(source skillAddSource) (string, func(), error) {
+	switch source.kind {
+	case skillAddSourceLocal:
+		return source.localDir, func() {}, nil
+	case skillAddSourceGitURL, skillAddSourceGitHub:
+		return cloneSkillAddSource(source.source)
+	default:
+		return "", func() {}, fmt.Errorf("unsupported skill source")
+	}
+}
+
+func resolveLocalSkillRoot(rawPath, workDir, homeDir string) (string, error) {
+	path, err := expandSkillAddPath(rawPath, workDir, homeDir)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+
+	if info.IsDir() {
+		return path, nil
+	}
+	if !strings.EqualFold(info.Name(), "skill.md") {
+		return "", fmt.Errorf("skill path must point to a directory or skill.md")
+	}
+	return filepath.Dir(path), nil
+}
+
+func expandSkillAddPath(rawPath, workDir, homeDir string) (string, error) {
+	path := trimQuotedPath(rawPath)
+	if path == "" {
+		return "", fmt.Errorf("usage: %s", skillAddUsage)
 	}
 
 	if strings.HasPrefix(path, "~"+string(os.PathSeparator)) {
@@ -142,25 +256,79 @@ func resolveSkillAddSource(rawPath, workDir, homeDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve skill path: %w", err)
 	}
+	return absPath, nil
+}
 
-	info, err := os.Stat(absPath)
+func looksLikeGitHubShorthand(path string) bool {
+	path = strings.TrimSpace(path)
+	if strings.Count(path, "/") != 1 {
+		return false
+	}
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, "~") {
+		return false
+	}
+	if strings.HasPrefix(path, "./") || strings.HasPrefix(path, "../") {
+		return false
+	}
+	parts := strings.SplitN(path, "/", 2)
+	return parts[0] != "" && parts[1] != ""
+}
+
+func cloneSkillAddSource(repoURL string) (string, func(), error) {
+	if _, err := exec.LookPath("git"); err != nil {
+		return "", func() {}, fmt.Errorf("git is required to add skills from remote repositories")
+	}
+
+	tempRoot, err := os.MkdirTemp("", "ms-cli-skill-add-*")
 	if err != nil {
-		return "", fmt.Errorf("stat skill path: %w", err)
+		return "", func() {}, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	sourceDir := absPath
-	if !info.IsDir() {
-		if !strings.EqualFold(info.Name(), "SKILL.md") {
-			return "", fmt.Errorf("skill path must point to a skill directory or SKILL.md")
+	cleanup := func() { _ = os.RemoveAll(tempRoot) }
+	cloneDir := filepath.Join(tempRoot, "repo")
+
+	ctx, cancel := context.WithTimeout(context.Background(), skillAddCloneTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", repoURL, cloneDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		cleanup()
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			msg = err.Error()
 		}
-		sourceDir = filepath.Dir(absPath)
+		return "", func() {}, fmt.Errorf("git clone failed: %s", msg)
 	}
 
-	if _, err := os.Stat(filepath.Join(sourceDir, "SKILL.md")); err != nil {
-		return "", fmt.Errorf("SKILL.md not found under %s", sourceDir)
+	return cloneDir, cleanup, nil
+}
+
+func discoverSkills(root string) ([]discoveredSkill, error) {
+	found := map[string]discoveredSkill{}
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() || !strings.EqualFold(d.Name(), "skill.md") {
+			return nil
+		}
+
+		dir := filepath.Dir(path)
+		if _, ok := found[dir]; !ok {
+			found[dir] = discoveredSkill{dir: dir}
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
-	return sourceDir, nil
+	result := make([]discoveredSkill, 0, len(found))
+	for _, item := range found {
+		result = append(result, item)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].dir < result[j].dir })
+	return result, nil
 }
 
 func trimQuotedPath(path string) string {
@@ -199,14 +367,12 @@ func copySkillDir(sourceDir, destDir string) error {
 		if err != nil {
 			return err
 		}
-		targetPath := filepath.Join(destDir, rel)
-
 		if d.IsDir() {
 			info, err := d.Info()
 			if err != nil {
 				return err
 			}
-			return os.MkdirAll(targetPath, info.Mode().Perm())
+			return os.MkdirAll(filepath.Join(destDir, rel), info.Mode().Perm())
 		}
 		if d.Type()&fs.ModeSymlink != 0 {
 			return fmt.Errorf("symlinked files are not supported: %s", path)
@@ -214,7 +380,14 @@ func copySkillDir(sourceDir, destDir string) error {
 		if !d.Type().IsRegular() {
 			return fmt.Errorf("unsupported file type: %s", path)
 		}
-		return copySkillFile(path, targetPath, d)
+		targetRel := rel
+		if strings.EqualFold(filepath.Base(rel), "skill.md") {
+			targetRel = filepath.Join(filepath.Dir(rel), "SKILL.md")
+			if filepath.Dir(rel) == "." {
+				targetRel = "SKILL.md"
+			}
+		}
+		return copySkillFile(path, filepath.Join(destDir, targetRel), d)
 	})
 }
 

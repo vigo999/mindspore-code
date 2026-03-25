@@ -87,7 +87,7 @@ At startup, `internal/app.Wire(...)` runs a commit-aware sync for the shared
 skills repo under `~/.ms-cli/mindspore-skills`, logs the decisions to the
 terminal, stores the local commit id in the repo directory, compares the local
 commit with the remote branch head through a lightweight GitHub API check, uses
-the configured `skills.repo` and `skills.revision` values, and only updates
+the built-in shared repo URL and branch, and only updates
 after a `Y/n` confirmation when the commits differ. The synced
 `~/.ms-cli/mindspore-skills/skills` directory remains the highest-priority
 skill search path.

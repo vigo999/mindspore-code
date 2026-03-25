@@ -94,27 +94,16 @@ See `configs/server.yaml` for server configuration (auth tokens, database, liste
 
 Provider routing is fully configuration-driven (no runtime protocol probing).
 
-### Config files
+### Configuration sources
 
-Layered merge (low -> high):
+Runtime config now comes from:
 
 1. built-in defaults
-2. user config: `~/.ms-cli/config.yaml`
-3. project config: `./.ms-cli/config.yaml`
-4. environment variables: `MSCLI_*`
-5. session overrides (`/model` in current process only, not persisted)
+2. environment variables: `MSCLI_*`
+3. session overrides (`/model` in the current process only, not persisted)
 
-Each higher layer overrides only the fields it sets.
-
-```yaml
-model:
-  provider: openai-completion
-  url: https://api.openai.com/v1
-  model: gpt-4o-mini
-  key: ""
-context:
-  window: 200000
-```
+`~/.ms-cli/config.yaml` and `./.ms-cli/config.yaml` are no longer read.
+The shared skills repo URL and branch are built into the binary.
 
 ### Environment variables
 
@@ -143,18 +132,8 @@ When `model.model` matches known families (`gpt-5` ~ `gpt-5.4`, `claude-4.5` ~ `
 Precedence is:
 
 1. `MSCLI_MAX_TOKENS` / `MSCLI_CONTEXT_WINDOW`
-2. explicit values in config
-3. auto defaults from model name
-4. built-in defaults
-
-You can define custom model-family defaults:
-
-```yaml
-model_profiles:
-  my-model-prefix:
-    model_max_tokens: 8192
-    context_window: 65536
-```
+2. auto defaults from model name
+3. built-in defaults
 
 ### Use OpenAI API
 
@@ -187,8 +166,6 @@ export MSCLI_BASE_URL=https://openrouter.ai/api/v1
 export MSCLI_MODEL=anthropic/claude-3.5-sonnet
 ./ms-cli
 ```
-
-You can also set custom headers in `model.headers` in config when required by a gateway.
 
 ### In-session model/provider switch
 

@@ -15,7 +15,6 @@ type Config struct {
 	Permissions   PermissionsConfig            `yaml:"permissions"`
 	Context       ContextConfig                `yaml:"context"`
 	Memory        MemoryConfig                 `yaml:"memory"`
-	Skills        SkillsConfig                 `yaml:"skills"`
 	Execution     ExecutionConfig              `yaml:"execution"`
 	Issues        IssuesConfig                 `yaml:"issues"`
 }
@@ -87,14 +86,6 @@ type MemoryConfig struct {
 	TTLHours  int    `yaml:"ttl_hours"`
 }
 
-// SkillsConfig holds the skills system configuration.
-type SkillsConfig struct {
-	Repo      string   `yaml:"repo"`
-	Revision  string   `yaml:"revision"`
-	CacheDir  string   `yaml:"cache_dir"`
-	Workflows []string `yaml:"workflows"`
-}
-
 // ExecutionConfig holds the execution configuration.
 type ExecutionConfig struct {
 	Mode           string       `yaml:"mode"`
@@ -156,12 +147,6 @@ func DefaultConfig() *Config {
 			TTLHours:  168,             // 7 days
 		},
 		ModelProfiles: make(map[string]ModelTokenProfile),
-		Skills: SkillsConfig{
-			Repo:      "https://github.com/vigo999/mindspore-skills",
-			Revision:  "refactor-arch-3.0",
-			CacheDir:  ".cache/skills",
-			Workflows: []string{},
-		},
 		Issues: IssuesConfig{
 			ServerURL: DefaultIssuesServerURL,
 		},

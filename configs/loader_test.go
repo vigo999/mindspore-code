@@ -13,7 +13,7 @@ func TestDefaultConfigProvider(t *testing.T) {
 	}
 }
 
-func TestLoadWithEnv_MergesFixedLayers(t *testing.T) {
+func TestLoadWithEnv_UsesDefaultsAndEnvOverrides(t *testing.T) {
 	clearEnv(t)
 
 	home := t.TempDir()
@@ -22,36 +22,13 @@ func TestLoadWithEnv_MergesFixedLayers(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Chdir(projectDir)
 
-	userPath := filepath.Join(home, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(userPath), 0755); err != nil {
-		t.Fatalf("mkdir user config dir: %v", err)
-	}
-	if err := os.WriteFile(userPath, []byte(`model:
-  provider: openai
-  model: user-model
-  temperature: 0.2
-context:
-  window: 16000
-`), 0600); err != nil {
-		t.Fatalf("write user config: %v", err)
-	}
-
-	projectPath := filepath.Join(projectDir, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
-		t.Fatalf("mkdir project config dir: %v", err)
-	}
-	if err := os.WriteFile(projectPath, []byte(`model:
-  model: project-model
-ui:
-  enabled: false
-`), 0600); err != nil {
-		t.Fatalf("write project config: %v", err)
-	}
-
 	t.Setenv("MSCLI_PROVIDER", "anthropic")
 	t.Setenv("MSCLI_MODEL", "env-model")
 	t.Setenv("MSCLI_API_KEY", "env-key")
 	t.Setenv("MSCLI_BASE_URL", "https://env.example")
+	t.Setenv("MSCLI_TEMPERATURE", "0.2")
+	t.Setenv("MSCLI_CONTEXT_WINDOW", "16000")
+	t.Setenv("MSCLI_UI_ENABLED", "false")
 
 	cfg, err := LoadWithEnv()
 	if err != nil {
@@ -81,7 +58,7 @@ ui:
 	}
 }
 
-func TestLoadWithEnv_UsesFixedProjectPathOnly(t *testing.T) {
+func TestLoadWithEnv_IgnoresConfigFiles(t *testing.T) {
 	clearEnv(t)
 
 	home := t.TempDir()
@@ -90,27 +67,27 @@ func TestLoadWithEnv_UsesFixedProjectPathOnly(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Chdir(projectDir)
 
+	userPath := filepath.Join(home, ".ms-cli", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(userPath), 0755); err != nil {
+		t.Fatalf("mkdir user config dir: %v", err)
+	}
+	if err := os.WriteFile(userPath, []byte("model: [\n"), 0600); err != nil {
+		t.Fatalf("write user config: %v", err)
+	}
+
 	projectPath := filepath.Join(projectDir, ".ms-cli", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(projectPath), 0755); err != nil {
 		t.Fatalf("mkdir project dir: %v", err)
 	}
-	if err := os.WriteFile(projectPath, []byte("model:\n  model: project-model\n"), 0600); err != nil {
+	if err := os.WriteFile(projectPath, []byte("model: [\n"), 0600); err != nil {
 		t.Fatalf("write project config: %v", err)
-	}
-
-	ignoredPath := filepath.Join(projectDir, "custom", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(ignoredPath), 0755); err != nil {
-		t.Fatalf("mkdir ignored dir: %v", err)
-	}
-	if err := os.WriteFile(ignoredPath, []byte("model:\n  model: ignored-model\n"), 0600); err != nil {
-		t.Fatalf("write ignored config: %v", err)
 	}
 
 	cfg, err := LoadWithEnv()
 	if err != nil {
 		t.Fatalf("LoadWithEnv() error = %v", err)
 	}
-	if got, want := cfg.Model.Model, "project-model"; got != want {
+	if got, want := cfg.Model.Model, "gpt-4o-mini"; got != want {
 		t.Fatalf("model = %q, want %q", got, want)
 	}
 }
@@ -138,132 +115,25 @@ func TestApplyEnvOverrides_OnlyMSCLIVariables(t *testing.T) {
 	}
 }
 
-func TestLoadWithEnvRejectsWhitespaceOnlyModel(t *testing.T) {
+func TestLoadWithEnv_RejectsUnsupportedProviderFromEnv(t *testing.T) {
 	clearEnv(t)
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-
-	if err := os.WriteFile(path, []byte("model:\n  model: \"   \"\n"), 0600); err != nil {
-		t.Fatalf("write yaml: %v", err)
-	}
-
-	t.Chdir(dir)
-	_, err := LoadWithEnv()
-	if err == nil {
-		t.Fatal("LoadWithEnv() error = nil, want validation error for whitespace-only model")
-	}
-}
-
-func TestLoadWithEnvRejectsUnsupportedProvider(t *testing.T) {
-	clearEnv(t)
-
-	dir := t.TempDir()
-	path := filepath.Join(dir, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-
-	if err := os.WriteFile(path, []byte("model:\n  model: gpt-4o-mini\n  provider: unsupported\n"), 0600); err != nil {
-		t.Fatalf("write yaml: %v", err)
-	}
-
-	t.Chdir(dir)
+	t.Setenv("MSCLI_PROVIDER", "unsupported")
 	_, err := LoadWithEnv()
 	if err == nil {
 		t.Fatal("LoadWithEnv() error = nil, want validation error for unsupported provider")
 	}
 }
 
-func TestLoadWithEnv_IgnoresLegacyDotMscliPaths(t *testing.T) {
+func TestLoadWithEnv_IgnoresWhitespaceOnlyModelEnv(t *testing.T) {
 	clearEnv(t)
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	projectDir := t.TempDir()
-	t.Chdir(projectDir)
-
-	legacyUserPath := filepath.Join(home, ".mscli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(legacyUserPath), 0755); err != nil {
-		t.Fatalf("mkdir legacy user config dir: %v", err)
-	}
-	if err := os.WriteFile(legacyUserPath, []byte("model:\n  model: legacy-user\n"), 0600); err != nil {
-		t.Fatalf("write legacy user config: %v", err)
-	}
-
-	legacyProjectPath := filepath.Join(projectDir, ".mscli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(legacyProjectPath), 0755); err != nil {
-		t.Fatalf("mkdir legacy project config dir: %v", err)
-	}
-	if err := os.WriteFile(legacyProjectPath, []byte("model:\n  model: legacy-project\n"), 0600); err != nil {
-		t.Fatalf("write legacy project config: %v", err)
-	}
+	t.Setenv("MSCLI_MODEL", "   ")
 
 	cfg, err := LoadWithEnv()
 	if err != nil {
 		t.Fatalf("LoadWithEnv() error = %v", err)
 	}
 	if got, want := cfg.Model.Model, "gpt-4o-mini"; got != want {
-		t.Fatalf("model = %q, want %q (legacy .mscli path should be ignored)", got, want)
-	}
-}
-
-func TestLoadWithEnv_IgnoresStaleLegacyUserContextDefault(t *testing.T) {
-	clearEnv(t)
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	projectDir := t.TempDir()
-	t.Chdir(projectDir)
-
-	userPath := filepath.Join(home, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(userPath), 0755); err != nil {
-		t.Fatalf("mkdir user config dir: %v", err)
-	}
-	if err := os.WriteFile(userPath, []byte(`context:
-  max_tokens: 240000
-`), 0600); err != nil {
-		t.Fatalf("write user config: %v", err)
-	}
-
-	cfg, err := LoadWithEnv()
-	if err != nil {
-		t.Fatalf("LoadWithEnv() error = %v", err)
-	}
-
-	if got, want := cfg.Context.Window, 200000; got != want {
-		t.Fatalf("context.window = %d, want %d", got, want)
-	}
-}
-
-func TestLoadWithEnv_PreservesCustomLegacyUserContextWindow(t *testing.T) {
-	clearEnv(t)
-
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	projectDir := t.TempDir()
-	t.Chdir(projectDir)
-
-	userPath := filepath.Join(home, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(userPath), 0755); err != nil {
-		t.Fatalf("mkdir user config dir: %v", err)
-	}
-	if err := os.WriteFile(userPath, []byte(`context:
-  max_tokens: 18000
-`), 0600); err != nil {
-		t.Fatalf("write user config: %v", err)
-	}
-
-	cfg, err := LoadWithEnv()
-	if err != nil {
-		t.Fatalf("LoadWithEnv() error = %v", err)
-	}
-
-	if got, want := cfg.Context.Window, 18000; got != want {
-		t.Fatalf("context.window = %d, want %d", got, want)
+		t.Fatalf("model = %q, want %q", got, want)
 	}
 }
 
@@ -298,8 +168,19 @@ func clearEnv(t *testing.T) {
 		"MSCLI_API_KEY",
 		"MSCLI_BASE_URL",
 		"MSCLI_MODEL",
+		"MSCLI_TEMPERATURE",
 		"MSCLI_MAX_TOKENS",
+		"MSCLI_TIMEOUT",
 		"MSCLI_CONTEXT_WINDOW",
+		"MSCLI_CONTEXT_RESERVE",
+		"MSCLI_UI_ENABLED",
+		"MSCLI_PERMISSIONS_SKIP",
+		"MSCLI_PERMISSIONS_DEFAULT",
+		"MSCLI_BUDGET_TOKENS",
+		"MSCLI_BUDGET_COST",
+		"MSCLI_MEMORY_ENABLED",
+		"MSCLI_MEMORY_PATH",
+		"MSCLI_SERVER_URL",
 		"OPENAI_API_KEY",
 		"OPENAI_MODEL",
 		"OPENAI_BASE_URL",

@@ -19,14 +19,15 @@ import (
 )
 
 const (
-	DefaultRepoURL      = "https://github.com/vigo999/mindspore-skills"
-	DefaultRepoBranch   = "refactor-arch-3.0"
-	defaultRepoName     = "mindspore-skills"
-	defaultSkillsDir    = "skills"
-	defaultCommitFile   = ".ms-cli-commit"
-	defaultLogPrefix    = "skills sync"
-	defaultHTTPTimeout  = 2 * time.Minute
-	defaultCommandLimit = 2 * time.Minute
+	DefaultRepoURL           = "https://github.com/vigo999/mindspore-skills"
+	DefaultRepoBranch        = "refactor-arch-3.0"
+	defaultRepoName          = "mindspore-skills"
+	defaultSkillsDir         = "skills"
+	defaultCommitFile        = ".ms-cli-commit"
+	defaultLogPrefix         = "skills sync"
+	defaultHTTPTimeout       = 2 * time.Minute
+	defaultRemoteHEADTimeout = 3 * time.Second
+	defaultCommandLimit      = 2 * time.Minute
 )
 
 // RepoSync manages skills repository sync.
@@ -34,11 +35,9 @@ type RepoSync interface {
 	Sync() error
 }
 
-// RepoSyncConfig controls which skills repo/branch is synced locally.
+// RepoSyncConfig controls where the shared skills repo is synced locally.
 type RepoSyncConfig struct {
 	HomeDir string
-	RepoURL string
-	Branch  string
 }
 
 // DefaultRepoSync keeps the bundled skills repo fresh under ~/.ms-cli.
@@ -61,18 +60,10 @@ func NewDefaultRepoSync(homeDir string) *DefaultRepoSync {
 
 // NewRepoSync creates a startup syncer using the provided repo settings.
 func NewRepoSync(cfg RepoSyncConfig) *DefaultRepoSync {
-	repoURL := strings.TrimSpace(cfg.RepoURL)
-	if repoURL == "" {
-		repoURL = DefaultRepoURL
-	}
-	branch := strings.TrimSpace(cfg.Branch)
-	if branch == "" {
-		branch = DefaultRepoBranch
-	}
 	return &DefaultRepoSync{
 		homeDir:     strings.TrimSpace(cfg.HomeDir),
-		repoURL:     repoURL,
-		branch:      branch,
+		repoURL:     DefaultRepoURL,
+		branch:      DefaultRepoBranch,
 		skipInTests: true,
 		httpClient: &http.Client{
 			Timeout: defaultHTTPTimeout,
@@ -347,7 +338,10 @@ func (s *DefaultRepoSync) remoteCommit() (string, error) {
 		return "", err
 	}
 
-	req, err := http.NewRequest(http.MethodGet, apiURL, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultRemoteHEADTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("build remote commit request: %w", err)
 	}

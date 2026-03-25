@@ -1,6 +1,0 @@
-skills:
-  repo: https://github.com/vigo999/mindspore-skills
-  revision: refactor-arch-3.0
-  cache_dir: .cache/skills
-  workflows:
-    - add-algo-feature

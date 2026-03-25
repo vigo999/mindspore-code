@@ -3,11 +3,8 @@ package app
 import (
 	"context"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/integrations/llm"
 )
 
@@ -30,18 +27,6 @@ func TestWire_OpenAICompletionDefaultRouting(t *testing.T) {
 
 	tempDir := t.TempDir()
 	t.Chdir(tempDir)
-
-	defaultCfg := configs.DefaultConfig()
-	defaultCfg.Model.Provider = "openai-completion"
-	defaultCfg.Model.Model = "gpt-4o-mini"
-	defaultCfg.Model.Key = ""
-	configPath := filepath.Join(tempDir, ".ms-cli", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
-		t.Fatalf("mkdir config dir: %v", err)
-	}
-	if err := configs.SaveToFile(defaultCfg, configPath); err != nil {
-		t.Fatalf("SaveToFile() error = %v", err)
-	}
 
 	app, err := Wire(BootstrapConfig{})
 	if err != nil {

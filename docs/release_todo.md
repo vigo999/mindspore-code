@@ -34,7 +34,7 @@
 
 ### 5. Config for real training targets (1 day)
 - **Why**: Users need to configure their target machine (SSH host, address, key path, workdir).
-- **How**: Extend configs/types.go with TrainTarget config. Load from ~/.ms-cli/config.yaml. The deleted mscli.yaml had some of this -- check the new config loader pattern from the recent PR.
+- **How**: Extend configs/types.go with TrainTarget config. Wire it through built-in defaults plus `MSCLI_*` environment variables. The deleted mscli.yaml had some of this -- check the current config loader pattern first.
 
 ### 6. Remove orchestrator/planner dead code (0.5 day)
 - **Why**: Dead code that confuses contributors. Orchestrator is a passthrough, planner is unused.

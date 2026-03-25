@@ -14,14 +14,16 @@ import (
 // demoSpeed controls the delay multiplier for demo playback.
 // Set MS_DEMO_SPEED=10 to run 10x faster (e.g. 2000ms → 200ms).
 // Default is 1 (normal speed).
-var demoSpeed = func() float64 {
+//
+// Read it dynamically so tests can accelerate playback with t.Setenv.
+func demoSpeed() float64 {
 	if s := os.Getenv("MS_DEMO_SPEED"); s != "" {
 		if v, err := strconv.ParseFloat(s, 64); err == nil && v > 0 {
 			return v
 		}
 	}
 	return 1
-}()
+}
 
 func withDefaultRunID(ev Event) Event {
 	if ev.RunID != "" {
@@ -42,7 +44,7 @@ func withDefaultRunID(ev Event) Event {
 // Delays are divided by demoSpeed (MS_DEMO_SPEED env var).
 func emit(ctx context.Context, sink func(Event), ev Event) bool {
 	if ev.DelayMs > 0 {
-		delay := time.Duration(float64(ev.DelayMs)/demoSpeed) * time.Millisecond
+		delay := time.Duration(float64(ev.DelayMs)/demoSpeed()) * time.Millisecond
 		select {
 		case <-ctx.Done():
 			return false

@@ -34,6 +34,11 @@ on:
         required: false
         default: false
         type: boolean
+      skip_assets:
+        description: "Skip GitCode asset upload and sync metadata only"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -56,6 +61,7 @@ jobs:
       GH_TARGET: ${{ github.event.release.target_commitish || inputs.target_commitish }}
       GH_PRERELEASE: ${{ github.event.release.prerelease || inputs.prerelease || false }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+      SKIP_ASSETS: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_assets || false }}
 
     steps:
       - name: Validate configuration
@@ -76,6 +82,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release-assets
+
+          if [ "${SKIP_ASSETS}" = "true" ]; then
+            echo "Skipping GitHub release asset download."
+            echo "asset_count=0" >> "${GITHUB_ENV}"
+            exit 0
+          fi
 
           if [ "${{ github.event_name }}" = "release" ]; then
             asset_count="$(jq '.release.assets | length' "${GITHUB_EVENT_PATH}")"

@@ -44,12 +44,8 @@ func ResolvePath(workDir, input string) (string, error) {
 	return fullAbs, nil
 }
 
-// ReadTextFile reads a validated workspace-relative file and applies text safety checks.
-func ReadTextFile(workDir, input string, maxBytes int) (string, error) {
-	if maxBytes <= 0 {
-		maxBytes = DefaultMaxInlineBytes
-	}
-
+// ResolveExistingFilePath validates a workspace-relative path and confirms it exists as a file.
+func ResolveExistingFilePath(workDir, input string) (string, error) {
 	fullPath, err := ResolvePath(workDir, input)
 	if err != nil {
 		return "", err
@@ -64,6 +60,25 @@ func ReadTextFile(workDir, input string, maxBytes int) (string, error) {
 	}
 	if info.IsDir() {
 		return "", fmt.Errorf("path is a directory: %s", input)
+	}
+
+	return fullPath, nil
+}
+
+// ReadTextFile reads a validated workspace-relative file and applies text safety checks.
+func ReadTextFile(workDir, input string, maxBytes int) (string, error) {
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxInlineBytes
+	}
+
+	fullPath, err := ResolveExistingFilePath(workDir, input)
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("stat file: %w", err)
 	}
 	if info.Size() > int64(maxBytes) {
 		return "", fmt.Errorf("file too large: %s exceeds %d bytes", input, maxBytes)

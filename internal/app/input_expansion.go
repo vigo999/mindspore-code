@@ -78,26 +78,16 @@ func replaceAtFileToken(workDir, token string) (string, error) {
 		return token, nil
 	}
 
-	content, err := workspacefile.ReadTextFile(workDir, path, workspacefile.DefaultMaxInlineBytes)
+	fullPath, err := workspacefile.ResolveExistingFilePath(workDir, path)
 	if err != nil {
 		return "", err
 	}
 
-	return formatExpandedFileBlock(path, content), nil
+	return formatExpandedFilePath(fullPath), nil
 }
 
-func formatExpandedFileBlock(path, content string) string {
-	displayPath := filepath.ToSlash(filepath.Clean(path))
-	var b strings.Builder
-	b.WriteString(`[file path="`)
-	b.WriteString(displayPath)
-	b.WriteString("\"]\n")
-	b.WriteString(content)
-	if !strings.HasSuffix(content, "\n") {
-		b.WriteString("\n")
-	}
-	b.WriteString(`[/file]`)
-	return b.String()
+func formatExpandedFilePath(path string) string {
+	return `[file path="` + filepath.ToSlash(filepath.Clean(path)) + `"]`
 }
 
 type rawCommand struct {

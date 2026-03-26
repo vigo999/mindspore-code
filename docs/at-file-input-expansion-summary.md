@@ -5,7 +5,7 @@
 This change adds conservative `@file` prompt expansion support on branch
 `refactor-arch-4.11-support-at-file`.
 
-The goal is to let users inline workspace text files into prompts without
+The goal is to let users reference workspace files in prompts without
 changing slash command recognition or disturbing structured command parsing.
 
 ## Supported Surfaces
@@ -32,27 +32,23 @@ Version 1 behavior is intentionally strict:
 - Paths must remain inside the current workspace
 - Absolute paths and escaping paths are rejected
 - Directories and missing files are rejected
-- Files must be UTF-8 text and must not contain NUL bytes
-- Files larger than `64 KiB` are rejected
 - Any invalid `@file` reference fails the whole input
 
-Expanded files are injected into prompts in this form:
+Expanded file references are injected into prompts in this form:
 
 ```text
-[file path="relative/path.txt"]
-...
-[/file]
+[file path="/absolute/workspace/path.txt"]
 ```
 
 ## Implementation Notes
 
 The change is split across three main areas:
 
-1. Shared file validation and text reading
+1. Shared file validation and file-path resolution
 
 - Added `internal/workspacefile/workspacefile.go`
 - Centralizes workspace-relative path validation
-- Reused by input expansion and `tools/fs` path resolution
+- Reused by input expansion
 
 2. Input expansion and raw command parsing
 
@@ -83,13 +79,13 @@ Targeted tests were added in `internal/app/input_expansion_test.go`.
 
 Validated scenarios include:
 
-- Plain chat expansion
+- Plain chat path expansion
 - Multiple `@file` tokens
 - `@@` escaping
 - Excluded commands remaining unchanged
 - `/report`, `/diagnose`, `/fix`, `/skill`, and skill alias behavior
 - Issue-target preservation for `/diagnose` and `/fix`
-- Failure on missing, unsafe, oversized, or invalid files
+- Failure on missing, unsafe, or directory paths
 
 The targeted verification command that passed was:
 

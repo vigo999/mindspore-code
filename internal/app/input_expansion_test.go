@@ -25,11 +25,14 @@ func TestExpandInputTextExpandsStandaloneTokensAndEscapes(t *testing.T) {
 		t.Fatalf("expandInputText returned error: %v", err)
 	}
 
-	if !strings.Contains(got, `[file path="a.txt"]`) || !strings.Contains(got, "alpha") {
+	if !strings.Contains(got, `[file path="`+filepath.ToSlash(filepath.Join(root, "a.txt"))+`"]`) {
 		t.Fatalf("expected a.txt contents to be expanded, got %q", got)
 	}
-	if !strings.Contains(got, `[file path="b.txt"]`) || !strings.Contains(got, "beta") {
+	if !strings.Contains(got, `[file path="`+filepath.ToSlash(filepath.Join(root, "b.txt"))+`"]`) {
 		t.Fatalf("expected b.txt contents to be expanded, got %q", got)
+	}
+	if strings.Contains(got, "alpha") || strings.Contains(got, "beta") {
+		t.Fatalf("expected file contents not to be inlined, got %q", got)
 	}
 	if !strings.Contains(got, "@literal") {
 		t.Fatalf("expected @@ escape to keep literal @, got %q", got)
@@ -53,8 +56,6 @@ func TestExpandInputTextLeavesUnsupportedAtFormsUnchanged(t *testing.T) {
 
 func TestExpandInputTextRejectsUnsafeFiles(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "big.txt", strings.Repeat("a", 64*1024+1))
-	writeBinaryFile(t, root, "bin.dat", []byte{'a', 0, 'b'})
 	if err := os.Mkdir(filepath.Join(root, "dir"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -67,8 +68,6 @@ func TestExpandInputTextRejectsUnsafeFiles(t *testing.T) {
 		{"@missing.txt", "file not found"},
 		{"@dir", "path is a directory"},
 		{"@../escape.txt", "path escapes working directory"},
-		{"@big.txt", "file too large"},
-		{"@bin.dat", "not valid text"},
 	}
 
 	for _, tc := range tests {
@@ -104,8 +103,11 @@ func TestProcessInputExpandsPlainChatBeforeRunTask(t *testing.T) {
 	if len(msgs) < 1 || msgs[0].Role != "user" {
 		t.Fatalf("expected recorded user message, got %#v", msgs)
 	}
-	if !strings.Contains(msgs[0].Content, `[file path="ctx.txt"]`) || !strings.Contains(msgs[0].Content, "context payload") {
+	if !strings.Contains(msgs[0].Content, `[file path="`+filepath.ToSlash(filepath.Join(root, "ctx.txt"))+`"]`) {
 		t.Fatalf("expected expanded plain chat to be recorded, got %q", msgs[0].Content)
+	}
+	if strings.Contains(msgs[0].Content, "context payload") {
+		t.Fatalf("expected file content not to be recorded inline, got %q", msgs[0].Content)
 	}
 }
 
@@ -126,8 +128,11 @@ func TestProcessInputEmitsExpandedUserInputEvent(t *testing.T) {
 	app.processInput("please read @ctx.txt")
 
 	ev := drainUntilEventType(t, app, model.UserInput)
-	if !strings.Contains(ev.Message, `[file path="ctx.txt"]`) || !strings.Contains(ev.Message, "context payload") {
+	if !strings.Contains(ev.Message, `[file path="`+filepath.ToSlash(filepath.Join(root, "ctx.txt"))+`"]`) {
 		t.Fatalf("expected expanded user input event, got %q", ev.Message)
+	}
+	if strings.Contains(ev.Message, "context payload") {
+		t.Fatalf("expected user input event not to inline file content, got %q", ev.Message)
 	}
 }
 
@@ -170,8 +175,11 @@ func TestHandleCommandReportExpandsOnlyTitleRemainder(t *testing.T) {
 	if got := store.lastCreateKind; got != issuepkg.KindAccuracy {
 		t.Fatalf("kind = %q, want %q", got, issuepkg.KindAccuracy)
 	}
-	if !strings.Contains(store.lastCreateTitle, `[file path="ctx.txt"]`) || !strings.Contains(store.lastCreateTitle, "reported context") {
+	if !strings.Contains(store.lastCreateTitle, `[file path="`+filepath.ToSlash(filepath.Join(root, "ctx.txt"))+`"]`) {
 		t.Fatalf("expected expanded report title, got %q", store.lastCreateTitle)
+	}
+	if strings.Contains(store.lastCreateTitle, "reported context") {
+		t.Fatalf("expected report title not to inline file content, got %q", store.lastCreateTitle)
 	}
 }
 
@@ -211,8 +219,11 @@ func TestHandleCommandFixPreservesIssueModeAndExpandsPromptRemainder(t *testing.
 	if !strings.Contains(ev.Message, "fix flow for ISSUE-42 is not wired yet") {
 		t.Fatalf("expected issue-target mode to be preserved, got %q", ev.Message)
 	}
-	if !strings.Contains(ev.Message, `[file path="ctx.txt"]`) || !strings.Contains(ev.Message, "fix context") {
+	if !strings.Contains(ev.Message, `[file path="`+filepath.ToSlash(filepath.Join(root, "ctx.txt"))+`"]`) {
 		t.Fatalf("expected expanded prompt remainder, got %q", ev.Message)
+	}
+	if strings.Contains(ev.Message, "fix context") {
+		t.Fatalf("expected fix prompt not to inline file content, got %q", ev.Message)
 	}
 }
 
@@ -231,8 +242,11 @@ func TestHandleCommandFixFileFirstStaysFreeTextMode(t *testing.T) {
 	if strings.Contains(ev.Message, "fix flow for ISSUE-42 is not wired yet") {
 		t.Fatalf("file-first input should not switch to issue mode, got %q", ev.Message)
 	}
-	if !strings.Contains(ev.Message, `[file path=`) || !strings.Contains(ev.Message, "fix context") || !strings.Contains(ev.Message, "ISSUE-42") {
+	if !strings.Contains(ev.Message, filepath.ToSlash(filepath.Join(root, "ctx.txt"))) || !strings.Contains(ev.Message, "ISSUE-42") {
 		t.Fatalf("expected free-text mode with expanded content, got %q", ev.Message)
+	}
+	if strings.Contains(ev.Message, "fix context") {
+		t.Fatalf("expected free-text mode not to inline file content, got %q", ev.Message)
 	}
 }
 
@@ -255,7 +269,7 @@ func TestHandleCommandSkillAndAliasExpandOnlyRequestRemainder(t *testing.T) {
 	drainUntilEventType(t, app, model.AgentReply)
 
 	msgs := app.ctxManager.GetNonSystemMessages()
-	if !containsUserMessage(msgs, `[file path="req.txt"]`) {
+	if !containsUserMessage(msgs, `[file path="`+filepath.ToSlash(filepath.Join(root, "req.txt"))+`"]`) {
 		t.Fatalf("expected /skill request to be expanded, got %#v", msgs)
 	}
 
@@ -265,7 +279,7 @@ func TestHandleCommandSkillAndAliasExpandOnlyRequestRemainder(t *testing.T) {
 	drainUntilEventType(t, app, model.AgentReply)
 
 	msgs = app.ctxManager.GetNonSystemMessages()
-	if !containsUserMessage(msgs, `[file path="req.txt"]`) {
+	if !containsUserMessage(msgs, `[file path="`+filepath.ToSlash(filepath.Join(root, "req.txt"))+`"]`) {
 		t.Fatalf("expected skill alias request to be expanded, got %#v", msgs)
 	}
 }
@@ -286,17 +300,6 @@ func writeTestFile(t *testing.T, root, relativePath, content string) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func writeBinaryFile(t *testing.T, root, relativePath string, data []byte) {
-	t.Helper()
-	path := filepath.Join(root, relativePath)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }

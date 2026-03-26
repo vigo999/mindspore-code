@@ -511,7 +511,8 @@ Keybindings:
   Plain chat and /report, /diagnose, /fix, /skill, /<skill> alias support standalone @relative/path
   Typing @path in the composer shows file completion candidates before submit
   Use @@name to keep a literal @name token
-  Files must stay inside the workspace, be UTF-8 text, and be <= 64 KiB
+  @path injects a workspace file reference as an absolute path marker; the agent can read it if needed
+  Referenced paths must stay inside the workspace and point to an existing file
   Invalid @file references fail the whole input
 
 Environment Variables:

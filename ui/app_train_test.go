@@ -455,14 +455,14 @@ func TestAtFileInputWaitsForBackendEchoBeforeShowingUserMessage(t *testing.T) {
 
 	next, _ = app.handleEvent(model.Event{
 		Type:    model.UserInput,
-		Message: "read [file path=\"ctx.txt\"]\ncontext payload\n[/file]",
+		Message: "read [file path=\"" + filepath.ToSlash(filepath.Join(root, "ctx.txt")) + "\"]",
 	})
 	app = next.(App)
 
 	if got := len(app.state.Messages); got != 1 {
 		t.Fatalf("expected one backend-confirmed user message, got %d", got)
 	}
-	if !strings.Contains(app.state.Messages[0].Content, `[file path="ctx.txt"]`) {
+	if !strings.Contains(app.state.Messages[0].Content, `[file path="`+filepath.ToSlash(filepath.Join(root, "ctx.txt"))+`"]`) {
 		t.Fatalf("expected expanded user message content, got %#v", app.state.Messages[0])
 	}
 }

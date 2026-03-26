@@ -143,7 +143,12 @@ jobs:
           api_error_code="$(jq -r '.error_code // empty' release.json 2>/dev/null || true)"
 
           if [ "${http_code}" = "200" ]; then
-            release_id="$(jq -r '.id' release.json)"
+            release_id="$(jq -r '.id // empty' release.json)"
+            if [ -z "${release_id}" ] || [ "${release_id}" = "null" ]; then
+              echo "Existing GitCode release found by tag; no release id in response, skipping metadata update."
+              jq '{tag_name, name}' release.json
+              exit 0
+            fi
             echo "Updating existing GitCode release id=${release_id}..."
             curl -sS --fail \
               -X PATCH \

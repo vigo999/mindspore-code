@@ -26,7 +26,6 @@ const (
 	maxToolLines              = 120
 	maxToolRunes              = 12000
 	interruptQueuedTrainToken = "__interrupt_queued_train__"
-	hintRotateInterval        = 4 * time.Second
 	interruptActiveTaskToken  = "__interrupt_active_task__"
 )
 
@@ -100,7 +99,6 @@ func evSource(data *model.TrainEventData, fallback string) string {
 
 type bootDoneMsg struct{}
 type bootTickMsg struct{}
-type hintRotateMsg struct{}
 
 // App is the TUI root model.
 type App struct {
@@ -122,8 +120,7 @@ type App struct {
 	issueView     model.IssueViewState
 	bootActive    bool
 	bootHighlight int
-	queuedInputs  []string
-	hintNoteIndex int // which hint note to show (0=skills, 1=release)
+	queuedInputs []string
 }
 
 // New creates a new App driven by the given event channel.
@@ -162,26 +159,8 @@ func (a App) Init() tea.Cmd {
 		tea.Tick(bootDuration, func(time.Time) tea.Msg {
 			return bootDoneMsg{}
 		}),
-		tea.Tick(hintRotateInterval, func(time.Time) tea.Msg {
-			return hintRotateMsg{}
-		}),
 		a.waitForEvent,
 	)
-}
-
-func (a *App) refreshHintNote() {
-	notes := make([]string, 0, 2)
-	if a.state.SkillsNote != "" {
-		notes = append(notes, a.state.SkillsNote)
-	}
-	if a.state.ReleaseNote != "" {
-		notes = append(notes, a.state.ReleaseNote)
-	}
-	if len(notes) == 0 {
-		a.state.HintNote = ""
-		return
-	}
-	a.state.HintNote = notes[a.hintNoteIndex%len(notes)]
 }
 
 func (a App) chatHeight() int {
@@ -238,13 +217,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.bootActive = false
 		a.updateViewport()
 		return a, nil
-
-	case hintRotateMsg:
-		a.hintNoteIndex++
-		a.refreshHintNote()
-		return a, tea.Tick(hintRotateInterval, func(time.Time) tea.Msg {
-			return hintRotateMsg{}
-		})
 
 	case model.Event:
 		return a.handleEvent(msg)
@@ -676,13 +648,8 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	case model.IssueUserUpdate:
 		a.state = a.state.WithIssueUser(ev.Message)
 
-	case model.ReleaseNoteUpdate:
-		a.state.ReleaseNote = ev.Message
-		a.refreshHintNote()
-
 	case model.SkillsNoteUpdate:
 		a.state.SkillsNote = ev.Message
-		a.refreshHintNote()
 
 	// ── Train events ──────────────────────────────────────────
 

@@ -14,4 +14,5 @@ type CheckResult struct {
 	UpdateAvailable bool
 	ForceUpdate     bool
 	DownloadURL     string
+	ReleaseNotes    string
 }

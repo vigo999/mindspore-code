@@ -22,13 +22,17 @@ const (
 
 // updatePrompt is a mini Bubble Tea model for the pre-TUI update screen.
 type updatePrompt struct {
-	result   *update.CheckResult
-	cursor   int
-	options  []string
-	chosen   bool
-	choice   updateChoice
-	message  string // status message after selection
-	quitting bool
+	result       *update.CheckResult
+	program      *tea.Program
+	cursor       int
+	options      []string
+	chosen       bool
+	choice       updateChoice
+	message      string // status message after selection
+	quitting     bool
+	downloaded   int64
+	total        int64
+	formattedNotes string // pre-computed from ReleaseNotes
 }
 
 func newUpdatePrompt(result *update.CheckResult) updatePrompt {
@@ -37,14 +41,15 @@ func newUpdatePrompt(result *update.CheckResult) updatePrompt {
 		options = []string{"Update now"}
 	}
 	return updatePrompt{
-		result:  result,
-		options: options,
+		result:         result,
+		options:        options,
+		formattedNotes: formatReleaseNotes(result.ReleaseNotes),
 	}
 }
 
-func (m updatePrompt) Init() tea.Cmd { return nil }
+func (m *updatePrompt) Init() tea.Cmd { return nil }
 
-func (m updatePrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *updatePrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.quitting {
 		return m, nil
 	}
@@ -73,14 +78,19 @@ func (m updatePrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.chosen = true
 			if m.cursor == 0 {
 				m.choice = updateChoiceUpdate
-				m.message = "  Downloading..."
-				return m, doUpdate(m.result)
+				m.message = fmt.Sprintf("  Downloading ms-cli %s...", m.result.LatestVersion)
+				return m, doUpdate(m.result, m.program)
 			}
 			// Skip (only reachable for non-forced)
 			m.choice = updateChoiceSkip
 			m.quitting = true
 			return m, tea.Quit
 		}
+
+	case downloadProgressMsg:
+		m.downloaded = msg.downloaded
+		m.total = msg.total
+		return m, nil
 
 	case updateDoneMsg:
 		m.quitting = true
@@ -97,7 +107,7 @@ func (m updatePrompt) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m updatePrompt) View() string {
+func (m *updatePrompt) View() string {
 	var b strings.Builder
 
 	b.WriteString("\n")
@@ -108,9 +118,19 @@ func (m updatePrompt) View() string {
 	}
 	b.WriteString("\n")
 
+	if m.formattedNotes != "" {
+		b.WriteString("  What's new:\n")
+		b.WriteString(m.formattedNotes)
+		b.WriteString("\n")
+	}
+
 	if m.chosen {
 		b.WriteString(m.message)
 		b.WriteString("\n")
+		if m.downloaded > 0 {
+			b.WriteString(renderProgressBar(m.downloaded, m.total))
+			b.WriteString("\n")
+		}
 		return b.String()
 	}
 
@@ -126,12 +146,68 @@ func (m updatePrompt) View() string {
 	return b.String()
 }
 
+// formatReleaseNotes strips markdown headers and formats notes for display.
+func formatReleaseNotes(notes string) string {
+	if notes == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, line := range strings.Split(strings.TrimSpace(notes), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Strip markdown headers (e.g. "## What's new" → "What's new")
+		if strings.HasPrefix(line, "#") {
+			line = strings.TrimLeft(line, "#")
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+		}
+		b.WriteString("  " + line + "\n")
+	}
+	return b.String()
+}
+
+// renderProgressBar renders a 30-char wide progress bar.
+func renderProgressBar(downloaded, total int64) string {
+	const barWidth = 30
+	if total <= 0 {
+		return fmt.Sprintf("  Downloading... (%.1f MB)", float64(downloaded)/1e6)
+	}
+
+	pct := float64(downloaded) / float64(total)
+	if pct > 1 {
+		pct = 1
+	}
+	filled := int(pct * barWidth)
+	empty := barWidth - filled
+
+	return fmt.Sprintf("  [%s%s] %d%% (%.1f/%.1f MB)",
+		strings.Repeat("█", filled),
+		strings.Repeat("░", empty),
+		int(pct*100),
+		float64(downloaded)/1e6,
+		float64(total)/1e6,
+	)
+}
+
+// downloadProgressMsg carries download progress updates.
+type downloadProgressMsg struct {
+	downloaded int64
+	total      int64
+}
+
 // updateDoneMsg is sent when download+install completes.
 type updateDoneMsg struct{ err error }
 
-func doUpdate(result *update.CheckResult) tea.Cmd {
+func doUpdate(result *update.CheckResult, p *tea.Program) tea.Cmd {
 	return func() tea.Msg {
-		tmpPath, err := update.Download(context.Background(), result.DownloadURL)
+		progressFn := func(downloaded, total int64) {
+			p.Send(downloadProgressMsg{downloaded: downloaded, total: total})
+		}
+		tmpPath, err := update.DownloadWithProgress(context.Background(), result.DownloadURL, progressFn)
 		if err != nil {
 			return updateDoneMsg{fmt.Errorf("download failed: %w", err)}
 		}
@@ -156,14 +232,16 @@ func checkAndPromptUpdate() bool {
 		return false
 	}
 
+	result.ReleaseNotes = update.FetchReleaseNotes(context.Background(), result.LatestVersion)
 	prompt := newUpdatePrompt(result)
-	p := tea.NewProgram(prompt)
+	p := tea.NewProgram(&prompt)
+	prompt.program = p
 	finalModel, err := p.Run()
 	if err != nil {
 		return false
 	}
 
-	final := finalModel.(updatePrompt)
+	final := finalModel.(*updatePrompt)
 	fmt.Println()
 	return final.choice == updateChoiceUpdate && final.quitting
 }

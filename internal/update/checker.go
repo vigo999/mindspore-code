@@ -95,6 +95,40 @@ func parseSemver(v string) [3]int {
 	return result
 }
 
+// FetchReleaseNotes fetches the body of a GitHub release by tag.
+// Returns empty string on any failure (non-fatal).
+func FetchReleaseNotes(ctx context.Context, version string) string {
+	version = strings.TrimPrefix(version, "v")
+	url := fmt.Sprintf("https://api.github.com/repos/vigo999/ms-cli/releases/tags/v%s", version)
+
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var release struct {
+		Body string `json:"body"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return ""
+	}
+	return release.Body
+}
+
 func buildDownloadURL(base, version string) string {
 	version = strings.TrimPrefix(version, "v")
 	name := fmt.Sprintf("ms-cli-%s-%s", runtime.GOOS, runtime.GOARCH)

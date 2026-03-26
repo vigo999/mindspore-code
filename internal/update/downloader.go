@@ -12,8 +12,29 @@ import (
 
 const maxBinarySize = 500 << 20 // 500 MiB
 
-// Download fetches the binary at url into ~/.ms-cli/tmp/ and returns the temp file path.
-func Download(ctx context.Context, url string) (string, error) {
+// ProgressFunc is called periodically during download with bytes downloaded and total size.
+// total is -1 when Content-Length is unknown.
+type ProgressFunc func(downloaded, total int64)
+
+// progressReader wraps an io.Reader and calls fn after each Read.
+type progressReader struct {
+	r          io.Reader
+	fn         ProgressFunc
+	downloaded int64
+	total      int64
+}
+
+func (pr *progressReader) Read(p []byte) (int, error) {
+	n, err := pr.r.Read(p)
+	pr.downloaded += int64(n)
+	if pr.fn != nil {
+		pr.fn(pr.downloaded, pr.total)
+	}
+	return n, err
+}
+
+// DownloadWithProgress is like Download but calls progressFn periodically with progress.
+func DownloadWithProgress(ctx context.Context, url string, progressFn ProgressFunc) (string, error) {
 	tmpDir := filepath.Join(ConfigDir(), "tmp")
 	if err := os.MkdirAll(tmpDir, 0755); err != nil {
 		return "", fmt.Errorf("create tmp dir: %w", err)
@@ -37,6 +58,8 @@ func Download(ctx context.Context, url string) (string, error) {
 		return "", fmt.Errorf("download returned %d", resp.StatusCode)
 	}
 
+	total := resp.ContentLength // -1 if unknown
+
 	tmpFile, err := os.CreateTemp(tmpDir, "ms-cli-update-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
@@ -44,13 +67,13 @@ func Download(ctx context.Context, url string) (string, error) {
 	tmpPath := tmpFile.Name()
 
 	limited := &io.LimitedReader{R: resp.Body, N: maxBinarySize}
-	if _, err := io.Copy(tmpFile, limited); err != nil {
+	pr := &progressReader{r: limited, fn: progressFn, total: total}
+	if _, err := io.Copy(tmpFile, pr); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpPath)
 		return "", fmt.Errorf("write binary: %w", err)
 	}
 
-	// Check if we hit the limit (stream had more data).
 	if limited.N == 0 {
 		tmpFile.Close()
 		os.Remove(tmpPath)
@@ -63,4 +86,9 @@ func Download(ctx context.Context, url string) (string, error) {
 	}
 
 	return tmpPath, nil
+}
+
+// Download fetches the binary at url into ~/.ms-cli/tmp/ and returns the temp file path.
+func Download(ctx context.Context, url string) (string, error) {
+	return DownloadWithProgress(ctx, url, nil)
 }

@@ -46,7 +46,6 @@ func (a *Application) startDeferredStartup() {
 		if strings.TrimSpace(a.skillsHomeDir) != "" {
 			go a.syncSharedSkills()
 		}
-		go a.emitUpdateHint()
 	})
 }
 

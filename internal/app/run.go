@@ -12,7 +12,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vigo999/ms-cli/agent/loop"
 	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/internal/update"
 	"github.com/vigo999/ms-cli/internal/version"
 	"github.com/vigo999/ms-cli/ui"
 	"github.com/vigo999/ms-cli/ui/model"
@@ -23,6 +22,11 @@ const interruptActiveTaskToken = "__interrupt_active_task__"
 
 // Run parses CLI args, wires dependencies, and starts the application.
 func Run(args []string) error {
+	if len(args) > 0 && (args[0] == "--version" || args[0] == "-v") {
+		fmt.Println(version.Version)
+		return nil
+	}
+
 	cfg, err := parseBootstrapConfig(args)
 	if err != nil {
 		return err
@@ -39,6 +43,9 @@ func Run(args []string) error {
 // run starts the TUI.
 func (a *Application) run() error {
 	go cleanUpdateTmp()
+	if checkAndPromptUpdate() {
+		return nil
+	}
 	err := a.runReal()
 	resumeHint := a.exitResumeHint()
 	if a.session != nil {
@@ -71,7 +78,6 @@ func (a *Application) runReal() error {
 func tuiProgramOptions(extra ...tea.ProgramOption) []tea.ProgramOption {
 	opts := []tea.ProgramOption{
 		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
 	}
 	return append(opts, extra...)
 }
@@ -384,7 +390,7 @@ var loopEventTypeMap = map[string]model.EventType{
 func convertLoopEvent(ev loop.Event) *model.Event {
 	uiType, ok := loopEventTypeMap[ev.Type]
 	if !ok {
-		if ev.Type == "TaskCompleted" {
+		if ev.Type == "TaskCompleted" || ev.Type == "TaskStarted" {
 			return nil
 		}
 		if ev.Message != "" {
@@ -408,17 +414,3 @@ func generateTaskID() string {
 	return time.Now().Format("20060102-150405-000")
 }
 
-func (a *Application) emitUpdateHint() {
-	v := version.Version
-	if v == "" || v == "dev" {
-		return
-	}
-	result, err := update.Check(context.Background(), v)
-	if err != nil || result == nil || !result.UpdateAvailable {
-		return
-	}
-	a.EventCh <- model.Event{
-		Type:    model.ReleaseNoteUpdate,
-		Message: fmt.Sprintf("update available %s → %s", result.CurrentVersion, result.LatestVersion),
-	}
-}

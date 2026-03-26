@@ -75,6 +75,10 @@ type Application struct {
 	taskCancels map[uint64]context.CancelFunc
 	taskMu      sync.Mutex
 
+	// Model preset runtime override state.
+	activeModelPresetID string
+	modelBeforePreset   *configs.ModelConfig
+
 	// Train mode state
 	trainMode       bool
 	trainPhase      string // "setup","ready","running","failed","analyzing","fixing","evaluating","drift_detected","completed","stopped"

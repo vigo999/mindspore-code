@@ -8,9 +8,10 @@ import (
 )
 
 type ServerConfig struct {
-	Server  ServerListenConfig `yaml:"server"`
-	Storage StorageConfig      `yaml:"storage"`
-	Auth    AuthConfig         `yaml:"auth"`
+	Server       ServerListenConfig      `yaml:"server"`
+	Storage      StorageConfig           `yaml:"storage"`
+	Auth         AuthConfig              `yaml:"auth"`
+	ModelPresets []ModelPresetCredential `yaml:"model_presets,omitempty"`
 }
 
 type ServerListenConfig struct {
@@ -30,6 +31,11 @@ type TokenEntry struct {
 	Token string `yaml:"token"`
 	User  string `yaml:"user"`
 	Role  string `yaml:"role"`
+}
+
+type ModelPresetCredential struct {
+	ID     string `yaml:"id"`
+	APIKey string `yaml:"api_key"`
 }
 
 func LoadServerConfig(path string) (*ServerConfig, error) {

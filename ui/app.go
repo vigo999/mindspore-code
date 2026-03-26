@@ -169,6 +169,7 @@ type App struct {
 	permissionPrompt *permissionPromptState
 	permissionsView  *permissionsViewState
 	toolsExpanded    bool
+	modelPicker      *model.SelectionPopup
 }
 
 // New creates a new App driven by the given event channel.
@@ -605,29 +606,36 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Selection popup navigation
-	if a.trainView.Active && a.trainView.SelectionPopup != nil {
+	if a.modelPicker != nil || (a.trainView.Active && a.trainView.SelectionPopup != nil) {
+		p := a.trainView.SelectionPopup
+		if a.modelPicker != nil {
+			p = a.modelPicker
+		}
+		if p == nil || len(p.Options) == 0 {
+			return a, nil
+		}
 		switch msg.String() {
 		case "up", "left":
-			p := a.trainView.SelectionPopup
 			p.Selected--
 			if p.Selected < 0 {
 				p.Selected = len(p.Options) - 1
 			}
 			return a, nil
 		case "down", "right":
-			p := a.trainView.SelectionPopup
 			p.Selected = (p.Selected + 1) % len(p.Options)
 			return a, nil
 		case "enter":
-			p := a.trainView.SelectionPopup
 			selected := p.Options[p.Selected]
 			a.trainView.SelectionPopup = nil
+			a.modelPicker = nil
 			var input string
 			switch p.ActionID {
 			case "add_algo_feature":
 				input = "/train add algo-feature " + selected.ID
 			case "add_perf_feature":
 				input = "/train add perf-feature " + selected.ID
+			case "model_picker":
+				input = "/model " + selected.ID
 			}
 			if input != "" && a.userCh != nil {
 				select {
@@ -638,6 +646,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case "esc":
 			a.trainView.SelectionPopup = nil
+			a.modelPicker = nil
 			return a, nil
 		}
 		return a, nil
@@ -945,6 +954,13 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			mi.CtxMax = ev.CtxMax
 		}
 		a.state = a.state.WithModel(mi)
+
+	case model.ModelPickerOpen:
+		if ev.Popup != nil {
+			cp := *ev.Popup
+			cp.Options = append([]model.SelectionOption(nil), ev.Popup.Options...)
+			a.modelPicker = &cp
+		}
 
 	case model.IssueUserUpdate:
 		a.state = a.state.WithIssueUser(ev.Message)
@@ -2518,6 +2534,9 @@ func (a App) View() string {
 
 	if a.trainView.Active && a.trainView.SelectionPopup != nil {
 		layout = overlayPopup(layout, panels.RenderSelectionPopup(a.trainView.SelectionPopup), a.width, a.height)
+	}
+	if a.modelPicker != nil {
+		layout = overlayPopup(layout, panels.RenderSelectionPopup(a.modelPicker), a.width, a.height)
 	}
 
 	return trimViewHeight(layout, a.height)

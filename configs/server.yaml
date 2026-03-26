@@ -16,3 +16,7 @@ auth:
     - token: mscli_token_travis
       user: travis
       role: admin
+
+model_presets:
+  - id: kimi-k2.5-free
+    api_key: <provided-key>

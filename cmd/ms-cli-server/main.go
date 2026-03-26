@@ -31,7 +31,7 @@ func main() {
 		log.Fatalf("init store: %v", err)
 	}
 
-	mux := server.NewMux(store, cfg.Auth.Tokens)
+	mux := server.NewMux(store, cfg.Auth.Tokens, cfg.ModelPresets)
 
 	log.Printf("ms-cli-server listening on %s", cfg.Server.Addr)
 	if err := http.ListenAndServe(cfg.Server.Addr, mux); err != nil {

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -98,11 +99,18 @@ func (a *Application) handleCommand(input string) {
 
 func (a *Application) cmdModel(args []string) {
 	if len(args) == 0 {
-		a.showCurrentModel()
+		a.openModelPicker()
 		return
 	}
 
-	modelArg := args[0]
+	modelArg := strings.TrimSpace(strings.Join(args, " "))
+	if preset, ok := resolveBuiltinModelPreset(modelArg); ok {
+		a.switchToBuiltinModelPreset(preset)
+		return
+	}
+
+	a.restoreModelConfigFromPreset()
+	modelArg = args[0]
 	if strings.Contains(modelArg, ":") {
 		parts := strings.SplitN(modelArg, ":", 2)
 		providerName := llm.NormalizeProvider(parts[0])
@@ -121,7 +129,7 @@ func (a *Application) cmdModel(args []string) {
 	a.switchModel("", modelArg)
 }
 
-func (a *Application) showCurrentModel() {
+func (a *Application) openModelPicker() {
 	providerName := a.Config.Model.Provider
 	if providerName == "" {
 		providerName = "openai-completion"
@@ -137,24 +145,85 @@ func (a *Application) showCurrentModel() {
 		apiKeyStatus = "set"
 	}
 
-	msg := fmt.Sprintf(`Current Model Configuration:
+	popup := &model.SelectionPopup{
+		Title: fmt.Sprintf(
+			"Model Selection\nProvider: %s\nURL: %s\nModel: %s\nKey: %s",
+			providerName,
+			url,
+			modelName,
+			apiKeyStatus,
+		),
+		ActionID: "model_picker",
+	}
+	for _, preset := range listBuiltinModelPresets() {
+		popup.Options = append(popup.Options, model.SelectionOption{
+			ID:    preset.ID,
+			Label: preset.Label,
+			Desc:  fmt.Sprintf("%s · %s", preset.Provider, preset.Model),
+		})
+		if strings.EqualFold(strings.TrimSpace(a.activeModelPresetID), preset.ID) {
+			popup.Selected = len(popup.Options) - 1
+		}
+	}
+	a.EventCh <- model.Event{
+		Type:  model.ModelPickerOpen,
+		Popup: popup,
+	}
+}
 
-  Provider: %s
-  URL:   %s
-  Model: %s
-  Key:   %s
+func (a *Application) switchToBuiltinModelPreset(preset builtinModelPreset) {
+	a.EventCh <- model.Event{Type: model.AgentThinking}
 
-To switch model:
-  /model <model-name>
-  /model <provider>:<model>
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
 
-Examples:
-  /model gpt-4o
-  /model openai-completion:gpt-4o-mini
-  /model openai-responses:gpt-4o
-  /model anthropic:claude-3-5-sonnet`, providerName, url, modelName, apiKeyStatus)
+	apiKey, err := a.resolveModelPresetAPIKey(ctx, preset)
+	if err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "model",
+			Message:  fmt.Sprintf("Failed to switch preset: %v", err),
+		}
+		return
+	}
 
-	a.EventCh <- model.Event{Type: model.AgentReply, Message: msg}
+	if a.modelBeforePreset == nil {
+		a.modelBeforePreset = copyModelConfig(a.Config.Model)
+	}
+
+	previous := a.Config.Model
+	a.Config.Model.URL = preset.BaseURL
+	err = a.SetProvider(preset.Provider, preset.Model, apiKey)
+	if err != nil {
+		a.Config.Model = previous
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "model",
+			Message:  fmt.Sprintf("Failed to switch preset: %v", err),
+		}
+		return
+	}
+	a.activeModelPresetID = preset.ID
+
+	a.EventCh <- model.Event{
+		Type:    model.ModelUpdate,
+		Message: a.Config.Model.Model,
+		CtxMax:  a.Config.Context.Window,
+	}
+
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("Model switched to preset: %s", preset.Label),
+	}
+}
+
+func (a *Application) restoreModelConfigFromPreset() {
+	if strings.TrimSpace(a.activeModelPresetID) == "" || a.modelBeforePreset == nil {
+		return
+	}
+	a.Config.Model = *copyModelConfig(*a.modelBeforePreset)
+	a.modelBeforePreset = nil
+	a.activeModelPresetID = ""
 }
 
 func (a *Application) switchModel(providerName, modelName string) {
@@ -658,7 +727,7 @@ func (a *Application) cmdHelp() {
   /bugs [status]          List bugs (optional status filter: open, doing)
   /claim <id>             Claim a bug as your lead
   /dock                   Show bug dashboard (open count, ready, recent)
-  /model [model-name]     Show or switch model
+  /model [preset-id|model-name]  Show candidates or switch model
   /test                   Test API connectivity
   /permissions            Open permissions view
   /yolo                   Toggle auto-approve mode
@@ -668,7 +737,8 @@ func (a *Application) cmdHelp() {
   /help                   Show this help message
 
 Model Commands:
-  /model                  Show current configuration
+  /model                  Show current configuration and preset candidates
+  /model kimi-k2.5-free   Switch to built-in free preset
   /model gpt-4o           Switch to gpt-4o
   /model openai-completion:gpt-4o
   /model openai-responses:gpt-4o

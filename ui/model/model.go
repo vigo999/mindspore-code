@@ -53,33 +53,34 @@ type Message struct {
 type EventType string
 
 const (
-	TaskUpdated       EventType = "TaskUpdated"
-	ToolCallStart     EventType = "ToolCallStart"
-	CmdStarted        EventType = "CmdStarted"
-	CmdOutput         EventType = "CmdOutput"
-	CmdFinished       EventType = "CmdFinished"
-	AnalysisReady     EventType = "AnalysisReady"
-	AgentReply        EventType = "AgentReply"
-	AgentReplyDelta   EventType = "AgentReplyDelta"
-	PermissionPrompt  EventType = "PermissionPrompt"
-	PermissionsView   EventType = "PermissionsView"
-	AgentThinking     EventType = "AgentThinking"
-	UserInput         EventType = "UserInput"
-	ToolReplay        EventType = "ToolReplay"
-	TokenUpdate       EventType = "TokenUpdate"
-	ToolRead          EventType = "ToolRead"
-	ToolGrep          EventType = "ToolGrep"
-	ToolGlob          EventType = "ToolGlob"
-	ToolEdit          EventType = "ToolEdit"
-	ToolWrite         EventType = "ToolWrite"
-	ToolSkill         EventType = "ToolSkill"
-	ToolError         EventType = "ToolError"
-	ClearScreen       EventType = "ClearScreen"
-	ModelUpdate       EventType = "ModelUpdate"
-	MouseModeToggle   EventType = "MouseModeToggle"
-	IssueUserUpdate   EventType = "IssueUserUpdate"
+	TaskUpdated      EventType = "TaskUpdated"
+	ToolCallStart    EventType = "ToolCallStart"
+	CmdStarted       EventType = "CmdStarted"
+	CmdOutput        EventType = "CmdOutput"
+	CmdFinished      EventType = "CmdFinished"
+	AnalysisReady    EventType = "AnalysisReady"
+	AgentReply       EventType = "AgentReply"
+	AgentReplyDelta  EventType = "AgentReplyDelta"
+	PermissionPrompt EventType = "PermissionPrompt"
+	PermissionsView  EventType = "PermissionsView"
+	AgentThinking    EventType = "AgentThinking"
+	UserInput        EventType = "UserInput"
+	ToolReplay       EventType = "ToolReplay"
+	TokenUpdate      EventType = "TokenUpdate"
+	ToolRead         EventType = "ToolRead"
+	ToolGrep         EventType = "ToolGrep"
+	ToolGlob         EventType = "ToolGlob"
+	ToolEdit         EventType = "ToolEdit"
+	ToolWrite        EventType = "ToolWrite"
+	ToolSkill        EventType = "ToolSkill"
+	ToolError        EventType = "ToolError"
+	ClearScreen      EventType = "ClearScreen"
+	ModelUpdate      EventType = "ModelUpdate"
+	ModelPickerOpen  EventType = "ModelPickerOpen"
+	MouseModeToggle  EventType = "MouseModeToggle"
+	IssueUserUpdate  EventType = "IssueUserUpdate"
 	SkillsNoteUpdate EventType = "SkillsNoteUpdate"
-	Done              EventType = "Done"
+	Done             EventType = "Done"
 )
 
 // Event is sent from the agent loop to the TUI.
@@ -97,6 +98,7 @@ type Event struct {
 	Project     *ProjectStatusView
 	Permission  *PermissionPromptData
 	Permissions *PermissionsViewData
+	Popup       *SelectionPopup // non-nil for popup events only
 	BugView     *BugEventData   // non-nil for bug view events only
 	IssueView   *IssueEventData // non-nil for issue view events only
 	Bug         *bugs.Bug       // reserved for lightweight bug payloads
@@ -147,8 +149,8 @@ type State struct {
 	Stats            TaskStats // current task statistics
 	IsThinking       bool      // whether AI is currently thinking
 	MouseEnabled     bool      // whether mouse mode is enabled (for scrolling)
-	IssueUser  string // logged-in bug server user
-	SkillsNote string // skills repo status for hint bar
+	IssueUser        string    // logged-in bug server user
+	SkillsNote       string    // skills repo status for hint bar
 }
 
 // NewState returns an initial empty state.

@@ -17,7 +17,7 @@ import (
 	"github.com/vigo999/ms-cli/ui/model"
 )
 
-const provideAPIKeyFirstMsg = "provide api key first"
+const provideAPIKeyFirstMsg = "LLM unavailable: provide api key first, or /login and switch to free model."
 const interruptActiveTaskToken = "__interrupt_active_task__"
 const internalPermissionsActionPrefix = "\x00permissions:"
 

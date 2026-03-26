@@ -6,7 +6,7 @@ import (
 	"github.com/vigo999/ms-cli/configs"
 )
 
-func NewMux(store *Store, tokens []configs.TokenEntry) *http.ServeMux {
+func NewMux(store *Store, tokens []configs.TokenEntry, modelPresets []configs.ModelPresetCredential) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -19,6 +19,7 @@ func NewMux(store *Store, tokens []configs.TokenEntry) *http.ServeMux {
 	}
 
 	mux.Handle("GET /me", auth(http.HandlerFunc(HandleMe(store))))
+	mux.Handle("GET /model-presets/{id}/credential", auth(http.HandlerFunc(HandleGetModelPresetCredential(modelPresets))))
 	mux.Handle("POST /issues", auth(http.HandlerFunc(HandleCreateIssue(store))))
 	mux.Handle("GET /issues", auth(http.HandlerFunc(HandleListIssues(store))))
 	mux.Handle("GET /issues/{id}", auth(http.HandlerFunc(HandleGetIssue(store))))

@@ -119,13 +119,11 @@ jobs:
             --arg tag "${GH_TAG}" \
             --arg name "${release_name}" \
             --arg body "${release_body}" \
-            --arg target "${GH_TARGET}" \
             --argjson prerelease "${GH_PRERELEASE:-false}" \
             '{
               tag_name: $tag,
               name: $name,
               body: $body,
-              target_commitish: $target,
               prerelease: $prerelease
             }'
           )"

@@ -29,7 +29,7 @@ func (t *WriteTool) Name() string {
 
 // Description returns the tool description.
 func (t *WriteTool) Description() string {
-	return "Create a new file or overwrite an existing file with new content."
+	return "Create a new file or overwrite an existing file with new content. Arguments must be a JSON object containing required fields path and content."
 }
 
 // Schema returns the tool parameter schema.
@@ -39,11 +39,11 @@ func (t *WriteTool) Schema() llm.ToolSchema {
 		Properties: map[string]llm.Property{
 			"path": {
 				Type:        "string",
-				Description: "Relative path to the file to write",
+				Description: "Required. Relative path to the file to write. Use this exact field name; do not use file_path or filename.",
 			},
 			"content": {
 				Type:        "string",
-				Description: "Content to write to the file",
+				Description: "Required. Full content to write to the file.",
 			},
 		},
 		Required: []string{"path", "content"},
@@ -51,8 +51,10 @@ func (t *WriteTool) Schema() llm.ToolSchema {
 }
 
 type writeParams struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
+	Path     string `json:"path"`
+	FilePath string `json:"file_path"`
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
 }
 
 // Execute executes the write tool.
@@ -62,7 +64,18 @@ func (t *WriteTool) Execute(ctx context.Context, params json.RawMessage) (*tools
 		return tools.ErrorResult(err), nil
 	}
 
-	fullPath, err := resolveSafePath(t.workDir, p.Path)
+	path := strings.TrimSpace(p.Path)
+	if path == "" {
+		path = strings.TrimSpace(p.FilePath)
+	}
+	if path == "" {
+		path = strings.TrimSpace(p.Filename)
+	}
+	if path == "" {
+		return tools.ErrorResultf(`path is required (use "path"; aliases "file_path"/"filename" are only fallback)`), nil
+	}
+
+	fullPath, err := resolveSafePath(t.workDir, path)
 	if err != nil {
 		return tools.ErrorResult(err), nil
 	}
@@ -95,7 +108,7 @@ func (t *WriteTool) Execute(ctx context.Context, params json.RawMessage) (*tools
 		action = "Updated"
 	}
 
-	content := fmt.Sprintf("%s: %s\n+ %s", action, p.Path, p.Content)
+	content := fmt.Sprintf("%s: %s\n+ %s", action, path, p.Content)
 	summary := fmt.Sprintf("%s %d lines", action, lines)
 
 	return tools.StringResultWithSummary(content, summary), nil

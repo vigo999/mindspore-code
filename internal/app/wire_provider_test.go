@@ -5,17 +5,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 
 	"github.com/vigo999/ms-cli/agent/loop"
 	"github.com/vigo999/ms-cli/configs"
 	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/permission"
-	"github.com/vigo999/ms-cli/ui/model"
 )
 
 func TestInitProviderAnthropic(t *testing.T) {

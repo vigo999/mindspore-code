@@ -56,10 +56,9 @@ func ParseCompactStrategy(s string) CompactStrategy {
 
 // Compactor 上下文压缩器
 type Compactor struct {
-	strategy        CompactStrategy
-	scorer          *PriorityScorer
-	tokenizer       *Tokenizer
-	maxKeepMessages int // 最大保留消息数
+	strategy  CompactStrategy
+	scorer    *PriorityScorer
+	tokenizer *Tokenizer
 }
 
 type messageGroup struct {
@@ -74,20 +73,15 @@ type prioritizedGroup struct {
 
 // CompactorConfig 压缩器配置
 type CompactorConfig struct {
-	Strategy        CompactStrategy
-	MaxKeepMessages int
+	Strategy CompactStrategy
 }
 
 // NewCompactor 创建新的压缩器
 func NewCompactor(cfg CompactorConfig) *Compactor {
-	if cfg.MaxKeepMessages <= 0 {
-		cfg.MaxKeepMessages = 20
-	}
 	return &Compactor{
-		strategy:        cfg.Strategy,
-		scorer:          NewPriorityScorer(),
-		tokenizer:       NewTokenizer(),
-		maxKeepMessages: cfg.MaxKeepMessages,
+		strategy:  cfg.Strategy,
+		scorer:    NewPriorityScorer(),
+		tokenizer: NewTokenizer(),
 	}
 }
 
@@ -96,39 +90,33 @@ func (c *Compactor) SetStrategy(s CompactStrategy) {
 	c.strategy = s
 }
 
-// Compact 执行压缩
-func (c *Compactor) Compact(messages []llm.Message, systemMsg *llm.Message) ([]llm.Message, CompactResult) {
-	if len(messages) <= c.maxKeepMessages {
+// Compact 执行压缩，目标是将总 token 占用降到 targetTokens 以内。
+func (c *Compactor) Compact(messages []llm.Message, systemMsg *llm.Message, targetTokens int) ([]llm.Message, CompactResult) {
+	if targetTokens <= 0 {
+		return nil, CompactResult{Kept: 0, Removed: len(messages)}
+	}
+	if c.totalTokens(messages, systemMsg) <= targetTokens {
 		return messages, CompactResult{Kept: len(messages), Removed: 0}
 	}
 
 	switch c.strategy {
 	case CompactStrategySimple:
-		return c.compactSimple(messages, systemMsg)
+		return c.compactSimple(messages, systemMsg, targetTokens)
 	case CompactStrategySummarize:
-		return c.compactSummarize(messages, systemMsg)
+		return c.compactSummarize(messages, systemMsg, targetTokens)
 	case CompactStrategyPriority:
-		return c.compactPriority(messages, systemMsg)
+		return c.compactPriority(messages, systemMsg, targetTokens)
 	case CompactStrategyHybrid:
-		return c.compactHybrid(messages, systemMsg)
+		return c.compactHybrid(messages, systemMsg, targetTokens)
 	default:
-		return c.compactSimple(messages, systemMsg)
+		return c.compactSimple(messages, systemMsg, targetTokens)
 	}
 }
 
 // compactSimple 简单压缩策略
-func (c *Compactor) compactSimple(messages []llm.Message, systemMsg *llm.Message) ([]llm.Message, CompactResult) {
-	// 保留最近的消息
-	keepCount := c.maxKeepMessages
-	if systemMsg != nil {
-		keepCount-- // 为系统消息留一个位置
-	}
-
-	if keepCount >= len(messages) {
-		return messages, CompactResult{Kept: len(messages), Removed: 0}
-	}
-
-	result := keepRecentMessages(messages, keepCount)
+func (c *Compactor) compactSimple(messages []llm.Message, systemMsg *llm.Message, targetTokens int) ([]llm.Message, CompactResult) {
+	messageBudget := c.messageTokenBudget(targetTokens, systemMsg)
+	result := keepRecentMessagesByTokens(messages, messageBudget, c.tokenizer)
 	removed := len(messages) - len(result)
 
 	return result, CompactResult{
@@ -140,19 +128,13 @@ func (c *Compactor) compactSimple(messages []llm.Message, systemMsg *llm.Message
 }
 
 // compactSummarize 摘要压缩策略
-func (c *Compactor) compactSummarize(messages []llm.Message, systemMsg *llm.Message) ([]llm.Message, CompactResult) {
-	// 保留最近的消息
-	keepCount := c.maxKeepMessages - 2 // 留出位置给摘要和系统消息
-	if keepCount < 4 {
-		keepCount = 4
+func (c *Compactor) compactSummarize(messages []llm.Message, systemMsg *llm.Message, targetTokens int) ([]llm.Message, CompactResult) {
+	messageBudget := c.messageTokenBudget(targetTokens, systemMsg)
+	if messageBudget <= 0 {
+		return nil, CompactResult{Kept: 0, Removed: len(messages), Strategy: CompactStrategySummarize}
 	}
-
-	if keepCount >= len(messages) {
-		return messages, CompactResult{Kept: len(messages), Removed: 0}
-	}
-
 	groups := groupMessages(messages)
-	keptGroups := keepRecentMessageGroups(groups, keepCount)
+	keptGroups := keepRecentMessageGroupsByTokens(groups, messageBudget, c.tokenizer)
 	toSummarize := flattenMessageGroups(excludeMessageGroups(groups, keptGroups))
 	if len(toSummarize) == 0 {
 		kept := flattenMessageGroups(keptGroups)
@@ -164,12 +146,26 @@ func (c *Compactor) compactSummarize(messages []llm.Message, systemMsg *llm.Mess
 		}
 	}
 
-	// 生成摘要
 	summary := c.generateSummary(toSummarize)
 	summaryMsg := llm.NewSystemMessage(summary)
+	keepBudget := messageBudget - c.tokenizer.EstimateMessage(summaryMsg)
+	if keepBudget < 0 {
+		keepBudget = 0
+	}
 
-	// 保留的消息
-	result := append([]llm.Message{summaryMsg}, flattenMessageGroups(keptGroups)...)
+	keptGroups = keepRecentMessageGroupsByTokens(groups, keepBudget, c.tokenizer)
+	toSummarize = flattenMessageGroups(excludeMessageGroups(groups, keptGroups))
+	result := flattenMessageGroups(keptGroups)
+	if len(toSummarize) > 0 {
+		summary = c.generateSummary(toSummarize)
+		summaryMsg = llm.NewSystemMessage(summary)
+		if c.tokenizer.EstimateMessage(summaryMsg) <= messageBudget {
+			result = append([]llm.Message{summaryMsg}, result...)
+		}
+	}
+	if len(result) == 0 {
+		result = keepRecentMessagesByTokens(messages, messageBudget, c.tokenizer)
+	}
 
 	return result, CompactResult{
 		Kept:     len(result),
@@ -180,15 +176,10 @@ func (c *Compactor) compactSummarize(messages []llm.Message, systemMsg *llm.Mess
 }
 
 // compactPriority 优先级压缩策略
-func (c *Compactor) compactPriority(messages []llm.Message, systemMsg *llm.Message) ([]llm.Message, CompactResult) {
+func (c *Compactor) compactPriority(messages []llm.Message, systemMsg *llm.Message, targetTokens int) ([]llm.Message, CompactResult) {
+	messageBudget := c.messageTokenBudget(targetTokens, systemMsg)
 	prioritized := c.prioritizeGroups(groupMessages(messages), len(messages))
-
-	// 保留优先级最高的消息组
-	keepCount := c.maxKeepMessages
-	if systemMsg != nil {
-		keepCount--
-	}
-	result := flattenMessageGroups(selectPrioritizedGroups(prioritized, keepCount))
+	result := flattenMessageGroups(selectPrioritizedGroupsByTokens(prioritized, messageBudget, c.tokenizer))
 
 	return result, CompactResult{
 		Kept:     len(result),
@@ -199,41 +190,43 @@ func (c *Compactor) compactPriority(messages []llm.Message, systemMsg *llm.Messa
 }
 
 // compactHybrid 混合压缩策略
-func (c *Compactor) compactHybrid(messages []llm.Message, systemMsg *llm.Message) ([]llm.Message, CompactResult) {
+func (c *Compactor) compactHybrid(messages []llm.Message, systemMsg *llm.Message, targetTokens int) ([]llm.Message, CompactResult) {
 	// 策略：
 	// 1. 保留最近的几条消息（高优先级）
 	// 2. 基于优先级选择保留的较旧消息
 	// 3. 将其他旧消息摘要
 
-	recentCount := c.maxKeepMessages / 2 // 保留一半给最新消息
-	if recentCount < 3 {
-		recentCount = 3
-	}
-
-	if len(messages) <= c.maxKeepMessages {
-		return messages, CompactResult{Kept: len(messages), Removed: 0}
+	messageBudget := c.messageTokenBudget(targetTokens, systemMsg)
+	if messageBudget <= 0 {
+		return nil, CompactResult{Kept: 0, Removed: len(messages), Strategy: CompactStrategyHybrid}
 	}
 
 	groups := groupMessages(messages)
-	recentGroups := keepRecentMessageGroups(groups, recentCount)
+	recentBudget := messageBudget / 2
+	if recentBudget <= 0 {
+		recentBudget = messageBudget
+	}
+	recentGroups := keepRecentMessageGroupsByTokens(groups, recentBudget, c.tokenizer)
 	oldGroups := excludeMessageGroups(groups, recentGroups)
 	prioritized := c.prioritizeGroups(oldGroups, len(messages))
 
-	// 保留高优先级的旧消息
-	oldKeepCount := c.maxKeepMessages - recentCount - 1 // 留出位置给摘要
-	if oldKeepCount < 0 {
-		oldKeepCount = 0
-	}
-
 	var result []llm.Message
-	highPriorityOld := selectPrioritizedGroups(prioritized, oldKeepCount)
+	remainingBudget := messageBudget - countTokensInGroups(recentGroups, c.tokenizer)
+	if remainingBudget < 0 {
+		remainingBudget = 0
+	}
+	highPriorityOld := selectPrioritizedGroupsByTokens(prioritized, remainingBudget, c.tokenizer)
+	remainingBudget -= countTokensInGroups(highPriorityOld, c.tokenizer)
 
 	// 如果有需要摘要的旧消息，添加摘要
-	if len(oldGroups) > len(highPriorityOld) {
+	if len(oldGroups) > len(highPriorityOld) && remainingBudget > 0 {
 		toSummarize := flattenMessageGroups(excludeMessageGroups(oldGroups, highPriorityOld))
 		if len(toSummarize) > 0 {
 			summary := c.generateSummary(toSummarize)
-			result = append(result, llm.NewSystemMessage(summary))
+			summaryMsg := llm.NewSystemMessage(summary)
+			if c.tokenizer.EstimateMessage(summaryMsg) <= remainingBudget {
+				result = append(result, summaryMsg)
+			}
 		}
 	}
 
@@ -251,8 +244,27 @@ func (c *Compactor) compactHybrid(messages []llm.Message, systemMsg *llm.Message
 		Kept:     len(result),
 		Removed:  removed,
 		Strategy: CompactStrategyHybrid,
-		Summary:  fmt.Sprintf("Hybrid compact: kept %d messages including %d recent", len(result), recentCount),
+		Summary:  fmt.Sprintf("Hybrid compact: kept %d messages", len(result)),
 	}
+}
+
+func (c *Compactor) totalTokens(messages []llm.Message, systemMsg *llm.Message) int {
+	total := c.tokenizer.EstimateMessages(messages)
+	if systemMsg != nil {
+		total += c.tokenizer.EstimateMessage(*systemMsg)
+	}
+	return total
+}
+
+func (c *Compactor) messageTokenBudget(targetTokens int, systemMsg *llm.Message) int {
+	budget := targetTokens
+	if systemMsg != nil {
+		budget -= c.tokenizer.EstimateMessage(*systemMsg)
+	}
+	if budget < 0 {
+		return 0
+	}
+	return budget
 }
 
 // generateSummary 生成消息摘要
@@ -357,6 +369,13 @@ func keepRecentMessages(messages []llm.Message, maxKeep int) []llm.Message {
 	return flattenMessageGroups(keepRecentMessageGroups(groupMessages(messages), maxKeep))
 }
 
+func keepRecentMessagesByTokens(messages []llm.Message, maxTokens int, tokenizer *Tokenizer) []llm.Message {
+	if maxTokens <= 0 {
+		return nil
+	}
+	return flattenMessageGroups(keepRecentMessageGroupsByTokens(groupMessages(messages), maxTokens, tokenizer))
+}
+
 func keepRecentMessageGroups(groups []messageGroup, maxKeep int) []messageGroup {
 	if len(groups) == 0 || maxKeep <= 0 {
 		return nil
@@ -384,6 +403,46 @@ func keepRecentMessageGroups(groups []messageGroup, maxKeep int) []messageGroup 
 		recent = append(recent, groups[i])
 		keptMessages += groupSize
 		if keptMessages >= remainingBudget {
+			break
+		}
+	}
+
+	kept = append(kept, recent...)
+	sortMessageGroupsByStart(kept)
+	return kept
+}
+
+func keepRecentMessageGroupsByTokens(groups []messageGroup, maxTokens int, tokenizer *Tokenizer) []messageGroup {
+	if len(groups) == 0 {
+		return nil
+	}
+
+	pinned := pinnedMessageGroups(groups)
+	pinnedSet := messageGroupSet(pinned)
+	kept := append([]messageGroup{}, pinned...)
+	remainingBudget := maxTokens - countTokensInGroups(pinned, tokenizer)
+	if remainingBudget <= 0 {
+		sortMessageGroupsByStart(kept)
+		return kept
+	}
+
+	recent := make([]messageGroup, 0, len(groups))
+	usedTokens := 0
+	for i := len(groups) - 1; i >= 0; i-- {
+		if _, ok := pinnedSet[groups[i].Start]; ok {
+			continue
+		}
+		groupTokens := estimateGroupTokens(groups[i], tokenizer)
+		if groupTokens > remainingBudget-usedTokens {
+			if len(recent) > 0 {
+				break
+			}
+			recent = append(recent, groups[i])
+			break
+		}
+		recent = append(recent, groups[i])
+		usedTokens += groupTokens
+		if usedTokens >= remainingBudget {
 			break
 		}
 	}
@@ -460,6 +519,52 @@ func selectPrioritizedGroups(groups []prioritizedGroup, maxKeep int) []messageGr
 	return selected
 }
 
+func selectPrioritizedGroupsByTokens(groups []prioritizedGroup, maxTokens int, tokenizer *Tokenizer) []messageGroup {
+	if len(groups) == 0 {
+		return nil
+	}
+
+	pinned := make([]messageGroup, 0)
+	pinnedSet := make(map[int]struct{})
+	for _, group := range groups {
+		if !isPinnedMessageGroup(group.Group) {
+			continue
+		}
+		pinned = append(pinned, group.Group)
+		pinnedSet[group.Group.Start] = struct{}{}
+	}
+
+	selected := append([]messageGroup{}, pinned...)
+	remainingBudget := maxTokens - countTokensInGroups(pinned, tokenizer)
+	if remainingBudget <= 0 {
+		sortMessageGroupsByStart(selected)
+		return selected
+	}
+
+	usedTokens := 0
+	for _, group := range groups {
+		if _, ok := pinnedSet[group.Group.Start]; ok {
+			continue
+		}
+		groupTokens := estimateGroupTokens(group.Group, tokenizer)
+		if groupTokens > remainingBudget-usedTokens {
+			if len(selected) > len(pinned) {
+				continue
+			}
+			selected = append(selected, group.Group)
+			break
+		}
+		selected = append(selected, group.Group)
+		usedTokens += groupTokens
+		if usedTokens >= remainingBudget {
+			break
+		}
+	}
+
+	sortMessageGroupsByStart(selected)
+	return selected
+}
+
 func excludeMessageGroups(groups, excluded []messageGroup) []messageGroup {
 	if len(groups) == 0 {
 		return nil
@@ -506,6 +611,18 @@ func countMessagesInGroups(groups []messageGroup) int {
 	total := 0
 	for _, group := range groups {
 		total += len(group.Messages)
+	}
+	return total
+}
+
+func estimateGroupTokens(group messageGroup, tokenizer *Tokenizer) int {
+	return tokenizer.EstimateMessages(group.Messages)
+}
+
+func countTokensInGroups(groups []messageGroup, tokenizer *Tokenizer) int {
+	total := 0
+	for _, group := range groups {
+		total += estimateGroupTokens(group, tokenizer)
 	}
 	return total
 }

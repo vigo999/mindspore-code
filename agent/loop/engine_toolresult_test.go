@@ -12,7 +12,6 @@ func TestAddToolResultWithFallbackOnOversizedContent(t *testing.T) {
 		ContextWindow:       120,
 		ReserveTokens:       20,
 		CompactionThreshold: 0.9,
-		MaxHistoryRounds:    2,
 	})
 
 	engine := &Engine{ctxManager: cm}

@@ -262,16 +262,36 @@ func (a *Application) cmdExit() {
 func (a *Application) cmdCompact() {
 	a.EventCh <- model.Event{Type: model.AgentThinking}
 
-	if a.Engine != nil {
-		a.EventCh <- model.Event{
-			Type:    model.AgentReply,
-			Message: "Context compacted. Conversation summary has been created to save tokens.",
-		}
-	} else {
+	if a.ctxManager == nil {
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
 			Message: "Context compaction is not available.",
 		}
+		return
+	}
+
+	before := a.ctxManager.TokenUsage()
+	if err := a.ctxManager.Compact(); err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "context",
+			Message:  fmt.Sprintf("Failed to compact context: %v", err),
+		}
+		return
+	}
+	after := a.ctxManager.TokenUsage()
+	if err := a.persistSessionSnapshot(); err != nil {
+		a.emitToolError("session", "Failed to persist session snapshot: %v", err)
+	}
+	a.emitTokenUsageSnapshot()
+
+	message := fmt.Sprintf("Context compacted: %d -> %d tokens.", before.Current, after.Current)
+	if after.Current >= before.Current {
+		message = "Context compaction had nothing to remove."
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: message,
 	}
 }
 

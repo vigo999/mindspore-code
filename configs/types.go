@@ -75,7 +75,6 @@ type ContextConfig struct {
 	Window              int     `yaml:"window"`
 	ReserveTokens       int     `yaml:"reserve_tokens"`
 	CompactionThreshold float64 `yaml:"compaction_threshold"`
-	MaxHistoryRounds    int     `yaml:"max_history_rounds"`
 }
 
 // MemoryConfig holds the memory system configuration.
@@ -134,8 +133,7 @@ func DefaultConfig() *Config {
 		Context: ContextConfig{
 			Window:              200000,
 			ReserveTokens:       4000,
-			CompactionThreshold: 0.85,
-			MaxHistoryRounds:    10,
+			CompactionThreshold: 0.9,
 		},
 		Memory: MemoryConfig{
 			Enabled:   true,
@@ -241,9 +239,6 @@ func (c *Config) Merge(other *Config) {
 	if other.Context.CompactionThreshold != 0 {
 		c.Context.CompactionThreshold = other.Context.CompactionThreshold
 	}
-	if other.Context.MaxHistoryRounds != 0 {
-		c.Context.MaxHistoryRounds = other.Context.MaxHistoryRounds
-	}
 }
 
 // UnmarshalYAML supports both context.window and legacy context.max_tokens.
@@ -253,7 +248,6 @@ func (c *ContextConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		LegacyMaxTokens     int     `yaml:"max_tokens"`
 		ReserveTokens       int     `yaml:"reserve_tokens"`
 		CompactionThreshold float64 `yaml:"compaction_threshold"`
-		MaxHistoryRounds    int     `yaml:"max_history_rounds"`
 	}
 
 	var raw rawContextConfig
@@ -267,7 +261,6 @@ func (c *ContextConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 	c.ReserveTokens = raw.ReserveTokens
 	c.CompactionThreshold = raw.CompactionThreshold
-	c.MaxHistoryRounds = raw.MaxHistoryRounds
 
 	return nil
 }

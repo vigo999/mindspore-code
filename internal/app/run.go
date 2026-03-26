@@ -274,6 +274,13 @@ func (a *Application) replayHistory() {
 	if len(a.replayBacklog) == 0 || a.ctxManager == nil {
 		return
 	}
+	a.emitTokenUsageSnapshot()
+}
+
+func (a *Application) emitTokenUsageSnapshot() {
+	if a == nil || a.EventCh == nil || a.ctxManager == nil {
+		return
+	}
 	usage := a.ctxManager.TokenUsage()
 	if usage.ContextWindow <= 0 {
 		return

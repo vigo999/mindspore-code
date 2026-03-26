@@ -165,12 +165,11 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	registerSkillCommands(skillLoader.List())
 
-	ctxManager := agentctx.NewManager(agentctx.ManagerConfig{
-		ContextWindow:       config.Context.Window,
-		ReserveTokens:       config.Context.ReserveTokens,
-		CompactionThreshold: config.Context.CompactionThreshold,
-		MaxHistoryRounds:    config.Context.MaxHistoryRounds,
-	})
+	managerCfg := agentctx.DefaultManagerConfig()
+	managerCfg.ContextWindow = config.Context.Window
+	managerCfg.ReserveTokens = config.Context.ReserveTokens
+	managerCfg.CompactionThreshold = config.Context.CompactionThreshold
+	ctxManager := agentctx.NewManager(managerCfg)
 
 	// Build system prompt: base + skill summaries.
 	systemPrompt := buildSystemPrompt(skillLoader.List())

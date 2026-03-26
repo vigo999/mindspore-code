@@ -14,6 +14,7 @@ type ManagerConfig struct {
 	ReserveTokens       int
 	CompactionThreshold float64
 	MaxHistoryRounds    int
+	BeforeCompact       func(systemPrompt string, messages []llm.Message) error
 
 	// 新增配置
 	EnableSmartCompact bool             // 启用智能压缩
@@ -405,6 +406,18 @@ func (m *Manager) shouldCompactLocked(additionalTokens int) bool {
 func (m *Manager) compactLocked() error {
 	if len(m.messages) <= m.config.MaxHistoryRounds {
 		return nil
+	}
+	if m.config.BeforeCompact != nil {
+		messages := make([]llm.Message, len(m.messages))
+		copy(messages, m.messages)
+
+		systemPrompt := ""
+		if m.system != nil {
+			systemPrompt = m.system.Content
+		}
+		if err := m.config.BeforeCompact(systemPrompt, messages); err != nil {
+			return fmt.Errorf("backup snapshot before compact: %w", err)
+		}
 	}
 
 	// 使用智能压缩

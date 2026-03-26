@@ -401,9 +401,6 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Reset stats for new task
 		a.state = a.state.ResetStats()
 		a.state = a.state.WithThinking(false)
-		if !strings.HasPrefix(val, "/") {
-			a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
-		}
 		a.input = a.input.PushHistory(val)
 		a.input = a.input.Reset()
 		a.resizeActiveLayout()

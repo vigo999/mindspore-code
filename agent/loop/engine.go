@@ -36,11 +36,14 @@ type Engine struct {
 
 // TrajectoryRecorder records runtime conversation events for persistence.
 type TrajectoryRecorder struct {
-	RecordUserInput     func(string) error
-	RecordAssistant     func(string) error
-	RecordToolCall      func(llm.ToolCall) error
-	RecordToolResult    func(llm.ToolCall, string) error
-	RecordSkillActivate func(string) error
+	RecordUserInput               func(string) error
+	RecordAssistantDelta          func(string) error
+	RecordAssistant               func(string) error
+	RecordToolCall                func(llm.ToolCall) error
+	RecordToolResult              func(llm.ToolCall, string) error
+	RecordSkillActivate           func(string) error
+	PersistSnapshot               func() error
+	PersistAssistantDraftSnapshot func(string, []llm.ToolCall) error
 }
 
 // NewEngine creates a new engine.
@@ -158,6 +161,13 @@ func (ex *executor) run(ctx context.Context) ([]Event, error) {
 			return ex.events, err
 		}
 	}
+	if ex.engine.recorder != nil && ex.engine.recorder.PersistSnapshot != nil {
+		if err := ex.engine.recorder.PersistSnapshot(); err != nil {
+			ex.addEvent(NewEvent(EventTaskFailed, fmt.Sprintf("Persist snapshot error: %v", err)))
+			return ex.events, err
+		}
+	}
+	ex.addEvent(NewEvent(EventUserInput, ex.task.Description))
 	ex.addEvent(NewEvent(EventTaskStarted, fmt.Sprintf("Task: %s", ex.task.Description)))
 
 	for ex.engine.config.MaxIterations == 0 || ex.iterCount < ex.engine.config.MaxIterations {
@@ -261,7 +271,9 @@ func (ex *executor) streamCompletion(ctx context.Context, req *llm.CompletionReq
 	for {
 		chunk, nextErr := iter.Next()
 		if chunk != nil {
-			ex.applyStreamChunk(resp, chunk)
+			if err := ex.applyStreamChunk(resp, chunk); err != nil {
+				return nil, err
+			}
 		}
 		if nextErr != nil {
 			if nextErr == io.EOF {
@@ -282,16 +294,17 @@ func (ex *executor) streamCompletion(ctx context.Context, req *llm.CompletionReq
 	return resp, nil
 }
 
-func (ex *executor) applyStreamChunk(resp *llm.CompletionResponse, chunk *llm.StreamChunk) {
+func (ex *executor) applyStreamChunk(resp *llm.CompletionResponse, chunk *llm.StreamChunk) error {
 	if chunk.ID != "" {
 		resp.ID = chunk.ID
 	}
 	if chunk.Model != "" {
 		resp.Model = chunk.Model
 	}
+	contentUpdated := false
 	if chunk.Content != "" {
 		resp.Content += chunk.Content
-		ex.addEvent(NewEvent(EventAgentReplyDelta, chunk.Content))
+		contentUpdated = true
 	}
 	if len(chunk.ToolCalls) > 0 {
 		resp.ToolCalls = make([]llm.ToolCall, len(chunk.ToolCalls))
@@ -303,6 +316,22 @@ func (ex *executor) applyStreamChunk(resp *llm.CompletionResponse, chunk *llm.St
 	if chunk.Usage != nil {
 		resp.Usage = *chunk.Usage
 	}
+	if contentUpdated {
+		if ex.engine.recorder != nil {
+			if ex.engine.recorder.RecordAssistantDelta != nil {
+				if err := ex.engine.recorder.RecordAssistantDelta(chunk.Content); err != nil {
+					return fmt.Errorf("record assistant delta: %w", err)
+				}
+			}
+			if ex.engine.recorder.PersistAssistantDraftSnapshot != nil {
+				if err := ex.engine.recorder.PersistAssistantDraftSnapshot(resp.Content, resp.ToolCalls); err != nil {
+					return fmt.Errorf("persist assistant draft snapshot: %w", err)
+				}
+			}
+		}
+		ex.addEvent(NewEvent(EventAgentReplyDelta, chunk.Content))
+	}
+	return nil
 }
 
 func (ex *executor) handleResponse(ctx context.Context, resp *llm.CompletionResponse) (bool, error) {
@@ -324,6 +353,11 @@ func (ex *executor) handleResponse(ctx context.Context, resp *llm.CompletionResp
 				if err := ex.engine.recorder.RecordToolCall(tc); err != nil {
 					return false, err
 				}
+			}
+		}
+		if ex.engine.recorder.PersistSnapshot != nil {
+			if err := ex.engine.recorder.PersistSnapshot(); err != nil {
+				return false, err
 			}
 		}
 	}
@@ -358,10 +392,10 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 	tool, ok := ex.engine.tools.Get(toolName)
 	if !ok {
 		errMsg := fmt.Sprintf("Tool not found: %s", toolName)
-		ex.addEvent(NewEvent(EventToolError, errMsg))
 		if err := ex.addToolResult(tc.ID, errMsg); err != nil {
 			return err
 		}
+		ex.addEvent(NewEvent(EventToolError, errMsg))
 		return nil
 	}
 
@@ -374,10 +408,10 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 	}
 	if !granted {
 		errMsg := fmt.Sprintf("Permission denied for tool: %s", toolName)
-		ex.addEvent(NewEvent(EventToolError, errMsg))
 		if err := ex.addToolResultWithFallback(tc.ID, errMsg); err != nil {
 			return err
 		}
+		ex.addEvent(NewEvent(EventToolError, errMsg))
 		return nil
 	}
 
@@ -388,10 +422,10 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 			return context.Canceled
 		}
 		errMsg := fmt.Sprintf("Tool execution error: %v", err)
-		ex.addEvent(NewEvent(EventToolError, errMsg))
 		if err := ex.addToolResultWithFallback(tc.ID, errMsg); err != nil {
 			return err
 		}
+		ex.addEvent(NewEvent(EventToolError, errMsg))
 		return nil
 	}
 
@@ -400,14 +434,13 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 			return context.Canceled
 		}
 		errMsg := result.Error.Error()
-		ex.addEvent(NewEvent(EventToolError, fmt.Sprintf("Tool %s failed: %s", toolName, errMsg)))
 		if err := ex.addToolResultWithFallback(tc.ID, errMsg); err != nil {
 			return err
 		}
+		ex.addEvent(NewEvent(EventToolError, fmt.Sprintf("Tool %s failed: %s", toolName, errMsg)))
 		return nil
 	}
 
-	ex.addToolEvent(toolName, result)
 	if err := ex.addToolResultWithFallback(tc.ID, result.Content); err != nil {
 		return err
 	}
@@ -418,6 +451,7 @@ func (ex *executor) executeToolCall(ctx context.Context, tc llm.ToolCall) error 
 			}
 		}
 	}
+	ex.addToolEvent(toolName, result)
 	return nil
 }
 
@@ -477,16 +511,21 @@ func (ex *executor) addToolResult(callID, content string) error {
 			return err
 		}
 	}
+	if ex.engine.recorder != nil && ex.engine.recorder.PersistSnapshot != nil {
+		if err := ex.engine.recorder.PersistSnapshot(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
 func (ex *executor) addToolResultWithFallback(callID, content string) error {
 	if err := ex.addToolResult(callID, content); err != nil {
 		fallback := fmt.Sprintf("tool result replaced due to context limit: %v", err)
-		ex.addEvent(NewEvent(EventToolError, fallback))
 		if fallbackErr := ex.addToolResult(callID, fallback); fallbackErr != nil {
 			return fmt.Errorf("persist tool result fallback: %w (original error: %v)", fallbackErr, err)
 		}
+		ex.addEvent(NewEvent(EventToolError, fallback))
 	}
 	return nil
 }

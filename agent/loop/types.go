@@ -60,6 +60,7 @@ const (
 	EventAgentReply      = "AgentReply"
 	EventAgentReplyDelta = "AgentReplyDelta"
 	EventAgentThinking   = "AgentThinking"
+	EventUserInput       = "UserInput"
 	EventTokenUpdate     = "TokenUpdate"
 	EventToolRead        = "ToolRead"
 	EventToolGrep        = "ToolGrep"

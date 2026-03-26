@@ -16,16 +16,18 @@ import (
 )
 
 const (
-	trajectoryFilename   = "trajectory.jsonl"
-	snapshotFilename     = "snapshot.json"
-	recordTypeMeta       = "session_meta"
-	recordTypeUser       = "user"
-	recordTypeAssistant  = "assistant"
-	recordTypeToolCall   = "tool_call"
-	recordTypeToolResult = "tool_result"
-	recordTypeSkill      = "skill_activation"
-	formatVersion        = 1
-	defaultSessionSubdir = ".ms-cli/sessions"
+	trajectoryFilename       = "trajectory.jsonl"
+	snapshotFilename         = "snapshot.json"
+	snapshotBackupPrefix     = "snapshot.before-compact."
+	recordTypeMeta           = "session_meta"
+	recordTypeUser           = "user"
+	recordTypeAssistant      = "assistant"
+	recordTypeAssistantDelta = "assistant_delta"
+	recordTypeToolCall       = "tool_call"
+	recordTypeToolResult     = "tool_result"
+	recordTypeSkill          = "skill_activation"
+	formatVersion            = 1
+	defaultSessionSubdir     = ".ms-cli/sessions"
 )
 
 // Meta is the first JSONL record describing the session.
@@ -231,6 +233,28 @@ func (s *Session) AppendAssistant(content string) error {
 	return s.writeRecordLocked(record)
 }
 
+// AppendAssistantDelta appends one streamed assistant delta and syncs it immediately.
+func (s *Session) AppendAssistantDelta(content string) error {
+	if s == nil {
+		return fmt.Errorf("session is nil")
+	}
+	if content == "" {
+		return nil
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record := MessageRecord{
+		Type:      recordTypeAssistantDelta,
+		Timestamp: time.Now(),
+		Content:   content,
+	}
+	s.records = append(s.records, record)
+	s.meta.UpdatedAt = record.Timestamp
+	return s.writeRecordLocked(record)
+}
+
 // AppendToolCall appends one tool call record and syncs it immediately.
 func (s *Session) AppendToolCall(tc llm.ToolCall) error {
 	if s == nil {
@@ -305,23 +329,41 @@ func (s *Session) ReplayEvents() []model.Event {
 	defer s.mu.RUnlock()
 
 	events := make([]model.Event, 0, len(s.records))
+	var pendingAssistant strings.Builder
+
+	flushAssistantDelta := func() {
+		if pendingAssistant.Len() == 0 {
+			return
+		}
+		events = append(events, model.Event{Type: model.AgentReply, Message: pendingAssistant.String()})
+		pendingAssistant.Reset()
+	}
+
 	for _, record := range s.records {
 		switch record.Type {
 		case recordTypeUser:
+			flushAssistantDelta()
 			events = append(events, model.Event{Type: model.UserInput, Message: record.Content})
 		case recordTypeAssistant:
+			pendingAssistant.Reset()
 			events = append(events, model.Event{Type: model.AgentReply, Message: record.Content})
+		case recordTypeAssistantDelta:
+			pendingAssistant.WriteString(record.Content)
 		case recordTypeToolCall:
+			flushAssistantDelta()
 			events = append(events, replayToolCallEvent(record))
 		case recordTypeToolResult:
+			flushAssistantDelta()
 			if record.ToolName == "load_skill" {
 				continue
 			}
 			events = append(events, replayToolResultEvent(record))
 		case recordTypeSkill:
+			flushAssistantDelta()
 			events = append(events, replaySkillEvent(record.SkillName))
 		}
 	}
+	flushAssistantDelta()
 	return events
 }
 
@@ -427,7 +469,7 @@ func loadFromPath(path string) (*Session, error) {
 				_ = file.Close()
 				return nil, fmt.Errorf("decode session meta: %w", err)
 			}
-		case recordTypeUser, recordTypeAssistant, recordTypeToolCall, recordTypeToolResult, recordTypeSkill:
+		case recordTypeUser, recordTypeAssistant, recordTypeAssistantDelta, recordTypeToolCall, recordTypeToolResult, recordTypeSkill:
 			var record MessageRecord
 			if err := json.Unmarshal(data, &record); err != nil {
 				_ = file.Close()
@@ -528,22 +570,59 @@ func (s *Session) SaveSnapshot(systemPrompt string, messages []llm.Message) erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.snapshot.SystemPrompt = systemPrompt
-	s.snapshot.UpdatedAt = time.Now()
-	s.snapshot.Messages = make([]llm.Message, len(messages))
-	copy(s.snapshot.Messages, messages)
+	s.updateSnapshotLocked(systemPrompt, messages, time.Now())
 	return s.writeSnapshotLocked()
 }
 
-func (s *Session) writeSnapshotLocked() error {
-	data, err := json.MarshalIndent(s.snapshot, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal snapshot: %w", err)
+// BackupSnapshotBeforeCompact stores the pre-compaction snapshot and preserves a timestamped backup.
+func (s *Session) BackupSnapshotBeforeCompact(systemPrompt string, messages []llm.Message) error {
+	if s == nil {
+		return fmt.Errorf("session is nil")
 	}
-	if err := os.WriteFile(s.snapshotPath, data, 0600); err != nil {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	s.updateSnapshotLocked(systemPrompt, messages, now)
+
+	data, err := s.snapshotDataLocked()
+	if err != nil {
+		return err
+	}
+	if err := writeAtomicFile(s.snapshotPath, data, 0600); err != nil {
+		return fmt.Errorf("write snapshot: %w", err)
+	}
+	if err := writeAtomicFile(snapshotBackupPath(s.snapshotPath, now), data, 0600); err != nil {
+		return fmt.Errorf("write snapshot backup: %w", err)
+	}
+	return nil
+}
+
+func (s *Session) writeSnapshotLocked() error {
+	data, err := s.snapshotDataLocked()
+	if err != nil {
+		return err
+	}
+	if err := writeAtomicFile(s.snapshotPath, data, 0600); err != nil {
 		return fmt.Errorf("write snapshot: %w", err)
 	}
 	return nil
+}
+
+func (s *Session) updateSnapshotLocked(systemPrompt string, messages []llm.Message, updatedAt time.Time) {
+	s.snapshot.SystemPrompt = systemPrompt
+	s.snapshot.UpdatedAt = updatedAt
+	s.snapshot.Messages = make([]llm.Message, len(messages))
+	copy(s.snapshot.Messages, messages)
+}
+
+func (s *Session) snapshotDataLocked() ([]byte, error) {
+	data, err := json.MarshalIndent(s.snapshot, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshal snapshot: %w", err)
+	}
+	return data, nil
 }
 
 func loadSnapshot(path string) (Snapshot, error) {
@@ -616,6 +695,60 @@ func sessionRootDir() (string, error) {
 		return "", fmt.Errorf("home dir cannot be empty")
 	}
 	return filepath.Join(homeDir, defaultSessionSubdir), nil
+}
+
+func snapshotBackupPath(path string, now time.Time) string {
+	name := snapshotBackupPrefix + now.UTC().Format("20060102T150405.000000000Z") + ".json"
+	return filepath.Join(filepath.Dir(path), name)
+}
+
+func writeAtomicFile(path string, data []byte, perm os.FileMode) (retErr error) {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	defer func() {
+		if retErr != nil {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
+
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return fmt.Errorf("rename temp file: %w", err)
+	}
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("sync directory: %w", err)
+	}
+	return nil
+}
+
+func syncDir(path string) error {
+	dir, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer dir.Close()
+	return dir.Sync()
 }
 
 func describeToolCall(toolName string, raw json.RawMessage) string {

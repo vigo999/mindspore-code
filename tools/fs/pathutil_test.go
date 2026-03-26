@@ -91,3 +91,25 @@ func TestResolveSafePathAllowsConfiguredHomeDirectories(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveSafePathRejectsGitMetadataPaths(t *testing.T) {
+	workDir := t.TempDir()
+
+	cases := []string{
+		".git",
+		filepath.Join(".git", "config"),
+		filepath.Join("nested", ".git", "config"),
+	}
+
+	for _, input := range cases {
+		t.Run(input, func(t *testing.T) {
+			_, err := resolveSafePath(workDir, input)
+			if err == nil {
+				t.Fatalf("resolveSafePath(%q) returned nil error, want ignored path error", input)
+			}
+			if !strings.Contains(err.Error(), "path is ignored") {
+				t.Fatalf("resolveSafePath(%q) error = %q, want ignored path error", input, err)
+			}
+		})
+	}
+}

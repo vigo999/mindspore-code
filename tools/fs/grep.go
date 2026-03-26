@@ -148,6 +148,12 @@ func (t *GrepTool) grep(ctx context.Context, root, include string, re *regexp.Re
 		if err != nil {
 			return nil // Skip errors
 		}
+		if isIgnoredGitName(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 
 		if d.IsDir() {
 			return nil

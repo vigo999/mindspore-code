@@ -32,6 +32,9 @@ func resolveSafePath(workDir, input string) (string, error) {
 		if !allowed {
 			return "", fmt.Errorf("absolute paths are not allowed: %s", input)
 		}
+		if isIgnoredGitPath(cleaned) {
+			return "", fmt.Errorf("path is ignored: %s", input)
+		}
 		return cleaned, nil
 	}
 
@@ -51,6 +54,9 @@ func resolveSafePath(workDir, input string) (string, error) {
 	}
 	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		return "", fmt.Errorf("path escapes working directory: %s", input)
+	}
+	if isIgnoredGitPath(rel) {
+		return "", fmt.Errorf("path is ignored: %s", input)
 	}
 
 	return fullAbs, nil
@@ -106,4 +112,18 @@ func pathWithinBase(base, target string) bool {
 		return true
 	}
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator))
+}
+
+func isIgnoredGitPath(path string) bool {
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+	for _, part := range strings.Split(cleaned, "/") {
+		if part == ".git" {
+			return true
+		}
+	}
+	return false
+}
+
+func isIgnoredGitName(name string) bool {
+	return name == ".git"
 }

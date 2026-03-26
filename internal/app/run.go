@@ -39,16 +39,21 @@ func Run(args []string) error {
 // run starts the TUI.
 func (a *Application) run() error {
 	go cleanUpdateTmp()
+	err := a.runReal()
+	resumeHint := a.exitResumeHint()
 	if a.session != nil {
-		defer a.session.Close()
+		_ = a.session.Close()
 	}
-	return a.runReal()
+	if err == nil && resumeHint != "" {
+		fmt.Fprintln(os.Stdout, resumeHint)
+	}
+	return err
 }
 
 func (a *Application) runReal() error {
 	userCh := make(chan string, 8)
 	tui := ui.New(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.Window)
-	p := tea.NewProgram(tui, tea.WithAltScreen())
+	p := tea.NewProgram(tui, tuiProgramOptions()...)
 
 	// Emit saved login so the topbar shows the user immediately.
 	if a.issueUser != "" {
@@ -61,6 +66,14 @@ func (a *Application) runReal() error {
 	_, err := p.Run()
 	close(userCh)
 	return err
+}
+
+func tuiProgramOptions(extra ...tea.ProgramOption) []tea.ProgramOption {
+	opts := []tea.ProgramOption{
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	}
+	return append(opts, extra...)
 }
 
 func (a *Application) inputLoop(userCh <-chan string) {
@@ -105,17 +118,21 @@ func (a *Application) runTask(description string) {
 			a.emitToolError("session", "Failed to persist session snapshot: %v", err)
 		}
 	}
+	if err := a.activateSessionPersistence(); err != nil {
+		a.emitToolError("session", "Failed to start session persistence: %v", err)
+		return
+	}
 
 	if !a.llmReady {
 		if err := a.recordUnavailableTurn(description, provideAPIKeyFirstMsg); err != nil {
 			a.emitToolError("context", "Failed to record local turn: %v", err)
 			return
 		}
+		persistSnapshot()
 		emit(model.Event{
 			Type:    model.AgentReply,
 			Message: provideAPIKeyFirstMsg,
 		})
-		persistSnapshot()
 		return
 	}
 
@@ -123,7 +140,6 @@ func (a *Application) runTask(description string) {
 		ID:          generateTaskID(),
 		Description: description,
 	}
-
 	ctx, runID := a.beginTaskRun()
 	defer a.finishTaskRun(runID)
 
@@ -207,6 +223,18 @@ func (a *Application) replayHistory() {
 	for _, ev := range a.replayBacklog {
 		a.EventCh <- ev
 	}
+	if len(a.replayBacklog) == 0 || a.ctxManager == nil {
+		return
+	}
+	usage := a.ctxManager.TokenUsage()
+	if usage.Max <= 0 {
+		return
+	}
+	a.EventCh <- model.Event{
+		Type:    model.TokenUpdate,
+		CtxUsed: usage.Current,
+		CtxMax:  usage.Max,
+	}
 }
 
 func (a *Application) addContextMessages(msgs ...llm.Message) error {
@@ -227,6 +255,25 @@ func (a *Application) persistSessionSnapshot() error {
 		return nil
 	}
 	return a.session.SaveSnapshot(a.currentSystemPrompt(), a.ctxManager.GetNonSystemMessages())
+}
+
+func (a *Application) activateSessionPersistence() error {
+	if a == nil || a.session == nil {
+		return nil
+	}
+	return a.session.Activate()
+}
+
+func (a *Application) exitResumeHint() string {
+	if a == nil || a.session == nil || !a.session.HasPersistedDialogue() {
+		return ""
+	}
+
+	sessionID := strings.TrimSpace(a.session.ID())
+	if sessionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("Resume this session with: ms-cli resume %s", sessionID)
 }
 
 func (a *Application) recordUnavailableTurn(userInput, assistantReply string) error {

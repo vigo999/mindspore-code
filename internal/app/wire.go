@@ -57,7 +57,7 @@ type Application struct {
 	// Skills
 	skillLoader   *skills.Loader
 	skillsHomeDir string
-	startupOnce sync.Once
+	startupOnce   sync.Once
 
 	// Bug tracking
 	bugService   *bugs.Service
@@ -204,7 +204,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	}
 	engine := loop.NewEngine(engineCfg, provider, toolRegistry)
 	engine.SetContextManager(ctxManager)
-	engine.SetTrajectoryRecorder(newTrajectoryRecorder(runtimeSession))
+	engine.SetTrajectoryRecorder(newTrajectoryRecorder(runtimeSession, ctxManager))
 
 	permService := permission.NewDefaultPermissionService(config.Permissions)
 	engine.SetPermissionService(permService)
@@ -288,7 +288,7 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 	}
 	newEngine.SetContextManager(a.ctxManager)
 	newEngine.SetPermissionService(a.permService)
-	newEngine.SetTrajectoryRecorder(newTrajectoryRecorder(a.session))
+	newEngine.SetTrajectoryRecorder(newTrajectoryRecorder(a.session, a.ctxManager))
 
 	a.Engine = newEngine
 	a.provider = provider
@@ -312,7 +312,7 @@ func initProvider(cfg configs.ModelConfig, opts llm.ResolveOptions) (llm.Provide
 	return client, nil
 }
 
-func newTrajectoryRecorder(s *session.Session) *loop.TrajectoryRecorder {
+func newTrajectoryRecorder(s *session.Session, cm *agentctx.Manager) *loop.TrajectoryRecorder {
 	return &loop.TrajectoryRecorder{
 		RecordUserInput: func(content string) error {
 			if s == nil {
@@ -343,6 +343,16 @@ func newTrajectoryRecorder(s *session.Session) *loop.TrajectoryRecorder {
 				return nil
 			}
 			return s.AppendSkillActivation(skillName)
+		},
+		PersistSnapshot: func() error {
+			if s == nil || cm == nil {
+				return nil
+			}
+			systemPrompt := ""
+			if msg := cm.GetSystemPrompt(); msg != nil {
+				systemPrompt = msg.Content
+			}
+			return s.SaveSnapshot(systemPrompt, cm.GetNonSystemMessages())
 		},
 	}
 }

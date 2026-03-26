@@ -133,6 +133,9 @@ func (t *GlobTool) globSingle(root, pattern string) ([]string, error) {
 
 	for _, entry := range entries {
 		name := entry.Name()
+		if isIgnoredGitName(name) {
+			continue
+		}
 		matched, _ := filepath.Match(pattern, name)
 		if matched {
 			relPath, _ := filepath.Rel(t.workDir, filepath.Join(root, name))
@@ -153,6 +156,12 @@ func (t *GlobTool) globRecursive(root, pattern string) ([]string, error) {
 	err = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil // Skip errors
+		}
+		if isIgnoredGitName(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		if d.IsDir() {

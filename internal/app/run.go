@@ -85,8 +85,12 @@ func (a *Application) inputLoop(userCh <-chan string) {
 func (a *Application) processInput(input string) {
 	trimmed := strings.TrimSpace(input)
 	if trimmed == "" {
+		if a.pendingUpdate != nil {
+			go a.applySelfUpdate()
+		}
 		return
 	}
+	a.pendingUpdate = nil
 
 	if trimmed == bootReadyToken {
 		a.startDeferredStartup()
@@ -408,6 +412,45 @@ func generateTaskID() string {
 	return time.Now().Format("20060102-150405-000")
 }
 
+func (a *Application) applySelfUpdate() {
+	result := a.pendingUpdate
+	a.pendingUpdate = nil
+	if result == nil || result.DownloadURL == "" {
+		return
+	}
+
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("Downloading ms-cli %s...", result.LatestVersion),
+	}
+
+	tmpPath, err := update.Download(context.Background(), result.DownloadURL)
+	if err != nil {
+		a.EventCh <- model.Event{
+			Type:    model.AgentReply,
+			Message: fmt.Sprintf("Update failed: %v", err),
+		}
+		return
+	}
+
+	if err := update.Install(tmpPath); err != nil {
+		a.EventCh <- model.Event{
+			Type:    model.AgentReply,
+			Message: fmt.Sprintf("Update install failed: %v", err),
+		}
+		return
+	}
+
+	a.EventCh <- model.Event{
+		Type:    model.ReleaseNoteUpdate,
+		Message: fmt.Sprintf("ms-cli %s installed", result.LatestVersion),
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("ms-cli updated to %s. Please restart to use the new version.", result.LatestVersion),
+	}
+}
+
 func (a *Application) emitUpdateHint() {
 	v := version.Version
 	if v == "" || v == "dev" {
@@ -417,8 +460,13 @@ func (a *Application) emitUpdateHint() {
 	if err != nil || result == nil || !result.UpdateAvailable {
 		return
 	}
+	a.pendingUpdate = result
 	a.EventCh <- model.Event{
 		Type:    model.ReleaseNoteUpdate,
 		Message: fmt.Sprintf("update available %s → %s", result.CurrentVersion, result.LatestVersion),
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("ms-cli update available: %s → %s. Press Enter to update, or type to skip.", result.CurrentVersion, result.LatestVersion),
 	}
 }

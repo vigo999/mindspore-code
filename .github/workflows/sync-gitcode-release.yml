@@ -233,9 +233,10 @@ jobs:
             fi
 
             echo "Uploading ${file_name}..."
-            curl -sS --fail \
+            curl -sS --fail -w "\nHTTP %{http_code}\n" \
               -X PUT \
-              -T "${file}" \
+              -H "Content-Type: application/octet-stream" \
+              --data-binary "@${file}" \
               "${upload_url}"
           done
 

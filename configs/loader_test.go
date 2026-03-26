@@ -107,6 +107,12 @@ func TestLoadWithEnv_IgnoresConfigFiles(t *testing.T) {
 	if got, want := cfg.Model.Model, "gpt-4o-mini"; got != want {
 		t.Fatalf("model = %q, want %q", got, want)
 	}
+	if cfg.Request.MaxIterations == nil {
+		t.Fatal("request.max_iterations = nil, want default value")
+	}
+	if got, want := *cfg.Request.MaxIterations, DefaultRequestMaxIterations; got != want {
+		t.Fatalf("request.max_iterations = %d, want %d", got, want)
+	}
 }
 
 func TestApplyEnvOverrides_OnlyMSCLIVariables(t *testing.T) {

@@ -26,6 +26,7 @@ type IssuesConfig struct {
 }
 
 const DefaultIssuesServerURL = ""
+const DefaultRequestMaxIterations = 100
 
 func (c *Config) normalize() {
 	if strings.TrimSpace(c.Model.Provider) == "" {
@@ -106,6 +107,7 @@ type DockerConfig struct {
 
 // DefaultConfig returns a configuration with default values.
 func DefaultConfig() *Config {
+	defaultMaxIterations := DefaultRequestMaxIterations
 	cfg := &Config{
 		Model: ModelConfig{
 			URL:        "https://api.openai.com/v1",
@@ -144,6 +146,9 @@ func DefaultConfig() *Config {
 			TTLHours:  168,             // 7 days
 		},
 		ModelProfiles: make(map[string]ModelTokenProfile),
+		Request: RequestConfig{
+			MaxIterations: &defaultMaxIterations,
+		},
 		Issues: IssuesConfig{
 			ServerURL: DefaultIssuesServerURL,
 		},

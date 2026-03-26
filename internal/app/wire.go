@@ -411,7 +411,7 @@ func requestTemperaturePtr(v *float64) *float32 {
 
 func requestMaxIterations(v *int) int {
 	if v == nil {
-		return 0
+		return configs.DefaultRequestMaxIterations
 	}
 	return *v
 }

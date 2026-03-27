@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vigo999/ms-cli/ui/model"
-	uirender "github.com/vigo999/ms-cli/ui/render"
+	"github.com/vigo999/mindspore-code/ui/model"
+	uirender "github.com/vigo999/mindspore-code/ui/render"
 )
 
 var (

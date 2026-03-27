@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 const (
@@ -26,7 +26,7 @@ const (
 	recordTypeToolResult = "tool_result"
 	recordTypeSkill      = "skill_activation"
 	formatVersion        = 1
-	defaultSessionSubdir = ".ms-cli/sessions"
+	defaultSessionSubdir = ".mscode/sessions"
 )
 
 // Meta is the first JSONL record describing the session.
@@ -74,7 +74,7 @@ type Session struct {
 	enc          *json.Encoder
 }
 
-// Create allocates a new session under ~/.ms-cli/sessions.
+// Create allocates a new session under ~/.mscode/sessions.
 // Persistence begins only after Activate is called.
 func Create(workDir, systemPrompt string) (*Session, error) {
 	absWorkDir, err := normalizeWorkDir(workDir)

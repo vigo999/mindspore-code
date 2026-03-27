@@ -10,11 +10,11 @@
 6. Performance bottleneck -> diagnosis -> fix -> rerun
 7. Algo feature application (MHC) -> rerun with better accuracy
 
-## What's needed for REAL end-to-end: user runs `ms-cli`, trains qwen3 lora on a real Ascend machine
+## What's needed for REAL end-to-end: user runs `mscode`, trains qwen3 lora on a real Ascend machine
 
 ---
 
-## ms-cli -- TODO (runtime, commands, factory store)
+## mscode -- TODO (runtime, commands, factory store)
 
 ### 1. Build `internal/factory/` Store (3 days)
 - **Why**: Skills need to query cards during diagnosis. No Go code reads incubating/factory/ cards yet.
@@ -26,7 +26,7 @@
 
 ### 3. Add `/factory` command (1 day)
 - **Why**: Users need to check factory status and update packs from terminal.
-- **How**: /factory status shows local version, card counts from pack.yaml. /factory update fetches latest pack (v0.1 can just copy from incubating/factory/ to ~/.ms-cli/factory/).
+- **How**: /factory status shows local version, card counts from pack.yaml. /factory update fetches latest pack (v0.1 can just copy from incubating/factory/ to ~/.mscode/factory/).
 
 ### 4. Real SSH backend for `/train` (3 days)
 - **Why**: DemoBackend fakes everything. Need a RealBackend that SSHs to the target, runs the training script, streams logs/metrics back.
@@ -34,11 +34,11 @@
 
 ### 5. Config for real training targets (1 day)
 - **Why**: Users need to configure their target machine (SSH host, address, key path, workdir).
-- **How**: Extend configs/types.go with TrainTarget config. Wire it through built-in defaults plus `MSCLI_*` environment variables. The deleted mscli.yaml had some of this -- check the current config loader pattern first.
+- **How**: Extend configs/types.go with TrainTarget config. Wire it through built-in defaults plus `MSCODE_*` environment variables. The deleted mscode.yaml had some of this -- check the current config loader pattern first.
 
 ### 6. Remove orchestrator/planner dead code (0.5 day)
 - **Why**: Dead code that confuses contributors. Orchestrator is a passthrough, planner is unused.
-- **How**: Delete agent/orchestrator/, agent/planner/, workflow/executor/, demo/scenarios/. Update wire.go imports. Already documented in ms-cli-refactor-3.md Phase A1.
+- **How**: Delete agent/orchestrator/, agent/planner/, workflow/executor/, demo/scenarios/. Update wire.go imports. Already documented in mindspore-code-refactor-3.md Phase A1.
 
 ### 7. End-to-end smoke test (1 day)
 - **Why**: Validate the full chain works before release.
@@ -78,7 +78,7 @@
 
 ### 2. Pack distribution mechanism (1 day)
 - **Why**: Users need /factory update to actually download cards. Currently cards only exist in the git repo.
-- **How**: For v0.1, the simplest path: incubating/factory/ is bundled with the ms-cli binary (embedded via go:embed or copied at install time to ~/.ms-cli/factory/). /factory update re-copies from the embedded source or pulls from a release artifact. Full remote pack fetch can come in v0.2.
+- **How**: For v0.1, the simplest path: incubating/factory/ is bundled with the mscode binary (embedded via go:embed or copied at install time to ~/.mscode/factory/). /factory update re-copies from the embedded source or pulls from a release artifact. Full remote pack fetch can come in v0.2.
 
 ### 3. Validate cards against schemas (0.5 day)
 - **Why**: No validation that the 28 seeded cards actually conform to their schemas. Broken cards will cause runtime errors.
@@ -93,12 +93,12 @@
 ## Timeline (12 working days: Mar 19-30)
 
 ### Week 1 (Mar 19-23):
-- **ms-cli**: Factory Store + /factory command + /diagnose + /fix wiring
+- **mscode**: Factory Store + /factory command + /diagnose + /fix wiring
 - **skills**: Fix AGENTS.md + add factory query to SKILL.md files
 - **factory**: Add perf known_issue + validate schemas + README
 
 ### Week 2 (Mar 24-28):
-- **ms-cli**: Real SSH backend + config + remove dead code
+- **mscode**: Real SSH backend + config + remove dead code
 - **skills**: Add mode awareness + missing command docs + invoke ratio testing
 - **factory**: Pack distribution mechanism
 

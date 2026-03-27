@@ -10,25 +10,25 @@ import (
 	"sync"
 	"time"
 
-	agentctx "github.com/vigo999/ms-cli/agent/context"
-	"github.com/vigo999/ms-cli/agent/loop"
-	"github.com/vigo999/ms-cli/agent/session"
-	"github.com/vigo999/ms-cli/configs"
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/integrations/skills"
-	"github.com/vigo999/ms-cli/internal/bugs"
-	issuepkg "github.com/vigo999/ms-cli/internal/issues"
-	projectpkg "github.com/vigo999/ms-cli/internal/project"
-	itrain "github.com/vigo999/ms-cli/internal/train"
-	"github.com/vigo999/ms-cli/internal/version"
-	"github.com/vigo999/ms-cli/permission"
-	rshell "github.com/vigo999/ms-cli/runtime/shell"
-	"github.com/vigo999/ms-cli/tools"
-	"github.com/vigo999/ms-cli/tools/fs"
-	"github.com/vigo999/ms-cli/tools/shell"
-	skillstool "github.com/vigo999/ms-cli/tools/skills"
-	"github.com/vigo999/ms-cli/ui/model"
-	wtrain "github.com/vigo999/ms-cli/workflow/train"
+	agentctx "github.com/vigo999/mindspore-code/agent/context"
+	"github.com/vigo999/mindspore-code/agent/loop"
+	"github.com/vigo999/mindspore-code/agent/session"
+	"github.com/vigo999/mindspore-code/configs"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/skills"
+	"github.com/vigo999/mindspore-code/internal/bugs"
+	issuepkg "github.com/vigo999/mindspore-code/internal/issues"
+	projectpkg "github.com/vigo999/mindspore-code/internal/project"
+	itrain "github.com/vigo999/mindspore-code/internal/train"
+	"github.com/vigo999/mindspore-code/internal/version"
+	"github.com/vigo999/mindspore-code/permission"
+	rshell "github.com/vigo999/mindspore-code/runtime/shell"
+	"github.com/vigo999/mindspore-code/tools"
+	"github.com/vigo999/mindspore-code/tools/fs"
+	"github.com/vigo999/mindspore-code/tools/shell"
+	skillstool "github.com/vigo999/mindspore-code/tools/skills"
+	"github.com/vigo999/mindspore-code/ui/model"
+	wtrain "github.com/vigo999/mindspore-code/workflow/train"
 )
 
 var errAPIKeyNotFound = errors.New("api key not found")
@@ -149,17 +149,17 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	toolRegistry := initTools(config, workDir)
 
-	// Skills: all skills live under ~/.ms-cli/skills/.
+	// Skills: all skills live under ~/.mscode/skills/.
 	// Shared repo skills are copied there after sync.
 	homeDir, _ := os.UserHomeDir()
 	execSkillsDir := ""
 	if ep, err := os.Executable(); err == nil {
-		execSkillsDir = filepath.Join(filepath.Dir(ep), ".ms-cli", "skills")
+		execSkillsDir = filepath.Join(filepath.Dir(ep), ".mscode", "skills")
 	}
 	skillLoader := skills.NewLoader(
 		execSkillsDir,
-		filepath.Join(homeDir, ".ms-cli", "skills"),
-		filepath.Join(workDir, ".ms-cli", "skills"),
+		filepath.Join(homeDir, ".mscode", "skills"),
+		filepath.Join(workDir, ".mscode", "skills"),
 	)
 	toolRegistry.MustRegister(skillstool.NewLoadSkillTool(skillLoader))
 
@@ -232,7 +232,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		Engine:                  engine,
 		EventCh:                 eventCh,
 		WorkDir:                 workDir,
-		RepoURL:                 "github.com/vigo999/ms-cli",
+		RepoURL:                 "github.com/vigo999/mindspore-code",
 		Config:                  config,
 		provider:                provider,
 		toolRegistry:            toolRegistry,

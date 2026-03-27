@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	bugspkg "github.com/vigo999/ms-cli/internal/bugs"
+	bugspkg "github.com/vigo999/mindspore-code/internal/bugs"
 )
 
 type createBugRequest struct {

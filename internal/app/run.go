@@ -10,11 +10,11 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vigo999/ms-cli/agent/loop"
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/internal/version"
-	"github.com/vigo999/ms-cli/ui"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/agent/loop"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/internal/version"
+	"github.com/vigo999/mindspore-code/ui"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 const provideAPIKeyFirstMsg = "LLM unavailable: provide api key first, or /login and switch to free model."
@@ -328,7 +328,7 @@ func (a *Application) exitResumeHint() string {
 	if sessionID == "" {
 		return ""
 	}
-	return fmt.Sprintf("Resume this session with: ms-cli resume %s", sessionID)
+	return fmt.Sprintf("Resume this session with: mscode resume %s", sessionID)
 }
 
 func (a *Application) recordUnavailableTurn(userInput, assistantReply string) error {
@@ -373,7 +373,7 @@ func (a *Application) emitToolError(toolName, format string, args ...any) {
 
 func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 	if len(args) > 0 && args[0] == "resume" {
-		fs := flag.NewFlagSet("ms-cli resume", flag.ContinueOnError)
+		fs := flag.NewFlagSet("mscode resume", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
 		url := fs.String("url", "", "LLM API base URL")
 		modelFlag := fs.String("model", "", "Model name")
@@ -383,7 +383,7 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 		}
 		rest := fs.Args()
 		if len(rest) > 1 {
-			return BootstrapConfig{}, fmt.Errorf("usage: ms-cli resume [sess_xxx]")
+			return BootstrapConfig{}, fmt.Errorf("usage: mscode resume [sess_xxx]")
 		}
 		cfg := BootstrapConfig{
 			URL:    *url,
@@ -397,7 +397,7 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 		return cfg, nil
 	}
 
-	fs := flag.NewFlagSet("ms-cli", flag.ContinueOnError)
+	fs := flag.NewFlagSet("mscode", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	url := fs.String("url", "", "LLM API base URL")
 	modelFlag := fs.String("model", "", "Model name")

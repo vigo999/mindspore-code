@@ -3,12 +3,12 @@ overview:
   color: blue
   phase: demo / dogfood
   owner: victor
-  repo: http://github.com/vigo999/ms-cli
+  repo: http://github.com/vigo999/mindspore-code
   branch: refactor-arch-4.1
 milestones:
   color: blue
   items:
-    - title: Enable five independently operable skills across cc/codex/mscli
+    - title: Enable five independently operable skills across cc/codex/mscode
       color: magenta
       progress: "30"
       progress_color: magenta
@@ -47,23 +47,23 @@ tasks:
       owner: zhihui/zhilan
       progress: "40"
       due: 03-21
-    - title: mscli factory loading
+    - title: mscode factory loading
       owner: victor
       due: 03-21
       progress: "0"
-    - title: mscli rlease feature
+    - title: mscode rlease feature
       color: gray
       status: todo
       progress: 0
       owner: victor
       due: 03-23
-    - title: mscli diagnose and fix cmd routing
+    - title: mscode diagnose and fix cmd routing
       color: gray
       status: todo
       progress: 0
       owner: victor
       due: 03-23
-    - title: mscli /factory cmd
+    - title: mscode /factory cmd
       color: gray
       progress: "0"
       owner: victor
@@ -74,7 +74,7 @@ tasks:
       progress: 100
       progress_color: green
       owner: victor
-    - title: mscli /project cmd to refresh dev status
+    - title: mscode /project cmd to refresh dev status
       color: green
       status: done
       progress: 100

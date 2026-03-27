@@ -1,26 +1,26 @@
-# ms-cli Architecture
+# mscode Architecture
 
 This document describes the target architecture after the refactor
-(see `docs/impl-guide/ms-cli-refactor-3.md`). It is the single contributor-facing
+(see `docs/impl-guide/mindspore-code-refactor-3.md`). It is the single contributor-facing
 architecture reference.
 
 ## Three-Repo Model
 
 ```text
-ms-cli (this repo)          runtime — TUI, agent loop, tool registry
+mscode (this repo)          runtime — TUI, agent loop, tool registry
 ms-skills            instructions — SKILL.md + skill.yaml per skill
 ms-factory (incubating/)    knowledge — operator/failure/trick/model cards
 ```
 
-- `ms-cli` loads skills from `ms-skills` and cards from `ms-factory`.
+- `mscode` loads skills from `ms-skills` and cards from `ms-factory`.
 - Skills are portable across CLIs (Claude Code, OpenCode, Gemini CLI, Codex).
 - Factory cards grow from real experiment data and incident reports.
 
 ## Top-Level Shape
 
 ```text
-ms-cli/
-  cmd/ms-cli/              process entrypoint
+mindspore-code/
+  cmd/mscode/              process entrypoint
   internal/
     app/                   composition root, startup, commands, UI bridging
     factory/               local factory card store and resolver
@@ -56,7 +56,7 @@ ms-cli/
 ## Primary Runtime Flow
 
 ```text
-cmd/ms-cli
+cmd/mscode
   -> internal/app.Run(...)
   -> internal/app.Wire(...)
   -> ui.New(...)
@@ -84,14 +84,14 @@ directly. The LLM plans inline within the agent loop.
 ### Skill activation
 
 `internal/app.Wire(...)` now boots from whatever skills are already available
-locally, and the shared repo refresh for `~/.ms-cli/mindspore-skills` starts
+locally, and the shared repo refresh for `~/.mscode/mindspore-skills` starts
 as soon as the startup UI is visible. The refresh remains commit-aware: it stores
 the local commit id in the repo directory, compares the local commit with the
 remote branch head through a lightweight GitHub API check, uses the built-in
 shared repo URL and branch, and asks for `y/n` confirmation inside the UI when
 the commits differ. Sync progress and failures are emitted through the main chat
 event stream instead of being printed only to the terminal. The synced
-`~/.ms-cli/mindspore-skills/skills` directory remains the highest-priority
+`~/.mscode/mindspore-skills/skills` directory remains the highest-priority
 skill search path.
 
 Current slash-skill activation is session-visible, not purely task-scoped.
@@ -145,7 +145,7 @@ features migrate to agent-skills.
   Owns session state, trajectory persistence, and resume reconstruction.
 
 - **`integrations/skills/`**
-  Refreshes the shared skills repo into `~/.ms-cli/mindspore-skills`,
+  Refreshes the shared skills repo into `~/.mscode/mindspore-skills`,
   lists available skills across configured search paths, and loads one skill
   fully on demand (`SKILL.md` + metadata/frontmatter).
 
@@ -178,7 +178,7 @@ features migrate to agent-skills.
 ## Dependency Boundaries
 
 ```text
-cmd/ms-cli -> internal/app
+cmd/mscode -> internal/app
 internal/app -> agent, workflow, ui, configs, integrations, tools, permission
 agent -> integrations, permission, configs
 workflow -> internal/train, runtime/probes, configs
@@ -190,7 +190,7 @@ report -> trace, configs
 
 Constraints:
 
-- `cmd/ms-cli/` stays thin.
+- `cmd/mscode/` stays thin.
 - `internal/app/` is the wiring layer, not a reusable core package.
 - `agent/` must not depend on `ui/` or `runtime/` directly.
 - `workflow/train/` must not import `ui/model`; conversion belongs in
@@ -200,7 +200,7 @@ Constraints:
 
 ## Removed Packages (refactor)
 
-The following packages are removed by the refactor (see `docs/impl-guide/ms-cli-refactor-3.md`):
+The following packages are removed by the refactor (see `docs/impl-guide/mindspore-code-refactor-3.md`):
 
 - `agent/orchestrator/` — was a dispatch layer between planner and executors.
   After removing workflow mode, it became a passthrough. The app now calls
@@ -216,7 +216,7 @@ The following packages are removed by the refactor (see `docs/impl-guide/ms-cli-
 
 ## Related Docs
 
-- `docs/impl-guide/ms-cli-refactor-3.md` — refactor plan (workstream A)
+- `docs/impl-guide/mindspore-code-refactor-3.md` — refactor plan (workstream A)
 - `docs/impl-guide/ms-skills-whole-update-plan.md` — skills plan (workstream B)
 - `docs/impl-guide/ms-factory-struct-v0.1.md` — factory structure and schemas (workstream C)
 - `docs/features-backlog.md` — deferred features

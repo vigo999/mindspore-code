@@ -7,13 +7,13 @@ storage:
 
 auth:
   tokens:
-    - token: mscli_token_alice
+    - token: mscode_token_alice
       user: alice
       role: member
-    - token: mscli_token_bob
+    - token: mscode_token_bob
       user: bob
       role: member
-    - token: mscli_token_travis
+    - token: mscode_token_travis
       user: travis
       role: admin
 

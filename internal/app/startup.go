@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/agent/loop"
-	"github.com/vigo999/ms-cli/integrations/skills"
-	"github.com/vigo999/ms-cli/ui/model"
-	"github.com/vigo999/ms-cli/ui/slash"
+	"github.com/vigo999/mindspore-code/agent/loop"
+	"github.com/vigo999/mindspore-code/integrations/skills"
+	"github.com/vigo999/mindspore-code/ui/model"
+	"github.com/vigo999/mindspore-code/ui/slash"
 )
 
 const skillsNoteReadyDuration = 5 * time.Minute
@@ -170,14 +170,14 @@ func fmtVersion(v string) string {
 	return "v" + v
 }
 
-// installRepoSkills copies skill directories from the synced repo into ~/.ms-cli/skills/.
+// installRepoSkills copies skill directories from the synced repo into ~/.mscode/skills/.
 func (a *Application) installRepoSkills() error {
 	repoSkillsDir := skills.SyncedSkillsDir(a.skillsHomeDir)
 	if !dirExistsCheck(repoSkillsDir) {
 		return nil
 	}
 
-	destDir := filepath.Join(a.skillsHomeDir, ".ms-cli", "skills")
+	destDir := filepath.Join(a.skillsHomeDir, ".mscode", "skills")
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("create skills dir: %w", err)
 	}

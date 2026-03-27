@@ -4,8 +4,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vigo999/ms-cli/ui/model"
-	"github.com/vigo999/ms-cli/ui/render"
+	"github.com/vigo999/mindspore-code/ui/model"
+	"github.com/vigo999/mindspore-code/ui/render"
 )
 
 func RenderIssueIndex(width, height int, st model.IssueIndexState) string {

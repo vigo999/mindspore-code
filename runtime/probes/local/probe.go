@@ -4,8 +4,8 @@ package local
 import (
 	"context"
 
-	"github.com/vigo999/ms-cli/internal/train"
-	"github.com/vigo999/ms-cli/runtime/probes"
+	"github.com/vigo999/mindspore-code/internal/train"
+	"github.com/vigo999/mindspore-code/runtime/probes"
 )
 
 // Probe checks local machine readiness before training.

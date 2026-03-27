@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/vigo999/ms-cli/internal/train"
-	"github.com/vigo999/ms-cli/ui/model"
-	wtrain "github.com/vigo999/ms-cli/workflow/train"
+	"github.com/vigo999/mindspore-code/internal/train"
+	"github.com/vigo999/mindspore-code/ui/model"
+	wtrain "github.com/vigo999/mindspore-code/workflow/train"
 )
 
 type trainSnapshot struct {

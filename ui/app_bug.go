@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vigo999/ms-cli/internal/bugs"
-	"github.com/vigo999/ms-cli/ui/model"
-	"github.com/vigo999/ms-cli/ui/panels"
+	"github.com/vigo999/mindspore-code/internal/bugs"
+	"github.com/vigo999/mindspore-code/ui/model"
+	"github.com/vigo999/mindspore-code/ui/panels"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

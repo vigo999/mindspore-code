@@ -1,4 +1,4 @@
-// Package configs provides configuration management for ms-cli.
+// Package configs provides configuration management for mscode.
 package configs
 
 import (

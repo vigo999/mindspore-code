@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	itrain "github.com/vigo999/ms-cli/internal/train"
+	itrain "github.com/vigo999/mindspore-code/internal/train"
 )
 
 // demoSpeed controls the delay multiplier for demo playback.
@@ -411,15 +411,15 @@ func RunSingleLaneAlgoFeature(ctx context.Context, model, method, feature string
 	}
 
 	featureInfo := map[string]struct{ name, desc string }{
-		"mhc":         {"MHC", "inject contrastive loss on attention heads to improve generalization."},
-		"flash-attn":  {"Flash Attention", "replace standard attention with IO-aware fused kernel for faster forward pass."},
-		"sparse-attn": {"Sparse Attention", "apply block-sparse attention pattern to reduce quadratic complexity."},
-		"lora-plus":   {"LoRA+", "use differential learning rates for LoRA A/B matrices to improve convergence."},
-		"galore":      {"GaLore", "apply gradient low-rank projection to reduce optimizer memory footprint."},
-		"ddpm-noise":  {"DDPM Noise Schedule", "apply denoising diffusion noise scheduling for improved sample quality."},
-		"dpo":         {"DPO", "add direct preference optimization loss for human alignment."},
+		"mhc":          {"MHC", "inject contrastive loss on attention heads to improve generalization."},
+		"flash-attn":   {"Flash Attention", "replace standard attention with IO-aware fused kernel for faster forward pass."},
+		"sparse-attn":  {"Sparse Attention", "apply block-sparse attention pattern to reduce quadratic complexity."},
+		"lora-plus":    {"LoRA+", "use differential learning rates for LoRA A/B matrices to improve convergence."},
+		"galore":       {"GaLore", "apply gradient low-rank projection to reduce optimizer memory footprint."},
+		"ddpm-noise":   {"DDPM Noise Schedule", "apply denoising diffusion noise scheduling for improved sample quality."},
+		"dpo":          {"DPO", "add direct preference optimization loss for human alignment."},
 		"rope-scaling": {"RoPE Scaling", "extend context length via rotary position embedding interpolation."},
-		"moe-routing": {"MoE Routing", "enable mixture-of-experts with top-k dynamic routing."},
+		"moe-routing":  {"MoE Routing", "enable mixture-of-experts with top-k dynamic routing."},
 	}
 	info := featureInfo[feature]
 	if info.name == "" {
@@ -735,14 +735,14 @@ func RunSingleLanePerfFeature(ctx context.Context, model, method, feature string
 	}
 
 	featureNames := map[string]string{
-		"fa2":            "Flash Attention v2",
-		"fused-adam":     "Fused Adam",
-		"gradient-ckpt":  "Gradient Checkpointing",
-		"bf16-mixed":     "BF16 Mixed Precision",
-		"graph-mod":          "Graph Mode",
-		"comm-overlap":       "Communication Overlap",
-		"zero-offload":       "ZeRO Offload",
-		"sequence-parallel":  "Sequence Parallel",
+		"fa2":                 "Flash Attention v2",
+		"fused-adam":          "Fused Adam",
+		"gradient-ckpt":       "Gradient Checkpointing",
+		"bf16-mixed":          "BF16 Mixed Precision",
+		"graph-mod":           "Graph Mode",
+		"comm-overlap":        "Communication Overlap",
+		"zero-offload":        "ZeRO Offload",
+		"sequence-parallel":   "Sequence Parallel",
 		"selective-recompute": "Selective Recompute",
 	}
 	displayName := featureNames[feature]

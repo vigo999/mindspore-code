@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/llm"
 )
 
 // ManagerConfig holds the manager configuration.

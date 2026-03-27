@@ -1,7 +1,7 @@
-# Workstream A: ms-cli Refactor
+# Workstream A: mindspore-code Refactor
 
 ## Goal
-Transform ms-cli from a monolith with hardcoded workflows into a thin agent runtime that loads skills from ms-skills and knowledge from ms-factory.
+Transform mscode from a monolith with hardcoded workflows into a thin agent runtime that loads skills from ms-skills and knowledge from ms-factory.
 
 ## Status
 - 2026-03-18: Phase A1 implementation landed in code (workflow mode removed; app dispatches tasks directly to `agent/loop.Engine`).
@@ -149,7 +149,7 @@ type SkillsConfig struct {
 ```
 
 ```yaml
-# configs/mscli.yaml
+# configs/mscode.yaml
 skills:
   repo: https://github.com/vigo/ms-skills.git
   revision: main
@@ -177,7 +177,7 @@ skillSummaries, _ := skills.List(skillsDir)
 ```go
 // internal/factory/store.go
 type Store struct {
-    cacheDir string  // ~/.ms-cli/factory/ or incubating/factory/
+    cacheDir string  // ~/.mscode/factory/ or incubating/factory/
 }
 
 type Card struct {

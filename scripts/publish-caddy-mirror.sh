@@ -5,7 +5,7 @@ VERSION="${1:-}"
 
 if [ -z "${VERSION}" ]; then
   echo "Usage: ./scripts/publish-caddy-mirror.sh <version>"
-  echo "Example: MSCLI_MIRROR_HOST=ecs.example.com MSCLI_MIRROR_BASE_URL=https://download.example.com/ms-cli/releases ./scripts/publish-caddy-mirror.sh v0.4.25"
+  echo "Example: MSCODE_MIRROR_HOST=ecs.example.com MSCODE_MIRROR_BASE_URL=https://download.example.com/mscode/releases ./scripts/publish-caddy-mirror.sh v0.4.25"
   exit 1
 fi
 
@@ -26,17 +26,17 @@ need_cmd scp
 need_cmd mktemp
 need_cmd python3
 
-MIRROR_HOST="${MSCLI_MIRROR_HOST:-}"
-MIRROR_USER="${MSCLI_MIRROR_USER:-root}"
-MIRROR_PORT="${MSCLI_MIRROR_PORT:-22}"
-DIST_DIR="${MSCLI_DIST_DIR:-dist}"
-MIRROR_ROOT="${MSCLI_MIRROR_ROOT:-/opt/downloads/ms-cli/releases}"
-MIRROR_BASE_URL="${MSCLI_MIRROR_BASE_URL:-}"
-REMOTE_CHMOD="${MSCLI_REMOTE_CHMOD:-a+rX}"
-REMOTE_LATEST_LINK="${MSCLI_REMOTE_LATEST_LINK:-1}"
+MIRROR_HOST="${MSCODE_MIRROR_HOST:-}"
+MIRROR_USER="${MSCODE_MIRROR_USER:-root}"
+MIRROR_PORT="${MSCODE_MIRROR_PORT:-22}"
+DIST_DIR="${MSCODE_DIST_DIR:-dist}"
+MIRROR_ROOT="${MSCODE_MIRROR_ROOT:-/opt/downloads/mscode/releases}"
+MIRROR_BASE_URL="${MSCODE_MIRROR_BASE_URL:-}"
+REMOTE_CHMOD="${MSCODE_REMOTE_CHMOD:-a+rX}"
+REMOTE_LATEST_LINK="${MSCODE_REMOTE_LATEST_LINK:-1}"
 
 if [ -z "${MIRROR_HOST}" ]; then
-  echo "Error: MSCLI_MIRROR_HOST is required" >&2
+  echo "Error: MSCODE_MIRROR_HOST is required" >&2
   exit 1
 fi
 
@@ -48,11 +48,11 @@ fi
 
 required_files=(
   "manifest.json"
-  "ms-cli-linux-amd64"
-  "ms-cli-linux-arm64"
-  "ms-cli-darwin-amd64"
-  "ms-cli-darwin-arm64"
-  "ms-cli-windows-amd64.exe"
+  "mscode-linux-amd64"
+  "mscode-linux-arm64"
+  "mscode-darwin-amd64"
+  "mscode-darwin-arm64"
+  "mscode-windows-amd64.exe"
 )
 
 for file in "${required_files[@]}"; do

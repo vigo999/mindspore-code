@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	uirender "github.com/vigo999/ms-cli/ui/render"
-	"github.com/vigo999/ms-cli/ui/slash"
+	uirender "github.com/vigo999/mindspore-code/ui/render"
+	"github.com/vigo999/mindspore-code/ui/slash"
 )
 
 var (

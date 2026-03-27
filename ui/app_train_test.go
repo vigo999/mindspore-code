@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 const largePastedBlock = "line 01\nline 02\nline 03\nline 04\nline 05\nline 06\nline 07\nline 08\n"
@@ -546,7 +546,7 @@ func TestCtrlCSendsInterruptTokenForActiveTask(t *testing.T) {
 	if !strings.Contains(last.Content, "Interrupt requested.") {
 		t.Fatalf("expected interrupt hint message, got %#v", last)
 	}
-	if strings.Contains(last.Content, "ms-cli resume") {
+	if strings.Contains(last.Content, "mscode resume") {
 		t.Fatalf("expected interrupt hint without resume text, got %#v", last)
 	}
 	if app.state.IsThinking {

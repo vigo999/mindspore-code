@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/vigo999/ms-cli/configs"
+	"github.com/vigo999/mindspore-code/configs"
 )
 
 type ctxKey string

@@ -10,8 +10,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/tools"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/tools"
 )
 
 // GrepTool searches for patterns in files.

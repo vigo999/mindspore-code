@@ -3,9 +3,9 @@ package app
 import (
 	"testing"
 
-	agentctx "github.com/vigo999/ms-cli/agent/context"
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/ui/model"
+	agentctx "github.com/vigo999/mindspore-code/agent/context"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func TestReplayHistoryEmitsUsageSnapshotAfterBacklog(t *testing.T) {

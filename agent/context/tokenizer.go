@@ -5,15 +5,15 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/llm"
 )
 
 // Tokenizer 提供 Token 估算功能
 // 注意：这是基于启发式的估算，不是精确的 tiktoken 计算
 type Tokenizer struct {
 	// 配置参数
-	charsPerToken    float64 // 平均每个 Token 的字符数
-	wordsPerToken    float64 // 平均每个 Token 的单词数
+	charsPerToken     float64 // 平均每个 Token 的字符数
+	wordsPerToken     float64 // 平均每个 Token 的单词数
 	codeCharsPerToken float64 // 代码的平均每个 Token 字符数
 }
 

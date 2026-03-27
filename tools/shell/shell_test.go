@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	rshell "github.com/vigo999/ms-cli/runtime/shell"
+	rshell "github.com/vigo999/mindspore-code/runtime/shell"
 )
 
 func TestShellToolExecute_DoesNotDuplicateCommandOrExit0InContent(t *testing.T) {

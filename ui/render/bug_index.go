@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/vigo999/ms-cli/internal/bugs"
+	"github.com/vigo999/mindspore-code/internal/bugs"
 )
 
 var statusClosedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("244"))

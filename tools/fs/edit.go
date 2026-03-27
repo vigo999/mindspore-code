@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/tools"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/tools"
 )
 
 // EditTool edits file contents by replacing text.

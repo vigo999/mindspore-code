@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/llm"
 )
 
 func TestCreateDefersDiskWritesUntilActivate(t *testing.T) {
@@ -91,14 +91,14 @@ func TestCreateDefersDiskWritesUntilActivate(t *testing.T) {
 }
 
 func TestWorkDirKeySanitizesWindowsInvalidFilenameChars(t *testing.T) {
-	key := workDirKey(`C:\Users\alice\work\ms-cli`)
+	key := workDirKey(`C:\Users\alice\work\mscode`)
 
 	for _, invalid := range []string{`\\`, ":", "*", "?", `"`, "<", ">", "|", "/"} {
 		if strings.Contains(key, invalid) {
-			t.Fatalf("workDirKey(%q) = %q, contains invalid filename char %q", `C:\Users\alice\work\ms-cli`, key, invalid)
+			t.Fatalf("workDirKey(%q) = %q, contains invalid filename char %q", `C:\Users\alice\work\mscode`, key, invalid)
 		}
 	}
 	if strings.Trim(key, ".- ") == "" {
-		t.Fatalf("workDirKey(%q) = %q, want non-empty safe key", `C:\Users\alice\work\ms-cli`, key)
+		t.Fatalf("workDirKey(%q) = %q, want non-empty safe key", `C:\Users\alice\work\mscode`, key)
 	}
 }

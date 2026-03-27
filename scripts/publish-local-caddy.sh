@@ -14,18 +14,18 @@ if [[ "${VERSION}" != v* ]]; then
   exit 1
 fi
 
-DIST_DIR="${MSCLI_DIST_DIR:-/home/weizheng/work/ms-cli/dist}"
-MIRROR_ROOT="${MSCLI_MIRROR_ROOT:-/opt/downloads/ms-cli/releases}"
+DIST_DIR="${MSCODE_DIST_DIR:-/home/weizheng/work/mscode/dist}"
+MIRROR_ROOT="${MSCODE_MIRROR_ROOT:-/opt/downloads/mscode/releases}"
 TARGET_DIR="${MIRROR_ROOT}/${VERSION}"
 LATEST_LINK="${MIRROR_ROOT}/latest"
 
 required_files=(
   "manifest.json"
-  "ms-cli-linux-amd64"
-  "ms-cli-linux-arm64"
-  "ms-cli-darwin-amd64"
-  "ms-cli-darwin-arm64"
-  "ms-cli-windows-amd64.exe"
+  "mscode-linux-amd64"
+  "mscode-linux-arm64"
+  "mscode-darwin-amd64"
+  "mscode-darwin-arm64"
+  "mscode-windows-amd64.exe"
 )
 
 for file in "${required_files[@]}"; do

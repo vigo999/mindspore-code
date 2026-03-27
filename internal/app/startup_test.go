@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func TestSyncSharedSkillsEmitsSkillsNote(t *testing.T) {

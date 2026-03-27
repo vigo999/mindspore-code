@@ -3,22 +3,22 @@
 Planned features not yet scheduled. Each item may become its own feature plan when prioritized.
 
 **Command interface note:** Interactive UI uses slash commands (`/factory status`).
-CLI subcommands (`ms-cli factory query ...`) are for tooling, scripts, and
+CLI subcommands (`mscode factory query ...`) are for tooling, scripts, and
 Python tool bridge. Both route to the same Go implementation.
 
 ---
 
 ## Factory Query API & Tool Bridge
 
-**Context:** A3 (ms-cli-refactor-3.md) builds the factory store and updater.
+**Context:** A3 (`mindspore-code-refactor-3.md`) builds the factory store and updater.
 This feature adds a query CLI that Python tools (and other consumers) can
 call for search/get/list operations.
 
 **Scope:**
-- `ms-cli factory query` CLI subcommand (JSON output for tool consumption)
-  - `ms-cli factory query search --type operator --tags ascend,softmax`
-  - `ms-cli factory query get --id fp16-softmax-drift`
-  - `ms-cli factory query list --type perf-features`
+- `mscode factory query` CLI subcommand (JSON output for tool consumption)
+  - `mscode factory query search --type operator --tags ascend,softmax`
+  - `mscode factory query get --id fp16-softmax-drift`
+  - `mscode factory query list --type perf-features`
 - `MS_FACTORY_PATH` env var for Python tools to locate cache dir
 - Integration with `factory_query.py` shared tool in ms-skills
 - Single query implementation in Go, usable by both Go code and Python tools via CLI

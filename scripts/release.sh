@@ -27,12 +27,12 @@ echo "Building $VERSION for ${#PLATFORMS[@]} platforms..."
 for platform in "${PLATFORMS[@]}"; do
   GOOS="${platform%/*}"
   GOARCH="${platform#*/}"
-  output="ms-cli-${GOOS}-${GOARCH}"
+  output="mscode-${GOOS}-${GOARCH}"
   if [ "$GOOS" = "windows" ]; then
     output="${output}.exe"
   fi
   echo "  -> $output"
-  GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags "-X github.com/vigo999/ms-cli/internal/version.Version=${VERSION#v}" -o "${BUILD_DIR}/${output}" ./cmd/ms-cli/
+  GOOS="$GOOS" GOARCH="$GOARCH" go build -ldflags "-X github.com/vigo999/mindspore-code/internal/version.Version=${VERSION#v}" -o "${BUILD_DIR}/${output}" ./cmd/mscode/
 done
 
 echo ""
@@ -45,7 +45,7 @@ cat > "${BUILD_DIR}/manifest.json" <<MANIFEST
 {
   "latest": "${PLAIN_VERSION}",
   "min_allowed": "",
-  "download_base": "https://github.com/vigo999/ms-cli/releases/download"
+  "download_base": "https://github.com/vigo999/mindspore-code/releases/download"
 }
 MANIFEST
 echo "Generated manifest.json"
@@ -57,4 +57,4 @@ gh release create "$VERSION" "$BUILD_DIR"/* \
   --notes "$NOTES"
 
 echo ""
-echo "Done! https://github.com/vigo999/ms-cli/releases/tag/$VERSION"
+echo "Done! https://github.com/vigo999/mindspore-code/releases/tag/$VERSION"

@@ -6,31 +6,31 @@ import (
 	"runtime"
 )
 
-const defaultManifestURL = "https://github.com/vigo999/ms-cli/releases/latest/download/manifest.json"
+const defaultManifestURL = "https://github.com/vigo999/mindspore-code/releases/latest/download/manifest.json"
 
-// InstallDir returns ~/.ms-cli/bin.
+// InstallDir returns ~/.mscode/bin.
 func InstallDir() string {
 	return filepath.Join(ConfigDir(), "bin")
 }
 
 // BinaryPath returns the expected binary path.
 func BinaryPath() string {
-	name := "mscli"
+	name := "mscode"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}
 	return filepath.Join(InstallDir(), name)
 }
 
-// ConfigDir returns ~/.ms-cli.
+// ConfigDir returns ~/.mscode.
 func ConfigDir() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".ms-cli")
+	return filepath.Join(home, ".mscode")
 }
 
-// ManifestURL returns the manifest URL, overridable via MSCLI_MANIFEST_URL.
+// ManifestURL returns the manifest URL, overridable via MSCODE_MANIFEST_URL.
 func ManifestURL() string {
-	if u := os.Getenv("MSCLI_MANIFEST_URL"); u != "" {
+	if u := os.Getenv("MSCODE_MANIFEST_URL"); u != "" {
 		return u
 	}
 	return defaultManifestURL

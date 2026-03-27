@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/llm"
 )
 
 type stubHTTPClient struct {

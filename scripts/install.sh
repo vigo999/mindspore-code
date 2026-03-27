@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-GITHUB_REPO="${MSCLI_GITHUB_REPO:-vigo999/ms-cli}"
-MIRROR_BASE_URL="${MSCLI_MIRROR_BASE_URL:-http://13.229.44.116/ms-cli/releases}"
-INSTALL_DIR="$HOME/.ms-cli/bin"
-BINARY_NAME="mscli"
-INSTALL_SOURCE="${MSCLI_INSTALL_SOURCE:-auto}"
-PROBE_BYTES="${MSCLI_INSTALL_PROBE_BYTES:-262144}"
-PROBE_TIMEOUT="${MSCLI_INSTALL_PROBE_TIMEOUT:-8}"
-CONNECT_TIMEOUT="${MSCLI_INSTALL_CONNECT_TIMEOUT:-5}"
+GITHUB_REPO="${MSCODE_GITHUB_REPO:-vigo999/mindspore-code}"
+MIRROR_BASE_URL="${MSCODE_MIRROR_BASE_URL:-http://13.229.44.116/mscode/releases}"
+INSTALL_DIR="$HOME/.mscode/bin"
+BINARY_NAME="mscode"
+INSTALL_SOURCE="${MSCODE_INSTALL_SOURCE:-auto}"
+PROBE_BYTES="${MSCODE_INSTALL_PROBE_BYTES:-262144}"
+PROBE_TIMEOUT="${MSCODE_INSTALL_PROBE_TIMEOUT:-8}"
+CONNECT_TIMEOUT="${MSCODE_INSTALL_CONNECT_TIMEOUT:-5}"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 
 # Detect OS.
@@ -180,7 +180,7 @@ fi
 
 echo "Latest release: ${LATEST}"
 
-ASSET="ms-cli-${OS}-${ARCH}"
+ASSET="mscode-${OS}-${ARCH}"
 GITHUB_URL="https://github.com/${GITHUB_REPO}/releases/download/${LATEST}/${ASSET}"
 MIRROR_URL="${MIRROR_BASE_URL%/}/${LATEST}/${ASSET}"
 
@@ -204,7 +204,7 @@ case "$INSTALL_SOURCE" in
     fi
     ;;
   *)
-    echo "Error: unsupported MSCLI_INSTALL_SOURCE=${INSTALL_SOURCE} (expected auto|github|mirror)" >&2
+    echo "Error: unsupported MSCODE_INSTALL_SOURCE=${INSTALL_SOURCE} (expected auto|github|mirror)" >&2
     exit 1
     ;;
 esac
@@ -220,7 +220,7 @@ curl -fSL -o "${INSTALL_DIR}/${BINARY_NAME}" "$URL" </dev/null
 chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
 
 echo ""
-echo "Installed ms-cli ${LATEST} to ${INSTALL_DIR}/${BINARY_NAME}"
+echo "Installed mscode ${LATEST} to ${INSTALL_DIR}/${BINARY_NAME}"
 
 # Auto-add to PATH.
 PATH_LINE="export PATH=\"${INSTALL_DIR}:\$PATH\""
@@ -246,7 +246,7 @@ if [ -f "$PROFILE" ] && grep -qF "$INSTALL_DIR" "$PROFILE" 2>/dev/null; then
 else
   echo "$PATH_LINE" >> "$PROFILE"
   echo ""
-  echo "Added ms-cli to PATH in ${PROFILE}"
+  echo "Added mscode to PATH in ${PROFILE}"
 fi
 echo ""
-echo "Run: source ${PROFILE} && mscli"
+echo "Run: source ${PROFILE} && mscode"

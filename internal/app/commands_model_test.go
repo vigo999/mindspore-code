@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/vigo999/ms-cli/configs"
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/configs"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func TestCmdModel_UnprefixedKeepsProvider(t *testing.T) {

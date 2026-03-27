@@ -99,7 +99,7 @@ func parseSemver(v string) [3]int {
 // Returns empty string on any failure (non-fatal).
 func FetchReleaseNotes(ctx context.Context, version string) string {
 	version = strings.TrimPrefix(version, "v")
-	url := fmt.Sprintf("https://api.github.com/repos/vigo999/ms-cli/releases/tags/v%s", version)
+	url := fmt.Sprintf("https://api.github.com/repos/vigo999/mindspore-code/releases/tags/v%s", version)
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -131,7 +131,7 @@ func FetchReleaseNotes(ctx context.Context, version string) string {
 
 func buildDownloadURL(base, version string) string {
 	version = strings.TrimPrefix(version, "v")
-	name := fmt.Sprintf("ms-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := fmt.Sprintf("mscode-%s-%s", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}

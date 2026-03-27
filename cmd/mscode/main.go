@@ -4,7 +4,7 @@ import (
 	"log"
 	"os"
 
-	app "github.com/vigo999/ms-cli/internal/app"
+	app "github.com/vigo999/mindspore-code/internal/app"
 )
 
 func main() {

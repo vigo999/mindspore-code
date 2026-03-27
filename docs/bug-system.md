@@ -1,28 +1,28 @@
 # Bug System Usage Guide
 
-A shared bug tracking system for ms-cli teams. Covers installation, server setup, and all slash commands.
+A shared bug tracking system for mscode teams. Covers installation, server setup, and all slash commands.
 
-## 1. Install ms-cli
+## 1. Install mscode
 
 ### Option A: Install script (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vigo999/ms-cli/refactor-arch-4.2-issue-cmd/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/refactor-arch-4.2-issue-cmd/scripts/install.sh | bash
 ```
 
-This downloads the latest release to `~/.ms-cli/bin/mscli`. Add to PATH:
+This downloads the latest release to `~/.mscode/bin/mscode`. Add to PATH:
 
 ```bash
-export PATH="$HOME/.ms-cli/bin:$PATH"
+export PATH="$HOME/.mscode/bin:$PATH"
 ```
 
 ### Option B: Build from source
 
 ```bash
-git clone https://github.com/vigo999/ms-cli.git
-cd ms-cli
-go build -o ms-cli ./cmd/ms-cli
-go build -o ms-cli-server ./cmd/ms-cli-server
+git clone https://github.com/vigo999/mindspore-code.git
+cd mindspore-code
+go build -o mscode ./cmd/mscode
+go build -o mscode-server ./cmd/mscode-server
 ```
 
 ## 2. Server Setup
@@ -39,17 +39,17 @@ server:
 
 storage:
   driver: sqlite
-  dsn: /opt/mscli/issues.db
+  dsn: /opt/mscode/issues.db
 
 auth:
   tokens:
-    - token: mscli_token_alice
+    - token: mscode_token_alice
       user: alice
       role: member
-    - token: mscli_token_bob
+    - token: mscode_token_bob
       user: bob
       role: member
-    - token: mscli_token_travis
+    - token: mscode_token_travis
       user: travis
       role: admin
 ```
@@ -61,7 +61,7 @@ auth:
 ### 2.2 Start the server
 
 ```bash
-./ms-cli-server --config configs/server.yaml
+./mscode-server --config configs/server.yaml
 ```
 
 The server creates the SQLite tables on first start. Verify with:
@@ -76,7 +76,7 @@ curl http://localhost:8080/healthz
 Before using bug commands in the TUI, log in once:
 
 ```
-/login http://localhost:8080 mscli_token_alice
+/login http://localhost:8080 mscode_token_alice
 ```
 
 Output:
@@ -85,7 +85,7 @@ Output:
 logged in as alice (member)
 ```
 
-Credentials are saved to `~/.ms-cli/credentials.json`. Subsequent sessions reuse them automatically.
+Credentials are saved to `~/.mscode/credentials.json`. Subsequent sessions reuse them automatically.
 
 ## 4. Bug Commands
 
@@ -182,30 +182,30 @@ All endpoints except `/healthz` require `Authorization: Bearer <token>`.
 
 ```bash
 # create bug
-curl -X POST -H "Authorization: Bearer mscli_token_alice" \
+curl -X POST -H "Authorization: Bearer mscode_token_alice" \
   -H "Content-Type: application/json" \
   -d '{"title":"gradient explosion on large batch"}' \
   http://localhost:8080/bugs
 
 # list all bugs
-curl -H "Authorization: Bearer mscli_token_alice" http://localhost:8080/bugs
+curl -H "Authorization: Bearer mscode_token_alice" http://localhost:8080/bugs
 
 # claim bug 1
-curl -X POST -H "Authorization: Bearer mscli_token_bob" \
+curl -X POST -H "Authorization: Bearer mscode_token_bob" \
   http://localhost:8080/bugs/1/claim
 
 # add note
-curl -X POST -H "Authorization: Bearer mscli_token_bob" \
+curl -X POST -H "Authorization: Bearer mscode_token_bob" \
   -H "Content-Type: application/json" \
   -d '{"content":"reproduced with batch_size=256"}' \
   http://localhost:8080/bugs/1/notes
 
 # view activity
-curl -H "Authorization: Bearer mscli_token_alice" \
+curl -H "Authorization: Bearer mscode_token_alice" \
   http://localhost:8080/bugs/1/activity
 
 # dock summary
-curl -H "Authorization: Bearer mscli_token_alice" http://localhost:8080/dock
+curl -H "Authorization: Bearer mscode_token_alice" http://localhost:8080/dock
 ```
 
 ## 6. Data Model
@@ -228,7 +228,7 @@ TUI (/login, /report, /bugs, /claim, /dock)
   → internal/app/bugs.go (command dispatch)
     → internal/issues/service.go (domain facade)
       → internal/issues/remote_store.go (HTTP client)
-        → ms-cli-server (HTTP API)
+        → mscode-server (HTTP API)
           → internal/server/store.go (SQLite)
 ```
 

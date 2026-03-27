@@ -1,7 +1,7 @@
 # Design Documents
 
 This folder captures the reasoning behind key design decisions across the
-three-repo model (ms-cli, ms-skills, ms-factory).
+three-repo model (mindspore-code, ms-skills, ms-factory).
 
 Each document explains **why** a particular approach was chosen, what
 alternatives were considered, and how the design connects to user-facing

@@ -1,4 +1,4 @@
-module github.com/vigo999/ms-cli
+module github.com/vigo999/mindspore-code
 
 go 1.24.2
 

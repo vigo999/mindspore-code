@@ -3,9 +3,9 @@
 ## Goal
 
 Add a new training-and-optimization skill family to `~/work/ms-skills`
-that matches the `ms-cli` refactor direction:
+that matches the `mscode` refactor direction:
 
-- `ms-cli` remains the runtime and command entrypoint
+- `mscode` remains the runtime and command entrypoint
 - `ms-skills` provides prompt-oriented domain skills
 - `ms-factory` provides structured knowledge assets
 
@@ -32,7 +32,7 @@ Add six new high-level skills:
 - `algorithm-agent`
 
 These are the high-level skills that map most directly to the current demo
-stories in `ms-cli`.
+stories in `mscode`.
 
 ## Out Of Scope For This Workstream
 
@@ -87,7 +87,7 @@ step compliance. Track invoke ratio per skill and iterate until reliable.
 
 If a skill cannot reach acceptable invoke ratio through prompt techniques
 alone, it can be escalated to `entry.type: "controlled"` in a future
-refactor phase. This means a Go controller in ms-cli drives the steps
+refactor phase. This means a Go controller in mscode drives the steps
 deterministically, calling the LLM per-step with focused instructions
 (similar to the existing `workflow/train/controller.go` pattern).
 
@@ -148,7 +148,7 @@ as `category`.
 ### 4. Separate skill packaging from helper-tool rollout
 
 If shared helper scripts are added, they should be staged after the basic skill
-packages exist and after the corresponding `ms-cli` / Factory integration is
+packages exist and after the corresponding `mscode` / Factory integration is
 available.
 
 ## B1: Add Six New Manual Skills
@@ -333,7 +333,7 @@ corresponding runtime support exists.
 Only add a shared tool when its upstream dependency is real:
 
 - `factory_query.py`
-  - depends on `ms-cli factory query ...` existing
+  - depends on `mscode factory query ...` existing
 - `ssh_exec.py`
   - depends on a stable remote execution contract
 - `apply_patch.py`
@@ -369,12 +369,12 @@ same conventions as the rest of the repo.
 ## B5: Add Commands
 
 Add command docs under `ms-skills/commands/` that match the user-facing
-entrypoints expected by `ms-cli`.
+entrypoints expected by `mscode`.
 
 These command docs must stay aligned with Workstream A, Phase A4:
 
-- `ms-cli` owns runtime command handling and task construction
-- command-scoped skill activation happens in `ms-cli`
+- `mscode` owns runtime command handling and task construction
+- command-scoped skill activation happens in `mscode`
 - `ms-skills/commands/*.md` define the user-facing command vocabulary
 - the same command names and routing intent must be reflected in both repos
 
@@ -399,11 +399,11 @@ Recommended implementations for `/diagnose`:
    - `/diagnose-crash`
    - `/diagnose-accuracy`
    - `/diagnose-perf`
-2. or keep `/diagnose` as a thin router in `ms-cli`:
+2. or keep `/diagnose` as a thin router in `mscode`:
    - ask the user for clarification, or
    - use lightweight deterministic routing before loading one skill
 
-Keep command wording aligned with `ms-cli` so the two repos describe the same
+Keep command wording aligned with `mscode` so the two repos describe the same
 interaction model.
 
 ## B6: Validation
@@ -453,6 +453,6 @@ The incubating plan should be treated as historical context, not current spec.
 ## Summary
 
 This workstream should first create a clean, prompt-oriented skill family that
-matches the `ms-cli` demo-story direction. Shared helper tooling and deeper
+matches the `mscode` demo-story direction. Shared helper tooling and deeper
 Factory integration should follow only after the corresponding runtime support
 is available.

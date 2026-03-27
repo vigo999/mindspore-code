@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/internal/bugs"
-	issuepkg "github.com/vigo999/ms-cli/internal/issues"
-	projectpkg "github.com/vigo999/ms-cli/internal/project"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/internal/bugs"
+	issuepkg "github.com/vigo999/mindspore-code/internal/issues"
+	projectpkg "github.com/vigo999/mindspore-code/internal/project"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 type credentials struct {
@@ -25,7 +25,7 @@ type credentials struct {
 
 func credentialsPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".ms-cli", "credentials.json")
+	return filepath.Join(home, ".mscode", "credentials.json")
 }
 
 func loadCredentials() (*credentials, error) {
@@ -64,7 +64,7 @@ func (a *Application) cmdLogin(args []string) {
 	if serverURL == "" {
 		a.EventCh <- model.Event{
 			Type:    model.AgentReply,
-			Message: "server URL not set. Run: export MSCLI_SERVER_URL=http://<host>:9473",
+			Message: "server URL not set. Run: export MSCODE_SERVER_URL=http://<host>:9473",
 		}
 		return
 	}

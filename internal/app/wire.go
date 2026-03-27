@@ -55,6 +55,8 @@ type Application struct {
 	permissionSettingsIssue *permissionSettingsIssue
 	session                 *session.Session
 	replayBacklog           []model.Event
+	replayTimeline          []session.ReplayFrame
+	replayOnly              bool
 
 	// Skills
 	skillLoader   *skills.Loader
@@ -71,9 +73,10 @@ type Application struct {
 	projectService *projectpkg.Service
 
 	// Foreground chat task state
-	taskRunID   uint64
-	taskCancels map[uint64]context.CancelFunc
-	taskMu      sync.Mutex
+	taskRunID    uint64
+	taskCancels  map[uint64]context.CancelFunc
+	replayCancel context.CancelFunc
+	taskMu       sync.Mutex
 
 	// Model preset runtime override state.
 	activeModelPresetID string
@@ -102,6 +105,8 @@ type BootstrapConfig struct {
 	Key             string
 	Resume          bool
 	ResumeSessionID string
+	Replay          bool
+	ReplaySessionID string
 }
 
 // Wire builds and returns the Application.
@@ -177,12 +182,25 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	var (
 		runtimeSession *session.Session
 		replayBacklog  []model.Event
+		replayTimeline []session.ReplayFrame
 	)
-	if cfg.Resume {
-		if strings.TrimSpace(cfg.ResumeSessionID) != "" {
-			runtimeSession, err = session.LoadByID(workDir, cfg.ResumeSessionID)
+	if cfg.Resume || cfg.Replay {
+		sessionID := cfg.ResumeSessionID
+		if cfg.Replay {
+			sessionID = cfg.ReplaySessionID
+		}
+		if strings.TrimSpace(sessionID) != "" {
+			targetLabel := "session"
+			if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
+				targetLabel = "trajectory"
+			}
+			if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
+				runtimeSession, err = session.LoadReplayPath(sessionID)
+			} else {
+				runtimeSession, err = session.LoadByID(workDir, sessionID)
+			}
 			if err != nil {
-				return nil, fmt.Errorf("load session %s: %w", cfg.ResumeSessionID, err)
+				return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, err)
 			}
 		} else {
 			runtimeSession, err = session.LoadLatest(workDir)
@@ -193,7 +211,14 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		systemPrompt, restoredMessages := runtimeSession.RestoreContext()
 		ctxManager.SetSystemPrompt(systemPrompt)
 		ctxManager.SetNonSystemMessages(restoredMessages)
-		replayBacklog = runtimeSession.ReplayEvents()
+		if cfg.Replay {
+			replayTimeline = runtimeSession.PlaybackTimeline()
+			if metaWorkDir := strings.TrimSpace(runtimeSession.Meta().WorkDir); metaWorkDir != "" {
+				workDir = metaWorkDir
+			}
+		} else {
+			replayBacklog = runtimeSession.ReplayEvents()
+		}
 	} else {
 		runtimeSession, err = session.Create(workDir, systemPrompt)
 		if err != nil {
@@ -242,6 +267,8 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		permissionSettingsIssue: permSettingsIssue,
 		session:                 runtimeSession,
 		replayBacklog:           replayBacklog,
+		replayTimeline:          replayTimeline,
+		replayOnly:              cfg.Replay,
 		llmReady:                llmReady,
 		skillLoader:             skillLoader,
 		skillsHomeDir:           strings.TrimSpace(homeDir),
@@ -257,6 +284,20 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	}
 
 	return app, nil
+}
+
+func looksLikeTrajectoryPath(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return false
+	}
+	if strings.HasSuffix(target, ".json") || strings.HasSuffix(target, ".jsonl") {
+		return true
+	}
+	if strings.HasPrefix(target, ".") || strings.ContainsAny(target, `/\`) {
+		return true
+	}
+	return false
 }
 
 func sessionPermissionStoreConfig(runtimeSession *session.Session) permission.PermissionStoreConfig {

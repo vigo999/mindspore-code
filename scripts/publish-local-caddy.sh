@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+
 VERSION="${1:-}"
 
 if [ -z "${VERSION}" ]; then
@@ -14,10 +17,13 @@ if [[ "${VERSION}" != v* ]]; then
   exit 1
 fi
 
-DIST_DIR="${MSCODE_DIST_DIR:-/home/weizheng/work/mscode/dist}"
+DIST_DIR="${MSCODE_DIST_DIR:-${REPO_ROOT}/dist}"
 MIRROR_ROOT="${MSCODE_MIRROR_ROOT:-/opt/downloads/mscode/releases}"
 TARGET_DIR="${MIRROR_ROOT}/${VERSION}"
 LATEST_LINK="${MIRROR_ROOT}/latest"
+PUBLIC_ROOT="$(dirname "${MIRROR_ROOT}")"
+INSTALL_SCRIPT_SOURCE="${MSCODE_INSTALL_SCRIPT_SOURCE:-${REPO_ROOT}/scripts/install.sh}"
+INSTALL_SCRIPT_PATH="${PUBLIC_ROOT}/install.sh"
 
 required_files=(
   "manifest.json"
@@ -26,6 +32,7 @@ required_files=(
   "mscode-darwin-amd64"
   "mscode-darwin-arm64"
   "mscode-windows-amd64.exe"
+  "mscode-server-linux-amd64"
 )
 
 for file in "${required_files[@]}"; do
@@ -38,7 +45,9 @@ done
 echo "Publishing ${VERSION} from ${DIST_DIR} to ${TARGET_DIR}"
 sudo mkdir -p "${TARGET_DIR}"
 sudo cp "${DIST_DIR}"/* "${TARGET_DIR}/"
+sudo cp "${INSTALL_SCRIPT_SOURCE}" "${INSTALL_SCRIPT_PATH}"
 sudo chmod -R a+rX "${TARGET_DIR}"
+sudo chmod a+rX "${INSTALL_SCRIPT_PATH}"
 sudo ln -sfn "${TARGET_DIR}" "${LATEST_LINK}"
 
 echo ""
@@ -46,3 +55,5 @@ echo "Published ${VERSION} to local Caddy mirror:"
 echo "  ${TARGET_DIR}"
 echo "Latest link:"
 echo "  ${LATEST_LINK} -> ${TARGET_DIR}"
+echo "Public install script:"
+echo "  ${INSTALL_SCRIPT_PATH}"

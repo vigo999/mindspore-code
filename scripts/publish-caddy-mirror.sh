@@ -32,6 +32,9 @@ MIRROR_PORT="${MSCODE_MIRROR_PORT:-22}"
 DIST_DIR="${MSCODE_DIST_DIR:-dist}"
 MIRROR_ROOT="${MSCODE_MIRROR_ROOT:-/opt/downloads/mscode/releases}"
 MIRROR_BASE_URL="${MSCODE_MIRROR_BASE_URL:-}"
+MIRROR_PUBLIC_ROOT="${MSCODE_MIRROR_PUBLIC_ROOT:-$(dirname "${MIRROR_ROOT}")}"
+REMOTE_INSTALL_SCRIPT_PATH="${MSCODE_REMOTE_INSTALL_SCRIPT_PATH:-${MIRROR_PUBLIC_ROOT}/install.sh}"
+INSTALL_SCRIPT_SOURCE="${MSCODE_INSTALL_SCRIPT_SOURCE:-$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/scripts/install.sh}"
 REMOTE_CHMOD="${MSCODE_REMOTE_CHMOD:-a+rX}"
 REMOTE_LATEST_LINK="${MSCODE_REMOTE_LATEST_LINK:-1}"
 
@@ -53,6 +56,7 @@ required_files=(
   "mscode-darwin-amd64"
   "mscode-darwin-arm64"
   "mscode-windows-amd64.exe"
+  "mscode-server-linux-amd64"
 )
 
 for file in "${required_files[@]}"; do
@@ -61,6 +65,11 @@ for file in "${required_files[@]}"; do
     exit 1
   fi
 done
+
+if [ ! -f "${INSTALL_SCRIPT_SOURCE}" ]; then
+  echo "Error: install script not found: ${INSTALL_SCRIPT_SOURCE}" >&2
+  exit 1
+fi
 
 remote_target="${MIRROR_ROOT}/${VERSION}"
 remote_latest="${MIRROR_ROOT}/latest"
@@ -108,6 +117,8 @@ for file in "${required_files[@]}"; do
 done
 
 ssh -p "${MIRROR_PORT}" "${ssh_target}" "chmod -R ${REMOTE_CHMOD} '${remote_target}'"
+scp -P "${MIRROR_PORT}" "${INSTALL_SCRIPT_SOURCE}" "${ssh_target}:${REMOTE_INSTALL_SCRIPT_PATH}"
+ssh -p "${MIRROR_PORT}" "${ssh_target}" "chmod ${REMOTE_CHMOD%% *} '${REMOTE_INSTALL_SCRIPT_PATH}'"
 
 if [ "${REMOTE_LATEST_LINK}" = "1" ]; then
   ssh -p "${MIRROR_PORT}" "${ssh_target}" "ln -sfn '${remote_target}' '${remote_latest}' && chmod -h ${REMOTE_CHMOD%% *} '${remote_latest}' 2>/dev/null || true"
@@ -116,6 +127,7 @@ fi
 echo ""
 echo "Mirror upload complete."
 echo "Remote path: ${remote_target}"
+echo "Public install script: ${REMOTE_INSTALL_SCRIPT_PATH}"
 if [ -n "${MIRROR_BASE_URL}" ]; then
   echo "Download base: ${MIRROR_BASE_URL%/}/${VERSION}"
   echo "Manifest download_base set to: ${MIRROR_BASE_URL%/}"

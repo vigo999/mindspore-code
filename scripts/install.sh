@@ -3,9 +3,11 @@ set -euo pipefail
 
 GITHUB_REPO="${MSCODE_GITHUB_REPO:-vigo999/mindspore-code}"
 MIRROR_BASE_URL="${MSCODE_MIRROR_BASE_URL:-http://47.115.175.134/mscode/releases}"
+MIRROR_MANIFEST_URL="${MSCODE_MIRROR_MANIFEST_URL:-${MIRROR_BASE_URL%/}/latest/manifest.json}"
 INSTALL_DIR="$HOME/.mscode/bin"
 BINARY_NAME="mscode"
 INSTALL_SOURCE="${MSCODE_INSTALL_SOURCE:-auto}"
+REQUESTED_VERSION="${MSCODE_VERSION:-}"
 PROBE_BYTES="${MSCODE_INSTALL_PROBE_BYTES:-262144}"
 PROBE_TIMEOUT="${MSCODE_INSTALL_PROBE_TIMEOUT:-8}"
 CONNECT_TIMEOUT="${MSCODE_INSTALL_CONNECT_TIMEOUT:-5}"
@@ -66,22 +68,78 @@ json_release_tag() {
   '
 }
 
-json_asset_url() {
-  local asset_name="$1"
+json_manifest_version() {
   perl -MJSON::PP -e '
     use strict;
     use warnings;
-    my $asset_name = shift @ARGV;
     local $/;
     my $payload = <STDIN>;
     my $json = decode_json($payload);
-    my $assets = $json->{assets} // [];
-    for my $asset (@{$assets}) {
-      next unless (($asset->{name} // q()) eq $asset_name);
-      print($asset->{browser_download_url} // q());
-      last;
-    }
-  ' "$asset_name"
+    print($json->{latest} // q());
+  '
+}
+
+normalize_tag() {
+  local version="$1"
+  case "$version" in
+    v*) printf '%s\n' "$version" ;;
+    *) printf 'v%s\n' "$version" ;;
+  esac
+}
+
+latest_from_manifest() {
+  local url="$1"
+  local version
+
+  version="$(fetch_json "$url" | json_manifest_version)"
+  if [ -z "$version" ]; then
+    return 1
+  fi
+  normalize_tag "$version"
+}
+
+latest_from_github() {
+  local tag
+
+  tag="$(fetch_json "$GITHUB_API" | json_release_tag)"
+  if [ -z "$tag" ]; then
+    return 1
+  fi
+  normalize_tag "$tag"
+}
+
+resolve_latest() {
+  local latest=""
+
+  case "$INSTALL_SOURCE" in
+    auto)
+      echo "Resolving latest release from mirror..."
+      latest="$(latest_from_manifest "$MIRROR_MANIFEST_URL" 2>/dev/null || true)"
+      if [ -n "$latest" ]; then
+        printf '%s\n' "$latest"
+        return 0
+      fi
+      echo "Mirror manifest unavailable, falling back to GitHub..."
+      latest="$(latest_from_github 2>/dev/null || true)"
+      ;;
+    mirror)
+      echo "Resolving latest release from mirror..."
+      latest="$(latest_from_manifest "$MIRROR_MANIFEST_URL" 2>/dev/null || true)"
+      ;;
+    github)
+      echo "Resolving latest release from GitHub..."
+      latest="$(latest_from_github 2>/dev/null || true)"
+      ;;
+    *)
+      echo "Error: unsupported MSCODE_INSTALL_SOURCE=${INSTALL_SOURCE} (expected auto|github|mirror)" >&2
+      exit 1
+      ;;
+  esac
+
+  if [ -z "$latest" ]; then
+    return 1
+  fi
+  printf '%s\n' "$latest"
 }
 
 probe_speed() {
@@ -170,12 +228,14 @@ pick_source() {
   return 1
 }
 
-echo "Fetching latest release tag from GitHub..."
-LATEST="$(fetch_json "$GITHUB_API" | json_release_tag)"
-
-if [ -z "$LATEST" ]; then
-  echo "Error: could not determine latest release" >&2
-  exit 1
+if [ -n "$REQUESTED_VERSION" ]; then
+  LATEST="$(normalize_tag "$REQUESTED_VERSION")"
+  echo "Using requested release: ${LATEST}"
+else
+  if ! LATEST="$(resolve_latest)"; then
+    echo "Error: could not determine latest release" >&2
+    exit 1
+  fi
 fi
 
 echo "Latest release: ${LATEST}"
@@ -202,10 +262,6 @@ case "$INSTALL_SOURCE" in
       echo "Error: mirror release download is unavailable for tag ${LATEST}" >&2
       exit 1
     fi
-    ;;
-  *)
-    echo "Error: unsupported MSCODE_INSTALL_SOURCE=${INSTALL_SOURCE} (expected auto|github|mirror)" >&2
-    exit 1
     ;;
 esac
 

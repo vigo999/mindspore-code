@@ -7,13 +7,19 @@ A shared bug tracking system for mscode teams. Covers installation, server setup
 ### Option A: Install script (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/refactor-arch-4.2-issue-cmd/scripts/install.sh | bash
+curl -fsSL http://47.115.175.134/mscode/install.sh | bash
 ```
 
 This downloads the latest release to `~/.mscode/bin/mscode`. Add to PATH:
 
 ```bash
 export PATH="$HOME/.mscode/bin:$PATH"
+```
+
+For internal or authenticated GitHub installs, this also exists:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
 ```
 
 ### Option B: Build from source

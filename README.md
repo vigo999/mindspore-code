@@ -4,21 +4,27 @@ AI Infra Agent
 
 ## Install
 
-### One-liner (recommended)
+### One-liner (public mirror)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
+curl -fsSL http://47.115.175.134/mscode/install.sh | bash
 ```
 
 Optional overrides:
 
 ```bash
 # Force one source instead of auto-probing.
-MSCODE_INSTALL_SOURCE=github curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
-MSCODE_INSTALL_SOURCE=mirror curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
+MSCODE_INSTALL_SOURCE=github curl -fsSL http://47.115.175.134/mscode/install.sh | bash
+MSCODE_INSTALL_SOURCE=mirror curl -fsSL http://47.115.175.134/mscode/install.sh | bash
 
 # Override the mirror base URL if you host your own Caddy/Nginx mirror.
-MSCODE_MIRROR_BASE_URL=http://47.115.175.134/mscode/releases curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
+MSCODE_MIRROR_BASE_URL=http://47.115.175.134/mscode/releases curl -fsSL http://47.115.175.134/mscode/install.sh | bash
+```
+
+### One-liner (GitHub raw, internal use)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
 ```
 
 ### Build from source

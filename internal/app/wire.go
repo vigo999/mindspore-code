@@ -57,6 +57,7 @@ type Application struct {
 	replayBacklog           []model.Event
 	replayTimeline          []session.ReplayFrame
 	replayOnly              bool
+	replaySpeed             float64
 
 	// Skills
 	skillLoader   *skills.Loader
@@ -107,6 +108,7 @@ type BootstrapConfig struct {
 	ResumeSessionID string
 	Replay          bool
 	ReplaySessionID string
+	ReplaySpeed     float64
 }
 
 // Wire builds and returns the Application.
@@ -269,6 +271,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		replayBacklog:           replayBacklog,
 		replayTimeline:          replayTimeline,
 		replayOnly:              cfg.Replay,
+		replaySpeed:             replaySpeedOrDefault(cfg.ReplaySpeed),
 		llmReady:                llmReady,
 		skillLoader:             skillLoader,
 		skillsHomeDir:           strings.TrimSpace(homeDir),
@@ -298,6 +301,13 @@ func looksLikeTrajectoryPath(target string) bool {
 		return true
 	}
 	return false
+}
+
+func replaySpeedOrDefault(speed float64) float64 {
+	if speed <= 0 {
+		return 1
+	}
+	return speed
 }
 
 func sessionPermissionStoreConfig(runtimeSession *session.Session) permission.PermissionStoreConfig {

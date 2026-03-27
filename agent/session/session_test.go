@@ -212,8 +212,8 @@ func TestPlaybackTimelineInsertsThinkingBetweenUserAndLLMResponse(t *testing.T) 
 	}
 
 	playback := s.PlaybackTimeline()
-	if len(playback) != 6 {
-		t.Fatalf("playback timeline length = %d, want 6", len(playback))
+	if len(playback) != 8 {
+		t.Fatalf("playback timeline length = %d, want 8", len(playback))
 	}
 	if playback[0].Event.Type != "UserInput" {
 		t.Fatalf("first event type = %q, want %q", playback[0].Event.Type, "UserInput")
@@ -236,7 +236,16 @@ func TestPlaybackTimelineInsertsThinkingBetweenUserAndLLMResponse(t *testing.T) 
 	if !playback[4].Timestamp.Equal(t2) {
 		t.Fatalf("thinking timestamp after tool result = %v, want %v", playback[4].Timestamp, t2)
 	}
-	if playback[5].Event.Type != "AgentReply" {
-		t.Fatalf("sixth event type = %q, want %q", playback[5].Event.Type, "AgentReply")
+	if playback[5].Event.Type != "AgentReplyDelta" {
+		t.Fatalf("sixth event type = %q, want %q", playback[5].Event.Type, "AgentReplyDelta")
+	}
+	if playback[6].Event.Type != "AgentReplyDelta" {
+		t.Fatalf("seventh event type = %q, want %q", playback[6].Event.Type, "AgentReplyDelta")
+	}
+	if playback[7].Event.Type != "AgentReply" {
+		t.Fatalf("eighth event type = %q, want %q", playback[7].Event.Type, "AgentReply")
+	}
+	if got := playback[5].Event.Message + playback[6].Event.Message; got != "done" {
+		t.Fatalf("delta content = %q, want %q", got, "done")
 	}
 }

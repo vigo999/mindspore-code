@@ -363,8 +363,10 @@ func (s *Session) PlaybackTimeline() []ReplayFrame {
 
 	playback := make([]ReplayFrame, 0, len(frames)*2)
 	for i, frame := range frames {
+		var previous *ReplayFrame
 		if i > 0 {
 			prev := frames[i-1]
+			previous = &prev
 			if shouldInsertThinking(prev, frame) {
 				playback = append(playback, ReplayFrame{
 					Timestamp: prev.Timestamp,
@@ -374,7 +376,7 @@ func (s *Session) PlaybackTimeline() []ReplayFrame {
 				})
 			}
 		}
-		playback = append(playback, frame)
+		playback = append(playback, expandAssistantReplay(previous, frame)...)
 	}
 	return playback
 }
@@ -895,4 +897,89 @@ func shouldInsertThinking(previous, next ReplayFrame) bool {
 	default:
 		return false
 	}
+}
+
+func expandAssistantReplay(previous *ReplayFrame, current ReplayFrame) []ReplayFrame {
+	if previous == nil || current.Event.Type != model.AgentReply || !current.Timestamp.After(previous.Timestamp) {
+		return []ReplayFrame{current}
+	}
+
+	deltas := splitReplayAssistantDeltas(current.Event.Message, current.Timestamp.Sub(previous.Timestamp))
+	if len(deltas) == 0 {
+		return []ReplayFrame{current}
+	}
+
+	expanded := make([]ReplayFrame, 0, len(deltas)+1)
+	totalDelay := current.Timestamp.Sub(previous.Timestamp)
+	step := totalDelay / time.Duration(len(deltas)+1)
+	if step <= 0 {
+		return []ReplayFrame{current}
+	}
+	for i, delta := range deltas {
+		expanded = append(expanded, ReplayFrame{
+			Timestamp: previous.Timestamp.Add(step * time.Duration(i+1)),
+			Event: model.Event{
+				Type:    model.AgentReplyDelta,
+				Message: delta,
+			},
+		})
+	}
+	expanded = append(expanded, current)
+	return expanded
+}
+
+func splitReplayAssistantDeltas(message string, totalDelay time.Duration) []string {
+	runes := []rune(message)
+	if len(runes) == 0 || totalDelay <= 0 {
+		return nil
+	}
+
+	chunkCount := int(totalDelay / (150 * time.Millisecond))
+	if chunkCount < 1 {
+		chunkCount = 1
+	}
+
+	maxByLength := (len(runes) + 7) / 8
+	if maxByLength < 1 {
+		maxByLength = 1
+	}
+	if chunkCount > maxByLength {
+		chunkCount = maxByLength
+	}
+
+	if len(runes) > 1 && totalDelay > 200*time.Millisecond && chunkCount < 2 {
+		chunkCount = 2
+	}
+	if chunkCount > 12 {
+		chunkCount = 12
+	}
+	if chunkCount > len(runes) {
+		chunkCount = len(runes)
+	}
+
+	return splitReplayRunesEvenly(runes, chunkCount)
+}
+
+func splitReplayRunesEvenly(runes []rune, chunkCount int) []string {
+	if len(runes) == 0 || chunkCount <= 0 {
+		return nil
+	}
+	if chunkCount > len(runes) {
+		chunkCount = len(runes)
+	}
+
+	base := len(runes) / chunkCount
+	extra := len(runes) % chunkCount
+	chunks := make([]string, 0, chunkCount)
+	start := 0
+	for i := 0; i < chunkCount; i++ {
+		size := base
+		if i < extra {
+			size++
+		}
+		end := start + size
+		chunks = append(chunks, string(runes[start:end]))
+		start = end
+	}
+	return chunks
 }

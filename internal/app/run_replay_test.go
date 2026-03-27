@@ -178,6 +178,35 @@ func TestParseBootstrapConfigReplay(t *testing.T) {
 	if cfg.ReplaySessionID != "sess_123" {
 		t.Fatalf("replay session id = %q, want %q", cfg.ReplaySessionID, "sess_123")
 	}
+	if cfg.ReplaySpeed != 1 {
+		t.Fatalf("replay speed = %v, want 1", cfg.ReplaySpeed)
+	}
+}
+
+func TestParseBootstrapConfigReplayWithSpeed(t *testing.T) {
+	cfg, err := parseBootstrapConfig([]string{"replay", "trajectory.json", "2x"})
+	if err != nil {
+		t.Fatalf("parse replay config with speed: %v", err)
+	}
+	if cfg.ReplaySessionID != "trajectory.json" {
+		t.Fatalf("replay target = %q, want %q", cfg.ReplaySessionID, "trajectory.json")
+	}
+	if cfg.ReplaySpeed != 2 {
+		t.Fatalf("replay speed = %v, want %v", cfg.ReplaySpeed, 2.0)
+	}
+}
+
+func TestParseBootstrapConfigReplaySpeedOnly(t *testing.T) {
+	cfg, err := parseBootstrapConfig([]string{"replay", "1.5"})
+	if err != nil {
+		t.Fatalf("parse replay speed only: %v", err)
+	}
+	if cfg.ReplaySessionID != "" {
+		t.Fatalf("replay target = %q, want empty", cfg.ReplaySessionID)
+	}
+	if cfg.ReplaySpeed != 1.5 {
+		t.Fatalf("replay speed = %v, want %v", cfg.ReplaySpeed, 1.5)
+	}
 }
 
 func TestLooksLikeTrajectoryPath(t *testing.T) {
@@ -196,5 +225,13 @@ func TestLooksLikeTrajectoryPath(t *testing.T) {
 		if got := looksLikeTrajectoryPath(tt.target); got != tt.want {
 			t.Fatalf("looksLikeTrajectoryPath(%q) = %v, want %v", tt.target, got, tt.want)
 		}
+	}
+}
+
+func TestScaledReplayDelayUsesSpeedMultiplier(t *testing.T) {
+	app := &Application{replaySpeed: 2}
+	got := app.scaledReplayDelay(300 * time.Millisecond)
+	if got != 150*time.Millisecond {
+		t.Fatalf("scaled replay delay = %v, want %v", got, 150*time.Millisecond)
 	}
 }

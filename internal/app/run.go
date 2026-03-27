@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -323,7 +325,7 @@ func (a *Application) replayHistoryTimeline() {
 		if i > 0 {
 			delay := frame.Timestamp.Sub(previous)
 			if delay > 0 {
-				if err := waitReplayDelay(ctx, delay); err != nil {
+				if err := waitReplayDelay(ctx, a.scaledReplayDelay(delay)); err != nil {
 					return
 				}
 			}
@@ -341,6 +343,18 @@ func (a *Application) replayHistoryTimeline() {
 		return
 	}
 	a.emitTokenUsageSnapshot()
+}
+
+func (a *Application) scaledReplayDelay(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return 0
+	}
+	speed := replaySpeedOrDefault(a.replaySpeed)
+	scaled := float64(delay) / speed
+	if scaled < 1 {
+		return time.Nanosecond
+	}
+	return time.Duration(math.Round(scaled))
 }
 
 func (a *Application) setReplayCancel(cancel context.CancelFunc) {
@@ -478,15 +492,15 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 		if err := fs.Parse(args[1:]); err != nil {
 			return BootstrapConfig{}, err
 		}
-		rest := fs.Args()
-		if len(rest) > 1 {
-			return BootstrapConfig{}, fmt.Errorf("usage: ms-cli replay [sess_xxx|trajectory.json|trajectory.jsonl]")
+		target, speed, err := parseReplayTargetAndSpeed(fs.Args())
+		if err != nil {
+			return BootstrapConfig{}, err
 		}
-		cfg := BootstrapConfig{Replay: true}
-		if len(rest) == 1 {
-			cfg.ReplaySessionID = rest[0]
-		}
-		return cfg, nil
+		return BootstrapConfig{
+			Replay:          true,
+			ReplaySessionID: target,
+			ReplaySpeed:     speed,
+		}, nil
 	}
 
 	if len(args) > 0 && args[0] == "resume" {
@@ -532,6 +546,42 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 		Model: *modelFlag,
 		Key:   *apiKey,
 	}, nil
+}
+
+func parseReplayTargetAndSpeed(args []string) (string, float64, error) {
+	usageErr := func() error {
+		return fmt.Errorf("usage: ms-cli replay [sess_xxx|trajectory.json|trajectory.jsonl] [speed]")
+	}
+
+	switch len(args) {
+	case 0:
+		return "", 1, nil
+	case 1:
+		if speed, ok := parseReplaySpeed(args[0]); ok {
+			return "", speed, nil
+		}
+		return args[0], 1, nil
+	case 2:
+		speed, ok := parseReplaySpeed(args[1])
+		if !ok {
+			return "", 0, usageErr()
+		}
+		return args[0], speed, nil
+	default:
+		return "", 0, usageErr()
+	}
+}
+
+func parseReplaySpeed(raw string) (float64, bool) {
+	raw = strings.TrimSpace(strings.TrimSuffix(strings.ToLower(raw), "x"))
+	if raw == "" {
+		return 0, false
+	}
+	speed, err := strconv.ParseFloat(raw, 64)
+	if err != nil || speed <= 0 {
+		return 0, false
+	}
+	return speed, true
 }
 
 var loopEventTypeMap = map[string]model.EventType{

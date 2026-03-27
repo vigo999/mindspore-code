@@ -185,6 +185,13 @@ func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL,
 	}
 }
 
+// NewReplay creates a TUI instance that starts directly in chat view for playback.
+func NewReplay(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
+	app := New(ch, userCh, version, workDir, repoURL, modelName, ctxMax)
+	app.bootActive = false
+	return app
+}
+
 func (a App) waitForEvent() tea.Msg {
 	ev, ok := <-a.eventCh
 	if !ok {

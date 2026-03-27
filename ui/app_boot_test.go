@@ -20,3 +20,10 @@ func TestInitStartsDeferredChecksDuringBoot(t *testing.T) {
 		t.Fatal("expected Init to send bootReadyToken")
 	}
 }
+
+func TestNewReplaySkipsBootSplash(t *testing.T) {
+	app := NewReplay(nil, nil, "test", ".", "", "demo-model", 4096)
+	if app.bootActive {
+		t.Fatal("expected replay app to skip boot splash")
+	}
+}

@@ -61,6 +61,12 @@ type Snapshot struct {
 	Messages     []llm.Message `json:"messages,omitempty"`
 }
 
+// ReplayFrame is one UI replay event paired with its original timestamp.
+type ReplayFrame struct {
+	Timestamp time.Time
+	Event     model.Event
+}
+
 // Session owns trajectory persistence for one workspace conversation.
 type Session struct {
 	mu           sync.RWMutex
@@ -174,7 +180,20 @@ func LoadByID(workDir, sessionID string) (*Session, error) {
 
 	key := workDirKey(absWorkDir)
 	path := trajectoryPath(key, sessionID)
-	return loadFromPath(path)
+	return loadFromPath(path, true)
+}
+
+// LoadReplayPath loads a trajectory file directly for read-only replay.
+func LoadReplayPath(path string) (*Session, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, fmt.Errorf("trajectory path cannot be empty")
+	}
+
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve trajectory path: %w", err)
+	}
+	return loadFromPath(absPath, false)
 }
 
 // AppendUserInput appends one user input record and syncs it immediately.
@@ -299,6 +318,20 @@ func (s *Session) AppendSkillActivation(skillName string) error {
 
 // ReplayEvents synthesizes UI replay events from persisted conversation records.
 func (s *Session) ReplayEvents() []model.Event {
+	frames := s.ReplayTimeline()
+	if len(frames) == 0 {
+		return nil
+	}
+
+	events := make([]model.Event, 0, len(frames))
+	for _, frame := range frames {
+		events = append(events, frame.Event)
+	}
+	return events
+}
+
+// ReplayTimeline synthesizes timestamped UI replay events from persisted conversation records.
+func (s *Session) ReplayTimeline() []ReplayFrame {
 	if s == nil {
 		return nil
 	}
@@ -306,25 +339,18 @@ func (s *Session) ReplayEvents() []model.Event {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	events := make([]model.Event, 0, len(s.records))
+	frames := make([]ReplayFrame, 0, len(s.records))
 	for _, record := range s.records {
-		switch record.Type {
-		case recordTypeUser:
-			events = append(events, model.Event{Type: model.UserInput, Message: record.Content})
-		case recordTypeAssistant:
-			events = append(events, model.Event{Type: model.AgentReply, Message: record.Content})
-		case recordTypeToolCall:
-			events = append(events, replayToolCallEvent(record))
-		case recordTypeToolResult:
-			if record.ToolName == "load_skill" {
-				continue
-			}
-			events = append(events, replayToolResultEvent(record))
-		case recordTypeSkill:
-			events = append(events, replaySkillEvent(record.SkillName))
+		ev, ok := replayEvent(record)
+		if !ok {
+			continue
 		}
+		frames = append(frames, ReplayFrame{
+			Timestamp: record.Timestamp,
+			Event:     ev,
+		})
 	}
-	return events
+	return frames
 }
 
 // RestoreContext returns the system prompt and reconstructed non-system messages.
@@ -450,7 +476,7 @@ func (s *Session) Close() error {
 	return nil
 }
 
-func loadFromPath(path string) (*Session, error) {
+func loadFromPath(path string, appendOnly bool) (*Session, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -514,15 +540,9 @@ func loadFromPath(path string) (*Session, error) {
 		return nil, fmt.Errorf("invalid trajectory: missing meta record")
 	}
 
-	appender, enc, err := openAppender(path, true)
-	if err != nil {
-		return nil, err
-	}
-
 	snapPath := snapshotPath(path)
 	snapshot, err := loadSnapshot(snapPath)
 	if err != nil {
-		_ = appender.Close()
 		return nil, err
 	}
 	if snapshot.SessionID == "" {
@@ -534,16 +554,25 @@ func loadFromPath(path string) (*Session, error) {
 		}
 	}
 
-	return &Session{
+	sessionState := &Session{
 		meta:         meta,
 		records:      records,
 		snapshot:     snapshot,
 		path:         path,
 		snapshotPath: snapPath,
-		persisted:    true,
-		file:         appender,
-		enc:          enc,
-	}, nil
+	}
+	if !appendOnly {
+		return sessionState, nil
+	}
+
+	appender, enc, err := openAppender(path, true)
+	if err != nil {
+		return nil, err
+	}
+	sessionState.persisted = true
+	sessionState.file = appender
+	sessionState.enc = enc
+	return sessionState, nil
 }
 
 func openAppender(path string, appendOnly bool) (*os.File, *json.Encoder, error) {
@@ -800,5 +829,25 @@ func replaySkillEvent(skillName string) model.Event {
 		ToolName: "load_skill",
 		Message:  skillName,
 		Summary:  skillSummary(skillName),
+	}
+}
+
+func replayEvent(record MessageRecord) (model.Event, bool) {
+	switch record.Type {
+	case recordTypeUser:
+		return model.Event{Type: model.UserInput, Message: record.Content}, true
+	case recordTypeAssistant:
+		return model.Event{Type: model.AgentReply, Message: record.Content}, true
+	case recordTypeToolCall:
+		return replayToolCallEvent(record), true
+	case recordTypeToolResult:
+		if record.ToolName == "load_skill" {
+			return model.Event{}, false
+		}
+		return replayToolResultEvent(record), true
+	case recordTypeSkill:
+		return replaySkillEvent(record.SkillName), true
+	default:
+		return model.Event{}, false
 	}
 }

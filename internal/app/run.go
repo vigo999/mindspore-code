@@ -21,6 +21,21 @@ const provideAPIKeyFirstMsg = "LLM unavailable: provide api key first, or /login
 const interruptActiveTaskToken = "__interrupt_active_task__"
 const internalPermissionsActionPrefix = "\x00permissions:"
 
+var waitReplayDelay = func(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
 // Run parses CLI args, wires dependencies, and starts the application.
 func Run(args []string) error {
 	if len(args) > 0 && (args[0] == "--version" || args[0] == "-v") {
@@ -61,6 +76,9 @@ func (a *Application) run() error {
 func (a *Application) runReal() error {
 	userCh := make(chan string, 8)
 	tui := ui.New(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.Window)
+	if a.replayOnly {
+		tui = ui.NewReplay(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.Window)
+	}
 	p := tea.NewProgram(tui, tuiProgramOptions()...)
 
 	// Emit saved login so the topbar shows the user immediately.
@@ -70,7 +88,7 @@ func (a *Application) runReal() error {
 
 	go a.replayHistory()
 	go a.inputLoop(userCh)
-	if a.permissionSettingsIssue != nil {
+	if a.permissionSettingsIssue != nil && !a.replayOnly {
 		a.emitPermissionSettingsPrompt("")
 	}
 
@@ -105,7 +123,17 @@ func (a *Application) processInput(input string) {
 	}
 
 	if trimmed == bootReadyToken {
+		if a.replayOnly {
+			return
+		}
 		a.startDeferredStartup()
+		return
+	}
+
+	if a.replayOnly {
+		if trimmed == interruptActiveTaskToken {
+			a.interruptReplay()
+		}
 		return
 	}
 
@@ -268,6 +296,10 @@ func (a *Application) interruptActiveTasks() bool {
 }
 
 func (a *Application) replayHistory() {
+	if len(a.replayTimeline) > 0 {
+		a.replayHistoryTimeline()
+		return
+	}
 	for _, ev := range a.replayBacklog {
 		a.EventCh <- ev
 	}
@@ -275,6 +307,72 @@ func (a *Application) replayHistory() {
 		return
 	}
 	a.emitTokenUsageSnapshot()
+}
+
+func (a *Application) replayHistoryTimeline() {
+	if a == nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.setReplayCancel(cancel)
+	defer a.clearReplayCancel()
+
+	var previous time.Time
+	for i, frame := range a.replayTimeline {
+		if i > 0 {
+			delay := frame.Timestamp.Sub(previous)
+			if err := waitReplayDelay(ctx, delay); err != nil {
+				return
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case a.EventCh <- frame.Event:
+		}
+		previous = frame.Timestamp
+	}
+
+	if len(a.replayTimeline) == 0 || a.ctxManager == nil {
+		return
+	}
+	a.emitTokenUsageSnapshot()
+}
+
+func (a *Application) setReplayCancel(cancel context.CancelFunc) {
+	if a == nil {
+		return
+	}
+	a.taskMu.Lock()
+	defer a.taskMu.Unlock()
+	a.replayCancel = cancel
+}
+
+func (a *Application) clearReplayCancel() {
+	if a == nil {
+		return
+	}
+	a.taskMu.Lock()
+	defer a.taskMu.Unlock()
+	a.replayCancel = nil
+}
+
+func (a *Application) interruptReplay() bool {
+	if a == nil {
+		return false
+	}
+
+	a.taskMu.Lock()
+	cancel := a.replayCancel
+	a.taskMu.Unlock()
+	if cancel == nil {
+		return false
+	}
+
+	cancel()
+	return true
 }
 
 func (a *Application) emitTokenUsageSnapshot() {
@@ -320,7 +418,7 @@ func (a *Application) activateSessionPersistence() error {
 }
 
 func (a *Application) exitResumeHint() string {
-	if a == nil || a.session == nil || !a.session.HasPersistedDialogue() {
+	if a == nil || a.replayOnly || a.session == nil || !a.session.HasPersistedDialogue() {
 		return ""
 	}
 
@@ -372,6 +470,23 @@ func (a *Application) emitToolError(toolName, format string, args ...any) {
 }
 
 func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
+	if len(args) > 0 && args[0] == "replay" {
+		fs := flag.NewFlagSet("ms-cli replay", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		if err := fs.Parse(args[1:]); err != nil {
+			return BootstrapConfig{}, err
+		}
+		rest := fs.Args()
+		if len(rest) > 1 {
+			return BootstrapConfig{}, fmt.Errorf("usage: ms-cli replay [sess_xxx|trajectory.json|trajectory.jsonl]")
+		}
+		cfg := BootstrapConfig{Replay: true}
+		if len(rest) == 1 {
+			cfg.ReplaySessionID = rest[0]
+		}
+		return cfg, nil
+	}
+
 	if len(args) > 0 && args[0] == "resume" {
 		fs := flag.NewFlagSet("ms-cli resume", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)

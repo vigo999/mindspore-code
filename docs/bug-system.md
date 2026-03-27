@@ -31,7 +31,7 @@ The bug server stores bugs in SQLite and serves them over HTTP with token auth.
 
 ### 2.1 Config
 
-Create or edit `configs/server.yaml`:
+Create or edit your real server config file:
 
 ```yaml
 server:
@@ -61,7 +61,7 @@ auth:
 ### 2.2 Start the server
 
 ```bash
-./mscode-server --config configs/server.yaml
+./mscode-server --config /path/to/server.yaml
 ```
 
 The server creates the SQLite tables on first start. Verify with:

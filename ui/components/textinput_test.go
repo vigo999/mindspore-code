@@ -109,33 +109,41 @@ func TestTextInputKeepsFirstLineVisibleAfterExplicitNewlineGrowth(t *testing.T) 
 	}
 }
 
-func TestTextInputLargePasteShowsCollapsedSummary(t *testing.T) {
+func TestTextInputHeightGrowsForSoftWrappedLine(t *testing.T) {
 	input := NewTextInput()
-	input = input.SetWidth(60)
+	input = input.SetWidth(11)
+	input.Model.SetValue("alpha beta")
+	input.syncHeight()
 
-	input, _ = input.Update(tea.KeyMsg{
-		Type:  tea.KeyRunes,
-		Runes: []rune(largePastedBlock),
-		Paste: true,
-	})
-
-	if !input.HasPasteSummary() {
-		t.Fatal("expected large paste to enter collapsed summary mode")
-	}
-	if got := input.Height(); got != 3 {
-		t.Fatalf("expected collapsed paste preview height 3, got %d", got)
+	if got := input.Height(); got != 4 {
+		t.Fatalf("expected wrapped two-row composer block height 4, got %d", got)
 	}
 
 	view := input.View()
-	if !strings.Contains(view, "[pasted content:") {
-		t.Fatalf("expected collapsed paste summary in view, got %q", view)
+	if !strings.Contains(view, composerPrompt+"alpha ") {
+		t.Fatalf("expected first wrapped row in view, got %q", view)
 	}
-	if strings.Contains(view, "line 07") {
-		t.Fatalf("expected full pasted content to stay hidden in collapsed view, got %q", view)
+	if !strings.Contains(view, composerContinue+"beta") {
+		t.Fatalf("expected second wrapped row in view, got %q", view)
 	}
 }
 
-func TestTextInputLargePasteStaysCollapsedAfterTyping(t *testing.T) {
+func TestTextInputKeepsFirstWrappedLineVisibleAfterSoftWrapGrowth(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(11)
+
+	input, _ = input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("alpha beta")})
+
+	view := input.View()
+	if !strings.Contains(view, composerPrompt+"alpha ") {
+		t.Fatalf("expected first wrapped row to remain visible after typing growth, got %q", view)
+	}
+	if !strings.Contains(view, composerContinue+"beta") {
+		t.Fatalf("expected second wrapped row after typing growth, got %q", view)
+	}
+}
+
+func TestTextInputPasteShowsFullContent(t *testing.T) {
 	input := NewTextInput()
 	input = input.SetWidth(60)
 
@@ -144,20 +152,35 @@ func TestTextInputLargePasteStaysCollapsedAfterTyping(t *testing.T) {
 		Runes: []rune(largePastedBlock),
 		Paste: true,
 	})
+
+	if got := input.Value(); got != largePastedBlock {
+		t.Fatalf("expected pasted content to be stored verbatim, got %q", got)
+	}
+
+	view := input.View()
+	if !strings.Contains(view, "line 01") {
+		t.Fatalf("expected pasted content to stay visible in view, got %q", view)
+	}
+	if !strings.Contains(view, "line 07") {
+		t.Fatalf("expected later pasted lines to stay visible in view, got %q", view)
+	}
+}
+
+func TestTextInputPasteKeepsAllRowsVisibleAfterGrowth(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(24)
+
 	input, _ = input.Update(tea.KeyMsg{
 		Type:  tea.KeyRunes,
-		Runes: []rune{' '},
+		Runes: []rune("line 01\nline 02\nline 03\nline 04"),
+		Paste: true,
 	})
 
 	view := input.View()
-	if !strings.Contains(view, "[pasted content:") {
-		t.Fatalf("expected collapsed paste summary to remain after typing, got %q", view)
-	}
-	if strings.Contains(view, "line 07") {
-		t.Fatalf("expected full pasted content to stay hidden after typing, got %q", view)
-	}
-	if got := input.Value(); got != largePastedBlock+" " {
-		t.Fatalf("expected reconstructed value to preserve raw paste and typed suffix, got %q", got)
+	for _, want := range []string{"line 01", "line 02", "line 03", "line 04"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected pasted line %q to stay visible after paste growth, got %q", want, view)
+		}
 	}
 }
 

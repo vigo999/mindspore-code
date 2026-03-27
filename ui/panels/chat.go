@@ -7,7 +7,6 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vigo999/ms-cli/ui/model"
-	uirender "github.com/vigo999/ms-cli/ui/render"
 )
 
 var (
@@ -129,9 +128,6 @@ func RenderMessages(state model.State, spinnerView, spinnerFrame string, width i
 }
 
 func renderUserMsg(content string, width int) string {
-	if summary, ok := uirender.SummarizeLargePaste(content); ok {
-		content = summary
-	}
 	return renderPrefixedBlock(userStyle.Render(content), width, "  "+userStyle.Render(">")+" ", "    ")
 }
 

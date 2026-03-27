@@ -370,7 +370,48 @@ func TestCtrlJInsertsComposerNewlineWithoutSubmitting(t *testing.T) {
 	}
 }
 
-func TestLargePastedUserMessageRendersAsSummary(t *testing.T) {
+func TestSoftWrappedComposerLinesStayVisibleInAppView(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 15, Height: 12})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("alpha beta")})
+	app = next.(App)
+
+	view := app.View()
+	if !strings.Contains(view, "❯ alpha ") {
+		t.Fatalf("expected first wrapped composer row in app view, got:\n%s", view)
+	}
+	if !strings.Contains(view, "  beta") {
+		t.Fatalf("expected second wrapped composer row in app view, got:\n%s", view)
+	}
+}
+
+func TestPastedComposerLinesStayVisibleInAppView(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 20, Height: 12})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("line 01\nline 02\nline 03\nline 04"),
+		Paste: true,
+	})
+	app = next.(App)
+
+	view := app.View()
+	for _, want := range []string{"line 01", "line 02", "line 03", "line 04"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected pasted line %q in app view, got:\n%s", want, view)
+		}
+	}
+}
+
+func TestLargePastedUserMessageRendersFullContent(t *testing.T) {
 	userCh := make(chan string, 1)
 	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false
@@ -385,20 +426,11 @@ func TestLargePastedUserMessageRendersAsSummary(t *testing.T) {
 	})
 	app = next.(App)
 
-	if !app.input.HasPasteSummary() {
-		t.Fatal("expected collapsed summary in composer after large paste")
+	if got := app.input.Value(); got != largePastedBlock {
+		t.Fatalf("expected pasted content to remain verbatim in composer, got %q", got)
 	}
-	if view := app.View(); !strings.Contains(view, "[pasted content:") {
-		t.Fatalf("expected composer view to show paste summary, got:\n%s", view)
-	}
-
-	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}})
-	app = next.(App)
-	if view := app.View(); !strings.Contains(view, "[pasted content:") {
-		t.Fatalf("expected composer view to stay collapsed after typing, got:\n%s", view)
-	}
-	if strings.Contains(app.View(), "line 07") {
-		t.Fatalf("expected full pasted content to stay out of composer view after typing, got:\n%s", app.View())
+	if view := app.View(); !strings.Contains(view, "line 01") || !strings.Contains(view, "line 07") {
+		t.Fatalf("expected composer view to show full pasted content, got:\n%s", view)
 	}
 
 	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
@@ -414,11 +446,8 @@ func TestLargePastedUserMessageRendersAsSummary(t *testing.T) {
 	}
 
 	view := app.View()
-	if !strings.Contains(view, "[pasted content:") {
-		t.Fatalf("expected chat view to render pasted content summary, got:\n%s", view)
-	}
-	if strings.Contains(view, "line 07") {
-		t.Fatalf("expected full pasted content to stay out of chat view, got:\n%s", view)
+	if !strings.Contains(view, "line 01") || !strings.Contains(view, "line 07") {
+		t.Fatalf("expected chat view to render full pasted content, got:\n%s", view)
 	}
 }
 

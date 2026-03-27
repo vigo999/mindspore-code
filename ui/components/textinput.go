@@ -2,12 +2,14 @@ package components
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	uirender "github.com/vigo999/ms-cli/ui/render"
+	rw "github.com/mattn/go-runewidth"
+	"github.com/rivo/uniseg"
 	"github.com/vigo999/ms-cli/ui/slash"
 )
 
@@ -39,8 +41,6 @@ type TextInput struct {
 	history          []string
 	historyIndex     int
 	historyDraft     string
-	maskedPasteRaw   string
-	maskedPasteLabel string
 	width            int
 }
 
@@ -80,11 +80,7 @@ func NewTextInput() TextInput {
 
 // Value returns the current input text.
 func (t TextInput) Value() string {
-	value := t.Model.Value()
-	if t.maskedPasteLabel == "" {
-		return value
-	}
-	return strings.Replace(value, t.maskedPasteLabel, t.maskedPasteRaw, 1)
+	return t.Model.Value()
 }
 
 // Reset clears the input.
@@ -98,8 +94,6 @@ func (t TextInput) Reset() TextInput {
 	t.suggestionOffset = 0
 	t.historyIndex = -1
 	t.historyDraft = ""
-	t.maskedPasteRaw = ""
-	t.maskedPasteLabel = ""
 	return t
 }
 
@@ -130,19 +124,7 @@ func (t TextInput) SetWidth(width int) TextInput {
 func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if msg.Paste {
-			if summary, ok := uirender.SummarizeLargePaste(string(msg.Runes)); ok {
-				t.Model.InsertString(summary)
-				t.maskedPasteRaw = string(msg.Runes)
-				t.maskedPasteLabel = summary
-				t.syncHeight()
-				t.updateSuggestions()
-				return t, nil
-			}
-		}
-		if isExplicitNewlineKey(msg) {
-			t.Model.SetHeight(t.editorHeight() + 1)
-		}
+		t.maybeGrowHeightBeforeUpdate(msg)
 
 		// Handle slash command suggestions navigation
 		if t.showSuggestions && len(t.suggestions) > 0 {
@@ -172,8 +154,6 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 					t.Model.SetValue(val)
 					t.Model.SetCursor(len(val))
 					t.syncHeight()
-					t.maskedPasteRaw = ""
-					t.maskedPasteLabel = ""
 					t.showSuggestions = false
 					t.suggestions = nil
 					t.suggestionOffset = 0
@@ -193,10 +173,6 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 	m, cmd := t.Model.Update(msg)
 	t.Model = m
 	t.syncHeight()
-	if t.maskedPasteLabel != "" && !strings.Contains(t.Model.Value(), t.maskedPasteLabel) {
-		t.maskedPasteRaw = ""
-		t.maskedPasteLabel = ""
-	}
 
 	// Update suggestions based on current input
 	t.updateSuggestions()
@@ -234,8 +210,6 @@ func (t TextInput) PrevHistory() TextInput {
 	}
 	t.Model.SetValue(t.history[t.historyIndex])
 	t.syncHeight()
-	t.maskedPasteRaw = ""
-	t.maskedPasteLabel = ""
 	t.showSuggestions = false
 	t.slashMode = false
 	t.suggestions = nil
@@ -252,8 +226,6 @@ func (t TextInput) NextHistory() TextInput {
 		t.historyIndex++
 		t.Model.SetValue(t.history[t.historyIndex])
 		t.syncHeight()
-		t.maskedPasteRaw = ""
-		t.maskedPasteLabel = ""
 		t.showSuggestions = false
 		t.slashMode = false
 		t.suggestions = nil
@@ -263,8 +235,6 @@ func (t TextInput) NextHistory() TextInput {
 	t.historyIndex = -1
 	t.Model.SetValue(t.historyDraft)
 	t.syncHeight()
-	t.maskedPasteRaw = ""
-	t.maskedPasteLabel = ""
 	t.historyDraft = ""
 	t.showSuggestions = false
 	t.slashMode = false
@@ -403,11 +373,6 @@ func (t TextInput) HasSuggestions() bool {
 	return t.showSuggestions && len(t.suggestions) > 0
 }
 
-// HasPasteSummary returns true when the composer is showing a collapsed paste preview.
-func (t TextInput) HasPasteSummary() bool {
-	return t.maskedPasteLabel != ""
-}
-
 func isExplicitNewlineKey(msg tea.KeyMsg) bool {
 	switch msg.String() {
 	case "ctrl+j", "shift+enter":
@@ -464,15 +429,140 @@ func (t *TextInput) syncSuggestionWindow() {
 }
 
 func (t *TextInput) syncHeight() {
-	t.Model.SetHeight(t.editorHeight())
+	height := t.editorHeight()
+	if t.Model.Height() == height {
+		return
+	}
+	t.Model.SetHeight(height)
 }
 
 func (t TextInput) editorHeight() int {
-	lines := t.Model.LineCount()
+	lines := t.visibleLineCountForValue(t.Model.Value())
 	if lines < minComposerRows {
 		return minComposerRows
 	}
 	return lines
+}
+
+func (t TextInput) visibleLineCountForValue(value string) int {
+	width := t.Model.Width()
+	if width < 1 {
+		width = 1
+	}
+
+	total := 0
+	for _, line := range splitLines(value) {
+		total += wrappedLineCount([]rune(line), width)
+	}
+	if total < minComposerRows {
+		return minComposerRows
+	}
+	return total
+}
+
+func (t *TextInput) maybeGrowHeightBeforeUpdate(msg tea.KeyMsg) {
+	nextValue, ok := t.valueAfterKey(msg)
+	if !ok {
+		return
+	}
+	nextHeight := t.visibleLineCountForValue(nextValue)
+	if nextHeight > t.Model.Height() {
+		t.Model.SetHeight(nextHeight)
+	}
+}
+
+func (t TextInput) valueAfterKey(msg tea.KeyMsg) (string, bool) {
+	switch {
+	case isExplicitNewlineKey(msg):
+		return t.valueWithInsertedText("\n"), true
+	case msg.Paste:
+		return t.valueWithInsertedText(string(msg.Runes)), true
+	case msg.Type == tea.KeyRunes:
+		return t.valueWithInsertedText(string(msg.Runes)), true
+	case msg.Type == tea.KeySpace:
+		return t.valueWithInsertedText(" "), true
+	default:
+		return "", false
+	}
+}
+
+func (t TextInput) valueWithInsertedText(text string) string {
+	row, col, lines := t.cursorPosition()
+	current := []rune(lines[row])
+	lines[row] = string(current[:col]) + text + string(current[col:])
+	return strings.Join(lines, "\n")
+}
+
+// wrappedLineCount matches bubbles/textarea soft-wrap behavior so the composer
+// grows to the number of visible rows, not just the number of logical lines.
+func wrappedLineCount(runes []rune, width int) int {
+	return len(wrapRunes(runes, width))
+}
+
+func wrapRunes(runes []rune, width int) [][]rune {
+	if width < 1 {
+		return [][]rune{{}}
+	}
+
+	lines := [][]rune{{}}
+	word := []rune{}
+	row := 0
+	spaces := 0
+
+	for _, r := range runes {
+		if unicode.IsSpace(r) {
+			spaces++
+		} else {
+			word = append(word, r)
+		}
+
+		if spaces > 0 {
+			wordWidth := uniseg.StringWidth(string(word))
+			if uniseg.StringWidth(string(lines[row]))+wordWidth+spaces > width {
+				row++
+				lines = append(lines, []rune{})
+				lines[row] = append(lines[row], word...)
+				lines[row] = append(lines[row], repeatSpaces(spaces)...)
+			} else {
+				lines[row] = append(lines[row], word...)
+				lines[row] = append(lines[row], repeatSpaces(spaces)...)
+			}
+			spaces = 0
+			word = nil
+			continue
+		}
+
+		if len(word) == 0 {
+			continue
+		}
+
+		lastWidth := rw.RuneWidth(word[len(word)-1])
+		if uniseg.StringWidth(string(word))+lastWidth > width {
+			if len(lines[row]) > 0 {
+				row++
+				lines = append(lines, []rune{})
+			}
+			lines[row] = append(lines[row], word...)
+			word = nil
+		}
+	}
+
+	if uniseg.StringWidth(string(lines[row]))+uniseg.StringWidth(string(word))+spaces >= width {
+		lines = append(lines, []rune{})
+		lines[row+1] = append(lines[row+1], word...)
+		spaces++
+		lines[row+1] = append(lines[row+1], repeatSpaces(spaces)...)
+	} else {
+		lines[row] = append(lines[row], word...)
+		spaces++
+		lines[row] = append(lines[row], repeatSpaces(spaces)...)
+	}
+
+	return lines
+}
+
+func repeatSpaces(n int) []rune {
+	return []rune(strings.Repeat(string(' '), n))
 }
 
 func (t TextInput) atInputStart() bool {
@@ -511,7 +601,10 @@ func (t TextInput) cursorPosition() (int, int, []string) {
 }
 
 func (t TextInput) lines() []string {
-	value := t.Model.Value()
+	return splitLines(t.Model.Value())
+}
+
+func splitLines(value string) []string {
 	if value == "" {
 		return []string{""}
 	}

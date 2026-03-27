@@ -43,17 +43,38 @@ func Check(ctx context.Context, currentVersion string) (*CheckResult, error) {
 }
 
 func fetchManifest(ctx context.Context) (*Manifest, error) {
+	return fetchManifestFromURLs(ctx, ManifestURLs())
+}
+
+func fetchManifestFromURLs(ctx context.Context, urls []string) (*Manifest, error) {
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("no manifest URLs configured")
+	}
+
+	var errs []string
+	for _, url := range urls {
+		m, err := fetchManifestFromURL(ctx, url)
+		if err == nil {
+			return m, nil
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", url, err))
+	}
+
+	return nil, fmt.Errorf("fetch manifest: %s", strings.Join(errs, "; "))
+}
+
+func fetchManifestFromURL(ctx context.Context, url string) (*Manifest, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ManifestURL(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch manifest: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 

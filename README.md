@@ -18,7 +18,7 @@ MSCODE_INSTALL_SOURCE=github curl -fsSL https://raw.githubusercontent.com/vigo99
 MSCODE_INSTALL_SOURCE=mirror curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
 
 # Override the mirror base URL if you host your own Caddy/Nginx mirror.
-MSCODE_MIRROR_BASE_URL=http://13.229.44.116/mscode/releases curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
+MSCODE_MIRROR_BASE_URL=http://47.115.175.134/mscode/releases curl -fsSL https://raw.githubusercontent.com/vigo999/mindspore-code/main/scripts/install.sh | bash
 ```
 
 ### Build from source

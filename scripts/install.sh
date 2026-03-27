@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GITHUB_REPO="${MSCODE_GITHUB_REPO:-vigo999/mindspore-code}"
-MIRROR_BASE_URL="${MSCODE_MIRROR_BASE_URL:-http://13.229.44.116/mscode/releases}"
+MIRROR_BASE_URL="${MSCODE_MIRROR_BASE_URL:-http://47.115.175.134/mscode/releases}"
 INSTALL_DIR="$HOME/.mscode/bin"
 BINARY_NAME="mscode"
 INSTALL_SOURCE="${MSCODE_INSTALL_SOURCE:-auto}"

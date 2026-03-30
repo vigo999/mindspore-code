@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/llm"
 )
 
 // Priority 消息优先级
@@ -35,9 +35,9 @@ type MessageMetadata struct {
 // PriorityScorer 优先级评分器
 type PriorityScorer struct {
 	// 配置
-	recentWindow     time.Duration // 最近消息窗口
-	keywords         map[string]Priority
-	topicBoost       map[string]Priority
+	recentWindow time.Duration // 最近消息窗口
+	keywords     map[string]Priority
+	topicBoost   map[string]Priority
 }
 
 // NewPriorityScorer 创建新的优先级评分器
@@ -73,18 +73,18 @@ func (ps *PriorityScorer) AddTopicBoost(topic string, boost Priority) {
 // ScoreMessage 为消息评分
 func (ps *PriorityScorer) ScoreMessage(msg llm.Message, index int, total int) Priority {
 	baseScore := ps.getBasePriority(msg)
-	
+
 	// 基于位置的调整（越新的消息优先级越高）
 	recencyBoost := ps.calculateRecencyBoost(index, total)
-	
+
 	// 基于内容的调整
 	contentBoost := ps.calculateContentBoost(msg.Content)
-	
+
 	// 基于时间的调整
 	timeBoost := ps.calculateTimeBoost(msg)
-	
+
 	finalScore := baseScore + recencyBoost + contentBoost + timeBoost
-	
+
 	// 确保在有效范围内
 	if finalScore > PriorityCritical {
 		finalScore = PriorityCritical
@@ -92,7 +92,7 @@ func (ps *PriorityScorer) ScoreMessage(msg llm.Message, index int, total int) Pr
 	if finalScore < PriorityDiscardable {
 		finalScore = PriorityDiscardable
 	}
-	
+
 	return finalScore
 }
 
@@ -121,7 +121,7 @@ func (ps *PriorityScorer) calculateRecencyBoost(index, total int) Priority {
 	if total == 0 {
 		return 0
 	}
-	
+
 	// 最新的消息获得更高优先级
 	position := float64(index) / float64(total)
 	if position > 0.8 { // 最近 20% 的消息
@@ -136,13 +136,13 @@ func (ps *PriorityScorer) calculateRecencyBoost(index, total int) Priority {
 func (ps *PriorityScorer) calculateContentBoost(content string) Priority {
 	contentLower := strings.ToLower(content)
 	boost := Priority(0)
-	
+
 	for keyword, priority := range ps.keywords {
 		if strings.Contains(contentLower, keyword) {
 			boost += priority / 5 // 关键词提升为其优先级的 20%
 		}
 	}
-	
+
 	return boost
 }
 
@@ -189,7 +189,7 @@ func (pq *PriorityQueue) Pop() (PrioritizedMessage, bool) {
 	if len(pq.items) == 0 {
 		return PrioritizedMessage{}, false
 	}
-	
+
 	// 找到最高优先级的消息
 	maxIdx := 0
 	for i := 1; i < len(pq.items); i++ {
@@ -197,7 +197,7 @@ func (pq *PriorityQueue) Pop() (PrioritizedMessage, bool) {
 			maxIdx = i
 		}
 	}
-	
+
 	item := pq.items[maxIdx]
 	pq.items = append(pq.items[:maxIdx], pq.items[maxIdx+1:]...)
 	return item, true
@@ -208,14 +208,14 @@ func (pq *PriorityQueue) Peek() (PrioritizedMessage, bool) {
 	if len(pq.items) == 0 {
 		return PrioritizedMessage{}, false
 	}
-	
+
 	maxIdx := 0
 	for i := 1; i < len(pq.items); i++ {
 		if pq.items[i].Priority > pq.items[maxIdx].Priority {
 			maxIdx = i
 		}
 	}
-	
+
 	return pq.items[maxIdx], true
 }
 

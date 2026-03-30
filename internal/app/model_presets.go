@@ -9,14 +9,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/configs"
+	"github.com/vigo999/mindspore-code/configs"
 )
 
 type modelCredentialStrategy string
 
 const (
-	credentialStrategyStatic      modelCredentialStrategy = "static"
-	credentialStrategyMSCLIServer modelCredentialStrategy = "mscli-server"
+	credentialStrategyStatic       modelCredentialStrategy = "static"
+	credentialStrategyMSCODEServer modelCredentialStrategy = "mscode-server"
 )
 
 type modelCredentialSpec struct {
@@ -44,7 +44,7 @@ var builtinModelPresets = []builtinModelPreset{
 		Model:    "kimi-k2.5",
 		Aliases:  []string{"kimi-k2.5", "kimi-k2.5 [free]"},
 		Credential: modelCredentialSpec{
-			Strategy: credentialStrategyMSCLIServer,
+			Strategy: credentialStrategyMSCODEServer,
 			Path:     "/model-presets/kimi-k2.5-free/credential",
 		},
 	},
@@ -82,7 +82,7 @@ func (a *Application) resolveModelPresetAPIKey(ctx context.Context, preset built
 			return "", fmt.Errorf("preset %s static credential is empty", preset.ID)
 		}
 		return strings.TrimSpace(preset.Credential.StaticKey), nil
-	case credentialStrategyMSCLIServer:
+	case credentialStrategyMSCODEServer:
 		return a.fetchPresetAPIKeyFromServer(ctx, preset)
 	default:
 		return "", fmt.Errorf("unsupported credential strategy %q", preset.Credential.Strategy)

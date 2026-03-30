@@ -10,7 +10,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	rw "github.com/mattn/go-runewidth"
 	"github.com/rivo/uniseg"
-	"github.com/vigo999/ms-cli/ui/slash"
+	uirender "github.com/vigo999/mindspore-code/ui/render"
+	"github.com/vigo999/mindspore-code/ui/slash"
 )
 
 var (

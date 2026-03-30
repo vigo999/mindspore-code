@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigo999/ms-cli/agent/session"
+	"github.com/vigo999/mindspore-code/agent/session"
 )
 
 func TestExitResumeHintRequiresPersistedDialogue(t *testing.T) {
@@ -35,7 +35,7 @@ func TestExitResumeHintRequiresPersistedDialogue(t *testing.T) {
 	}
 
 	got := app.exitResumeHint()
-	if !strings.Contains(got, "ms-cli resume "+runtimeSession.ID()) {
+	if !strings.Contains(got, "mscode resume "+runtimeSession.ID()) {
 		t.Fatalf("expected resume hint with session id, got %q", got)
 	}
 }

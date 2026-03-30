@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/vigo999/ms-cli/configs"
+	"github.com/vigo999/mindspore-code/configs"
 )
 
 // PermissionService controls tool-call permissions.

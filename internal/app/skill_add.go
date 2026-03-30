@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/integrations/skills"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/integrations/skills"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
-const localSkillsDisplayDir = "~/.ms-cli/skills/"
+const localSkillsDisplayDir = "~/.mscode/skills/"
 const skillAddCloneTimeout = 2 * time.Minute
 const skillAddUsage = "/skill-add <path|git-url|owner/repo>"
 
@@ -169,7 +169,7 @@ func (a *Application) localSkillsDir() (string, error) {
 	if strings.TrimSpace(home) == "" {
 		return "", fmt.Errorf("home directory is required")
 	}
-	return filepath.Join(home, ".ms-cli", "skills"), nil
+	return filepath.Join(home, ".mscode", "skills"), nil
 }
 
 func classifySkillAddSource(rawPath, workDir, homeDir string) (skillAddSource, error) {
@@ -286,7 +286,7 @@ func cloneSkillAddSource(repoURL string) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("git is required to add skills from remote repositories")
 	}
 
-	tempRoot, err := os.MkdirTemp("", "ms-cli-skill-add-*")
+	tempRoot, err := os.MkdirTemp("", "mscode-skill-add-*")
 	if err != nil {
 		return "", func() {}, fmt.Errorf("create temp dir: %w", err)
 	}

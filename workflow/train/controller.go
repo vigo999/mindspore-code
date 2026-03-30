@@ -3,7 +3,7 @@ package train
 import (
 	"context"
 
-	itrain "github.com/vigo999/ms-cli/internal/train"
+	itrain "github.com/vigo999/mindspore-code/internal/train"
 )
 
 // Backend provides setup and run behavior for a training lane.

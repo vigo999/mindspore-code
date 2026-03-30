@@ -60,7 +60,7 @@ func DownloadWithProgress(ctx context.Context, url string, progressFn ProgressFu
 
 	total := resp.ContentLength // -1 if unknown
 
-	tmpFile, err := os.CreateTemp(tmpDir, "ms-cli-update-*")
+	tmpFile, err := os.CreateTemp(tmpDir, "mscode-update-*")
 	if err != nil {
 		return "", fmt.Errorf("create temp file: %w", err)
 	}
@@ -88,7 +88,7 @@ func DownloadWithProgress(ctx context.Context, url string, progressFn ProgressFu
 	return tmpPath, nil
 }
 
-// Download fetches the binary at url into ~/.ms-cli/tmp/ and returns the temp file path.
+// Download fetches the binary at url into ~/.mscode/tmp/ and returns the temp file path.
 func Download(ctx context.Context, url string) (string, error) {
 	return DownloadWithProgress(ctx, url, nil)
 }

@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	issuepkg "github.com/vigo999/ms-cli/internal/issues"
-	"github.com/vigo999/ms-cli/ui/model"
+	issuepkg "github.com/vigo999/mindspore-code/internal/issues"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func (a *Application) cmdIssueReportInput(input string) {
@@ -326,4 +326,3 @@ func parseIssueCommandTarget(input string, command string) (issueCommandTarget, 
 func looksLikeIssueKey(token string) bool {
 	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(token)), "ISSUE-")
 }
-

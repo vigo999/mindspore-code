@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	ctxmanager "github.com/vigo999/ms-cli/agent/context"
+	ctxmanager "github.com/vigo999/mindspore-code/agent/context"
 )
 
 func TestAddToolResultWithFallbackOnOversizedContent(t *testing.T) {

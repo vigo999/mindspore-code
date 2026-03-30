@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	agentctx "github.com/vigo999/ms-cli/agent/context"
-	"github.com/vigo999/ms-cli/agent/session"
-	"github.com/vigo999/ms-cli/ui/model"
+	agentctx "github.com/vigo999/mindspore-code/agent/context"
+	"github.com/vigo999/mindspore-code/agent/session"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func TestRunTaskWithoutLLMPersistsSessionBeforeReply(t *testing.T) {

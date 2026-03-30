@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/vigo999/ms-cli/internal/bugs"
-	"github.com/vigo999/ms-cli/internal/issues"
-	"github.com/vigo999/ms-cli/ui/model"
-	"github.com/vigo999/ms-cli/ui/render"
+	"github.com/vigo999/mindspore-code/internal/bugs"
+	"github.com/vigo999/mindspore-code/internal/issues"
+	"github.com/vigo999/mindspore-code/ui/model"
+	"github.com/vigo999/mindspore-code/ui/render"
 )
 
 func (a *Application) cmdReport(args []string) {

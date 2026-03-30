@@ -8,8 +8,8 @@ import (
 )
 
 var allowedAbsoluteHomePaths = []string{
-	"~/.ms-cli/skills",
-	"~/.ms-cli/mindspore-skills",
+	"~/.mscode/skills",
+	"~/.mscode/mindspore-skills",
 }
 
 func resolveSafePath(workDir, input string) (string, error) {

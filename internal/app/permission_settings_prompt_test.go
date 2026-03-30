@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func TestProcessInput_PermissionSettingsErrorContinue(t *testing.T) {
@@ -12,7 +12,7 @@ func TestProcessInput_PermissionSettingsErrorContinue(t *testing.T) {
 	app := &Application{
 		EventCh: eventCh,
 		permissionSettingsIssue: &permissionSettingsIssue{
-			FilePath: "/tmp/.ms-cli/permissions.json",
+			FilePath: "/tmp/.mscode/permissions.json",
 			Detail:   "invalid settings",
 		},
 	}
@@ -40,7 +40,7 @@ func TestProcessInput_PermissionSettingsErrorExit(t *testing.T) {
 	app := &Application{
 		EventCh: eventCh,
 		permissionSettingsIssue: &permissionSettingsIssue{
-			FilePath: "/tmp/.ms-cli/permissions.json",
+			FilePath: "/tmp/.mscode/permissions.json",
 			Detail:   "invalid settings",
 		},
 	}
@@ -68,7 +68,7 @@ func TestProcessInput_PermissionSettingsErrorInvalidInputRePrompts(t *testing.T)
 	app := &Application{
 		EventCh: eventCh,
 		permissionSettingsIssue: &permissionSettingsIssue{
-			FilePath: "/tmp/.ms-cli/permissions.json",
+			FilePath: "/tmp/.mscode/permissions.json",
 			Detail:   "invalid settings",
 		},
 	}

@@ -43,17 +43,38 @@ func Check(ctx context.Context, currentVersion string) (*CheckResult, error) {
 }
 
 func fetchManifest(ctx context.Context) (*Manifest, error) {
+	return fetchManifestFromURLs(ctx, ManifestURLs())
+}
+
+func fetchManifestFromURLs(ctx context.Context, urls []string) (*Manifest, error) {
+	if len(urls) == 0 {
+		return nil, fmt.Errorf("no manifest URLs configured")
+	}
+
+	var errs []string
+	for _, url := range urls {
+		m, err := fetchManifestFromURL(ctx, url)
+		if err == nil {
+			return m, nil
+		}
+		errs = append(errs, fmt.Sprintf("%s: %v", url, err))
+	}
+
+	return nil, fmt.Errorf("fetch manifest: %s", strings.Join(errs, "; "))
+}
+
+func fetchManifestFromURL(ctx context.Context, url string) (*Manifest, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ManifestURL(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("fetch manifest: %w", err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -68,29 +89,112 @@ func fetchManifest(ctx context.Context) (*Manifest, error) {
 	return &m, nil
 }
 
-// compareSemver compares two semver strings (major.minor.patch).
+type semverIdentifier struct {
+	raw      string
+	numeric  bool
+	numericV int
+}
+
+type semverVersion struct {
+	core       [3]int
+	prerelease []semverIdentifier
+}
+
+// compareSemver compares two semver strings, including prerelease ordering.
 // Returns -1 if a < b, 0 if equal, 1 if a > b.
 func compareSemver(a, b string) int {
 	pa := parseSemver(a)
 	pb := parseSemver(b)
 	for i := 0; i < 3; i++ {
-		if pa[i] < pb[i] {
+		if pa.core[i] < pb.core[i] {
 			return -1
 		}
-		if pa[i] > pb[i] {
+		if pa.core[i] > pb.core[i] {
 			return 1
 		}
 	}
-	return 0
+
+	if len(pa.prerelease) == 0 && len(pb.prerelease) == 0 {
+		return 0
+	}
+	if len(pa.prerelease) == 0 {
+		return 1
+	}
+	if len(pb.prerelease) == 0 {
+		return -1
+	}
+
+	for i := 0; i < len(pa.prerelease) && i < len(pb.prerelease); i++ {
+		cmp := compareSemverIdentifier(pa.prerelease[i], pb.prerelease[i])
+		if cmp != 0 {
+			return cmp
+		}
+	}
+
+	switch {
+	case len(pa.prerelease) < len(pb.prerelease):
+		return -1
+	case len(pa.prerelease) > len(pb.prerelease):
+		return 1
+	default:
+		return 0
+	}
 }
 
-func parseSemver(v string) [3]int {
+func compareSemverIdentifier(a, b semverIdentifier) int {
+	switch {
+	case a.numeric && b.numeric:
+		switch {
+		case a.numericV < b.numericV:
+			return -1
+		case a.numericV > b.numericV:
+			return 1
+		default:
+			return 0
+		}
+	case a.numeric && !b.numeric:
+		return -1
+	case !a.numeric && b.numeric:
+		return 1
+	default:
+		switch {
+		case a.raw < b.raw:
+			return -1
+		case a.raw > b.raw:
+			return 1
+		default:
+			return 0
+		}
+	}
+}
+
+func parseSemver(v string) semverVersion {
 	v = strings.TrimPrefix(v, "v")
-	parts := strings.SplitN(v, ".", 3)
-	var result [3]int
+	corePart := v
+	prereleasePart := ""
+	if idx := strings.IndexByte(v, '-'); idx >= 0 {
+		corePart = v[:idx]
+		prereleasePart = v[idx+1:]
+	}
+
+	parts := strings.SplitN(corePart, ".", 3)
+	var result semverVersion
 	for i := 0; i < 3 && i < len(parts); i++ {
 		n, _ := strconv.Atoi(parts[i])
-		result[i] = n
+		result.core[i] = n
+	}
+
+	if prereleasePart == "" {
+		return result
+	}
+
+	for _, ident := range strings.Split(prereleasePart, ".") {
+		token := semverIdentifier{raw: ident}
+		if n, err := strconv.Atoi(ident); err == nil {
+			token.numeric = true
+			token.numericV = n
+		}
+		result.prerelease = append(result.prerelease, token)
 	}
 	return result
 }
@@ -99,7 +203,7 @@ func parseSemver(v string) [3]int {
 // Returns empty string on any failure (non-fatal).
 func FetchReleaseNotes(ctx context.Context, version string) string {
 	version = strings.TrimPrefix(version, "v")
-	url := fmt.Sprintf("https://api.github.com/repos/vigo999/ms-cli/releases/tags/v%s", version)
+	url := fmt.Sprintf("https://api.github.com/repos/vigo999/mindspore-code/releases/tags/v%s", version)
 
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -131,7 +235,7 @@ func FetchReleaseNotes(ctx context.Context, version string) string {
 
 func buildDownloadURL(base, version string) string {
 	version = strings.TrimPrefix(version, "v")
-	name := fmt.Sprintf("ms-cli-%s-%s", runtime.GOOS, runtime.GOARCH)
+	name := fmt.Sprintf("mscode-%s-%s", runtime.GOOS, runtime.GOARCH)
 	if runtime.GOOS == "windows" {
 		name += ".exe"
 	}

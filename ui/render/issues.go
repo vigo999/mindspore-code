@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	issuepkg "github.com/vigo999/ms-cli/internal/issues"
+	issuepkg "github.com/vigo999/mindspore-code/internal/issues"
 )
 
 var issueRowSelectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("237"))

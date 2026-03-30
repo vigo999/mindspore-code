@@ -3,8 +3,8 @@ package local
 import (
 	"context"
 
-	"github.com/vigo999/ms-cli/internal/train"
-	"github.com/vigo999/ms-cli/runtime/probes"
+	"github.com/vigo999/mindspore-code/internal/train"
+	"github.com/vigo999/mindspore-code/runtime/probes"
 )
 
 // AIFrameworkProbe checks local AI framework presence (informational).

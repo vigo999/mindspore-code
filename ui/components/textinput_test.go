@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/vigo999/ms-cli/ui/slash"
+	"github.com/vigo999/mindspore-code/ui/slash"
 )
 
 const largePastedBlock = "line 01\nline 02\nline 03\nline 04\nline 05\nline 06\nline 07\nline 08\n"

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	issuepkg "github.com/vigo999/ms-cli/internal/issues"
+	issuepkg "github.com/vigo999/mindspore-code/internal/issues"
 )
 
 func HandleListIssueActivity(store *Store) http.HandlerFunc {

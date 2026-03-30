@@ -1,6 +1,6 @@
 # AI Contributor Guide
 
-This guide contains repository rules that should apply to all AI coding agents working in `ms-cli`.
+This guide contains repository rules that should apply to all AI coding agents working in `mscode`.
 
 Agent-specific files at the repo root, such as `AGENTS.md` and `CLAUDE.md`, should stay thin and point here for shared project policy.
 
@@ -31,8 +31,8 @@ go vet ./...
 Useful entrypoint commands:
 
 ```bash
-go build -o ms-cli ./cmd/ms-cli
-go run ./cmd/ms-cli
+go build -o mscode ./cmd/mscode
+go run ./cmd/mscode
 ```
 
 ## Code Style
@@ -41,7 +41,7 @@ go run ./cmd/ms-cli
 - Keep error messages lowercase and without trailing punctuation.
 - Wrap errors with context using `fmt.Errorf("context: %w", err)`.
 - Prefer extending existing types and flows over creating parallel abstractions.
-- Keep `cmd/ms-cli` thin and push behavior into the owning package.
+- Keep `cmd/mscode` thin and push behavior into the owning package.
 - Prefer returning `error` over `panic` except for truly unrecoverable states.
 
 ## Current Repository Shape
@@ -49,8 +49,8 @@ go run ./cmd/ms-cli
 This summary matches the current tree in this checkout.
 
 ```text
-ms-cli/
-  cmd/ms-cli/              process entrypoint
+mindspore-code/
+  cmd/mscode/              process entrypoint
   internal/app/            bootstrap, wiring, commands, startup, train flow
   internal/project/        roadmap and weekly helpers
   internal/train/          training types and target abstraction
@@ -88,12 +88,12 @@ ms-cli/
 The current primary runtime path is:
 
 ```text
-cmd/ms-cli -> internal/app -> agent/loop -> tools -> runtime/shell
+cmd/mscode -> internal/app -> agent/loop -> tools -> runtime/shell
 ```
 
 Important current details:
 
-- `cmd/ms-cli/main.go` only delegates to `internal/app.Run(...)`.
+- `cmd/mscode/main.go` only delegates to `internal/app.Run(...)`.
 - `internal/app` is the composition root and owns wiring plus event conversion.
 - `internal/app` dispatches free-text tasks directly into `agent/loop.Engine`.
 - `tools/` exposes LLM-callable tool surfaces; `runtime/shell/` owns stateful command execution.
@@ -103,7 +103,7 @@ Important current details:
 Keep dependencies flowing downward only. Avoid upward or circular imports.
 
 ```text
-cmd/ms-cli -> internal/app -> agent, workflow, ui
+cmd/mscode -> internal/app -> agent, workflow, ui
 agent -> permission, integrations, configs
 workflow -> internal/train, runtime/probes, configs
 workflow/train -> internal/train, runtime/probes (NOT ui/model)
@@ -118,7 +118,7 @@ ui -> configs
 
 Package rules:
 
-- `cmd/ms-cli/` should call `internal/app` only.
+- `cmd/mscode/` should call `internal/app` only.
 - `internal/app/` is the wiring layer and should not become a reusable dependency for the rest of the repo.
 - `internal/app/train.go` maps train lane events to UI state updates — it is the only place that bridges `workflow/train` and `ui/model`.
 - `agent/` must not depend directly on `ui/` or `runtime/`.

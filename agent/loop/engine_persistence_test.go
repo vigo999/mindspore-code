@@ -8,9 +8,9 @@ import (
 	"sync"
 	"testing"
 
-	ctxmanager "github.com/vigo999/ms-cli/agent/context"
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/tools"
+	ctxmanager "github.com/vigo999/mindspore-code/agent/context"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/tools"
 )
 
 type scriptedStreamProvider struct {

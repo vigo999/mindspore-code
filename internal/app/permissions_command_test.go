@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/vigo999/ms-cli/configs"
-	"github.com/vigo999/ms-cli/permission"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/configs"
+	"github.com/vigo999/mindspore-code/permission"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func newPermAppForTest(t *testing.T) (*Application, *permission.DefaultPermissionService) {
@@ -193,7 +193,7 @@ func TestHandleCommand_InternalPermissionsAddRuleWithScopePersistsToLocalSetting
 		t.Fatalf("Check(shell ls -la) = %s, want %s", got, permission.PermissionAllowAlways)
 	}
 
-	path := filepath.Join(workDir, ".ms-cli", "permissions.json")
+	path := filepath.Join(workDir, ".mscode", "permissions.json")
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("ReadFile(%s) err = %v", path, err)

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/permission"
-	"github.com/vigo999/ms-cli/ui/model"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/permission"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 func (a *Application) handleCommand(input string) {
@@ -709,7 +709,7 @@ func (a *Application) cmdHelp() {
 	helpText := `Available commands:
 
   /skill [name] [request] Load and run a skill; omit request to start immediately
-  /skill-add <path|git-url|owner/repo>  Add skills into ~/.ms-cli/skills
+  /skill-add <path|git-url|owner/repo>  Add skills into ~/.mscode/skills
   /skill-update              Update shared skills repo
   /train <model> <method> Start train workflow (e.g. /train qwen3 lora)
   /train <action>         Control active train HUD (start, stop, analyze, apply fix, retry, view diff, exit)
@@ -764,15 +764,15 @@ Keybindings:
   ctrl+c     Cancel/Quit (press twice to exit)
 
 Environment Variables:
-  MSCLI_PROVIDER          Provider (openai-completion/openai-responses/anthropic)
-  MSCLI_BASE_URL          Base URL
-  MSCLI_MODEL             Default model
-  MSCLI_API_KEY           API key
-  MSCLI_TEMPERATURE       Optional request temperature override
-  MSCLI_MAX_TOKENS        Optional request output token override
-  MSCLI_MAX_ITERATIONS    Optional agent loop iteration cap (default 100, 0 = unlimited)
-  MSCLI_CONTEXT_WINDOW    Context window tokens
-  MSCLI_TIMEOUT           Request timeout seconds`
+  MSCODE_PROVIDER          Provider (openai-completion/openai-responses/anthropic)
+  MSCODE_BASE_URL          Base URL
+  MSCODE_MODEL             Default model
+  MSCODE_API_KEY           API key
+  MSCODE_TEMPERATURE       Optional request temperature override
+  MSCODE_MAX_TOKENS        Optional request output token override
+  MSCODE_MAX_ITERATIONS    Optional agent loop iteration cap (default 100, 0 = unlimited)
+  MSCODE_CONTEXT_WINDOW    Context window tokens
+  MSCODE_TIMEOUT           Request timeout seconds`
 
 	a.EventCh <- model.Event{Type: model.AgentReply, Message: helpText}
 }

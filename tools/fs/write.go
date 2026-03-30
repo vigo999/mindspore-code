@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
-	"github.com/vigo999/ms-cli/tools"
+	"github.com/vigo999/mindspore-code/integrations/llm"
+	"github.com/vigo999/mindspore-code/tools"
 )
 
 // WriteTool writes or creates file contents.

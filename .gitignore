@@ -1,5 +1,5 @@
 # Binaries
-/ms-cli
+/mscode
 /dist/
 *.exe
 *.out
@@ -11,12 +11,12 @@
 # Go workspace and cache files
 *.coverprofile
 
-# ms-cli local state
-.ms-cli/
+# mscode local state
+.mscode/
 /.cache
 
 # Server runtime artifacts
-ms-cli-server
+mscode-server
 issues.db
 
 # IDE files

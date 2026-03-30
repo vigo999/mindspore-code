@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/vigo999/ms-cli/integrations/llm"
+	"github.com/vigo999/mindspore-code/integrations/llm"
 )
 
 // MockProvider is a mock LLM provider for testing.

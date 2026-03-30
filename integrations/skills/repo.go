@@ -22,7 +22,7 @@ const (
 	DefaultRepoBranch        = "refactor-arch-4.1"
 	defaultRepoName          = "mindspore-skills"
 	defaultSkillsDir         = "skills"
-	defaultCommitFile        = ".ms-cli-commit"
+	defaultCommitFile        = ".mscode-commit"
 	defaultLogPrefix         = "skills sync"
 	defaultHTTPTimeout       = 2 * time.Minute
 	defaultRemoteHEADTimeout = 5 * time.Second
@@ -47,7 +47,7 @@ type RepoSyncConfig struct {
 	LogWriter io.Writer
 }
 
-// DefaultRepoSync keeps the bundled skills repo fresh under ~/.ms-cli.
+// DefaultRepoSync keeps the bundled skills repo fresh under ~/.mscode.
 type DefaultRepoSync struct {
 	homeDir     string
 	repoURL     string
@@ -86,7 +86,7 @@ func NewRepoSync(cfg RepoSyncConfig) *DefaultRepoSync {
 
 // SyncedRepoDir returns the local checkout/download directory for the shared skills repo.
 func SyncedRepoDir(homeDir string) string {
-	return filepath.Join(strings.TrimSpace(homeDir), ".ms-cli", defaultRepoName)
+	return filepath.Join(strings.TrimSpace(homeDir), ".mscode", defaultRepoName)
 }
 
 // SyncedSkillsDir returns the highest-priority skills directory synced at startup.
@@ -192,7 +192,7 @@ func (s *DefaultRepoSync) CheckRemoteVersion() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("build remote version request: %w", err)
 	}
-	req.Header.Set("User-Agent", "ms-cli")
+	req.Header.Set("User-Agent", "mscode")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
@@ -403,7 +403,7 @@ func (s *DefaultRepoSync) remoteCommit() (string, error) {
 		return "", fmt.Errorf("build remote commit request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "ms-cli")
+	req.Header.Set("User-Agent", "mscode")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

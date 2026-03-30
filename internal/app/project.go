@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	projectpkg "github.com/vigo999/ms-cli/internal/project"
-	"github.com/vigo999/ms-cli/ui/model"
+	projectpkg "github.com/vigo999/mindspore-code/internal/project"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
 var runProjectGit = func(workDir string, args ...string) (string, error) {

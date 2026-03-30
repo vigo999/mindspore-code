@@ -283,3 +283,56 @@ func TestRenderMessagesRendersTableInlineCodeWithoutBreakingCodeSpan(t *testing.
 		t.Fatalf("expected file name content to remain visible, got:\n%s", plain)
 	}
 }
+
+func TestRenderMessagesWrapsParagraphListQuoteCodeAndRule(t *testing.T) {
+	state := model.NewState("test", ".", "", "demo-model", 4096)
+	state = state.WithMessage(model.Message{
+		Kind: model.MsgAgent,
+		Content: "This paragraph should wrap across multiple lines in the chat panel.\n\n" +
+			"- bullet item that should wrap and keep continuation aligned.\n" +
+			"- [ ] task item that should also wrap neatly in narrow widths.\n" +
+			"1. ordered item that should wrap while preserving the numeric prefix.\n\n" +
+			"> quoted text should wrap and keep the quote rail aligned across lines.\n\n" +
+			"---\n\n" +
+			"```txt\nthis-code-line-is-long-enough-to-wrap-inside-the-code-block\n```",
+	})
+
+	rendered := RenderMessages(state, "", 34)
+	plain := testANSIPattern.ReplaceAllString(rendered, "")
+
+	for _, want := range []string{
+		"This paragraph should wrap",
+		"across multiple lines in the",
+		"• bullet item that should wrap",
+		"and keep continuation aligned.",
+		"[ ] task item that should also",
+		"1. ordered item that should wrap",
+		"│ quoted text should wrap and",
+		"│ keep the quote rail aligned",
+		"this-code-line-is-long-enough",
+		"-to-wrap-inside-the-code-bloc",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected %q in rendered output, got:\n%s", want, plain)
+		}
+	}
+
+	if strings.Contains(plain, "this-code-line-is-long-enough-to-wrap-inside-the-code-block") {
+		t.Fatalf("expected code block line to wrap instead of remaining on one line, got:\n%s", plain)
+	}
+
+	lines := strings.Split(plain, "\n")
+	ruleFound := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "────") {
+			ruleFound = true
+			if len([]rune(trimmed)) < 20 {
+				t.Fatalf("expected width-aware rule line, got:\n%s", plain)
+			}
+		}
+	}
+	if !ruleFound {
+		t.Fatalf("expected rendered rule line, got:\n%s", plain)
+	}
+}

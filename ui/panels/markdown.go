@@ -103,7 +103,7 @@ func renderMarkdown(content string, width int) string {
 			continue
 		}
 		if inCodeBlock {
-			rendered = append(rendered, renderCodeBlockLine(line, width))
+			rendered = append(rendered, renderCodeBlockLine(line, width)...)
 			continue
 		}
 		if trimmed == "" {
@@ -120,26 +120,26 @@ func renderMarkdown(content string, width int) string {
 			continue
 		}
 		if quote, ok := markdownQuote(line); ok {
-			rendered = append(rendered, mdQuoteStyle.Render("│ "+renderInlineMarkdown(quote)))
+			rendered = append(rendered, renderWrappedMarkdownWithPrefix(quote, width, "│ ", "│ ")...)
 			continue
 		}
 		if indent, checked, item, ok := markdownTaskItem(line); ok {
-			rendered = append(rendered, renderListPrefix(indent, taskListMarker(checked))+renderInlineMarkdown(item))
+			rendered = append(rendered, renderWrappedMarkdownWithPrefix(item, width, renderListPrefix(indent, taskListMarker(checked)), renderListContinuationPrefix(indent, taskListMarker(checked)))...)
 			continue
 		}
 		if indent, item, ok := markdownBullet(line); ok {
-			rendered = append(rendered, renderListPrefix(indent, "• ")+renderInlineMarkdown(item))
+			rendered = append(rendered, renderWrappedMarkdownWithPrefix(item, width, renderListPrefix(indent, "• "), renderListContinuationPrefix(indent, "• "))...)
 			continue
 		}
 		if indent, index, item, ok := markdownOrderedItem(line); ok {
-			rendered = append(rendered, renderListPrefix(indent, index+". ")+renderInlineMarkdown(item))
+			rendered = append(rendered, renderWrappedMarkdownWithPrefix(item, width, renderListPrefix(indent, index+". "), renderListContinuationPrefix(indent, index+". "))...)
 			continue
 		}
 		if markdownRule(trimmed) {
-			rendered = append(rendered, mdRuleStyle.Render("────────────────────"))
+			rendered = append(rendered, renderMarkdownRule(width))
 			continue
 		}
-		rendered = append(rendered, renderInlineMarkdown(line))
+		rendered = append(rendered, wrapRenderedLine(renderInlineMarkdown(line), width)...)
 	}
 
 	return strings.Join(rendered, "\n")
@@ -515,12 +515,20 @@ func truncatePlainText(text string, width int) string {
 	return parts[0]
 }
 
-func renderCodeBlockLine(line string, width int) string {
+func renderCodeBlockLine(line string, width int) []string {
 	contentWidth := width - codeBlockDecorationWidth()
 	if contentWidth < 1 {
 		contentWidth = 1
 	}
-	return mdCodeBlockStyle.Render(truncatePlainText(line, contentWidth))
+	parts := splitPlainText(line, contentWidth)
+	lines := make([]string, 0, len(parts))
+	for _, part := range parts {
+		lines = append(lines, mdCodeBlockStyle.Render(part))
+	}
+	if len(lines) == 0 {
+		return []string{mdCodeBlockStyle.Render("")}
+	}
+	return lines
 }
 
 func codeBlockDecorationWidth() int {
@@ -752,6 +760,40 @@ func markdownIndent(line string) (int, string) {
 
 func renderListPrefix(indent int, marker string) string {
 	return agentStyle.Render(strings.Repeat("  ", indent) + marker)
+}
+
+func renderListContinuationPrefix(indent int, marker string) string {
+	return strings.Repeat(" ", runewidth.StringWidth(strings.Repeat("  ", indent)+marker))
+}
+
+func renderWrappedMarkdownWithPrefix(line string, width int, firstPrefix, restPrefix string) []string {
+	rendered := wrapRenderedLine(renderInlineMarkdown(line), width-lipgloss.Width(firstPrefix))
+	lines := make([]string, 0, len(rendered))
+	for i, part := range rendered {
+		if i == 0 {
+			lines = append(lines, firstPrefix+part)
+			continue
+		}
+		lines = append(lines, restPrefix+part)
+	}
+	if len(lines) == 0 {
+		return []string{firstPrefix}
+	}
+	return lines
+}
+
+func wrapRenderedLine(line string, width int) []string {
+	if width < 1 {
+		width = 1
+	}
+	return strings.Split(lipgloss.NewStyle().Width(width).Render(line), "\n")
+}
+
+func renderMarkdownRule(width int) string {
+	if width < 3 {
+		width = 3
+	}
+	return mdRuleStyle.Render(strings.Repeat("─", width))
 }
 
 func taskListMarker(checked bool) string {

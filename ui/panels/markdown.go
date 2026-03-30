@@ -265,8 +265,8 @@ func renderTableBorder(left, middle, right string, widths []int) string {
 }
 
 func renderTableRow(row []string, widths []int, header bool, aligns ...[]tableAlignment) string {
-	var b strings.Builder
-	b.WriteString(mdTableBorderStyle.Render("│"))
+	rowLines := make([][]string, len(widths))
+	rowHeight := 1
 	var colAligns []tableAlignment
 	if len(aligns) > 0 {
 		colAligns = aligns[0]
@@ -276,20 +276,151 @@ func renderTableRow(row []string, widths []int, header bool, aligns ...[]tableAl
 		if i < len(row) {
 			text = row[i]
 		}
-		rendered := renderInlineMarkdown(truncatePlainText(text, width))
-		leftPad, rightPad := tablePadding(width, plainTextWidth(rendered), alignmentAt(colAligns, i, header))
-		b.WriteString(" ")
-		b.WriteString(strings.Repeat(" ", leftPad))
-		if header {
-			b.WriteString(mdTableHeaderStyle.Render(rendered))
-		} else {
-			b.WriteString(rendered)
+		rowLines[i] = wrapRenderedTableCell(text, width)
+		if len(rowLines[i]) > rowHeight {
+			rowHeight = len(rowLines[i])
 		}
-		b.WriteString(strings.Repeat(" ", rightPad))
-		b.WriteString(" ")
-		b.WriteString(mdTableBorderStyle.Render("│"))
 	}
-	return b.String()
+
+	lines := make([]string, 0, rowHeight)
+	for lineIndex := 0; lineIndex < rowHeight; lineIndex++ {
+		var b strings.Builder
+		b.WriteString(mdTableBorderStyle.Render("│"))
+		for col, cellWidth := range widths {
+			cellLine := ""
+			if lineIndex < len(rowLines[col]) {
+				cellLine = rowLines[col][lineIndex]
+			}
+			leftPad, rightPad := tablePadding(cellWidth, plainTextWidth(cellLine), alignTableCell(header, colAligns, col))
+			b.WriteString(" ")
+			b.WriteString(strings.Repeat(" ", leftPad))
+			if header {
+				b.WriteString(mdTableHeaderStyle.Render(cellLine))
+			} else {
+				b.WriteString(cellLine)
+			}
+			b.WriteString(strings.Repeat(" ", rightPad))
+			b.WriteString(" ")
+			b.WriteString(mdTableBorderStyle.Render("│"))
+		}
+		lines = append(lines, b.String())
+	}
+	return strings.Join(lines, "\n")
+}
+
+func alignTableCell(header bool, aligns []tableAlignment, col int) tableAlignment {
+	if header {
+		return alignLeft
+	}
+	if col >= 0 && col < len(aligns) {
+		return aligns[col]
+	}
+	return alignLeft
+}
+
+func wrapRenderedTableCell(text string, width int) []string {
+	if width <= 0 {
+		return []string{""}
+	}
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return []string{""}
+	}
+
+	var lines []string
+	for _, paragraph := range strings.Split(text, "\n") {
+		if paragraph == "" {
+			lines = append(lines, "")
+			continue
+		}
+		for _, segment := range wrapTableText(paragraph, width) {
+			lines = append(lines, renderInlineMarkdown(segment))
+		}
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func wrapTableText(text string, width int) []string {
+	if width <= 0 {
+		return []string{""}
+	}
+	if runewidth.StringWidth(text) <= width {
+		return []string{text}
+	}
+
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return splitPlainText(text, width)
+	}
+
+	lines := make([]string, 0, 1)
+	current := ""
+	for _, word := range words {
+		wordWidth := runewidth.StringWidth(word)
+		if current == "" {
+			if wordWidth <= width {
+				current = word
+				continue
+			}
+			parts := splitPlainText(word, width)
+			lines = append(lines, parts[:len(parts)-1]...)
+			current = parts[len(parts)-1]
+			continue
+		}
+
+		candidate := current + " " + word
+		if runewidth.StringWidth(candidate) <= width {
+			current = candidate
+			continue
+		}
+
+		lines = append(lines, current)
+		if wordWidth <= width {
+			current = word
+			continue
+		}
+		parts := splitPlainText(word, width)
+		lines = append(lines, parts[:len(parts)-1]...)
+		current = parts[len(parts)-1]
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+	if len(lines) == 0 {
+		return []string{""}
+	}
+	return lines
+}
+
+func splitPlainText(text string, width int) []string {
+	if width <= 0 {
+		return []string{""}
+	}
+	var (
+		parts []string
+		b     strings.Builder
+		used  int
+	)
+	for _, r := range text {
+		rw := runewidth.RuneWidth(r)
+		if used > 0 && used+rw > width {
+			parts = append(parts, b.String())
+			b.Reset()
+			used = 0
+		}
+		b.WriteRune(r)
+		used += rw
+	}
+	if b.Len() > 0 {
+		parts = append(parts, b.String())
+	}
+	if len(parts) == 0 {
+		return []string{""}
+	}
+	return parts
 }
 
 func constrainTableWidths(widths []int, maxWidth int) []int {
@@ -342,21 +473,11 @@ func truncatePlainText(text string, width int) string {
 	if runewidth.StringWidth(text) <= width {
 		return text
 	}
-	if width == 1 {
-		return "…"
+	parts := splitPlainText(text, width)
+	if len(parts) == 0 {
+		return ""
 	}
-	limit := width - 1
-	var b strings.Builder
-	used := 0
-	for _, r := range text {
-		rw := runewidth.RuneWidth(r)
-		if used+rw > limit {
-			break
-		}
-		b.WriteRune(r)
-		used += rw
-	}
-	return b.String() + "…"
+	return parts[0]
 }
 
 func renderCodeBlockLine(line string, width int) string {

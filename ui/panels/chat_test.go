@@ -237,6 +237,11 @@ func TestRenderMessagesKeepsWideTableBordersStable(t *testing.T) {
 			t.Fatalf("expected exactly one %s border line, got %d in:\n%s", border, count, plain)
 		}
 	}
+	for _, want := range []string{"this cell is", "intentionall", "another wide", "wrapping"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("expected wrapped table content %q, got:\n%s", want, plain)
+		}
+	}
 }
 
 func TestRenderMessagesRendersCodeBlockAsDistinctBlock(t *testing.T) {

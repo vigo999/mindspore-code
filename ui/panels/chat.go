@@ -128,7 +128,7 @@ func renderUserMsg(content string, width int) string {
 }
 
 func renderAgentMsg(content string, width int) string {
-	return renderPrefixedBlock(agentStyle.Render(content), width, "  ", "  ")
+	return renderPrefixedBlock(renderAgentContent(content), width, "  ", "  ")
 }
 
 func renderThinking(thinkingView string, width int) string {

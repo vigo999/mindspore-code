@@ -247,6 +247,9 @@ func (a App) inlineEventCmd(ev model.Event, prevMessages []model.Message) tea.Cm
 	case model.AgentReplyDelta, model.AgentThinking, model.TaskDone, model.TokenUpdate:
 		return nil
 	case model.ToolCallStart:
+		if ev.ToolName == "shell" {
+			return nil
+		}
 		return a.inlinePrintMessage(a.pendingToolMessage(ev))
 	case model.CmdOutput:
 		return a.inlinePrintCommandOutput(ev.Message)

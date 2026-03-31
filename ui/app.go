@@ -409,11 +409,15 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.state = a.clearThinking()
 		a.input = a.input.Reset()
 		a.resizeActiveLayout()
-		a.state = a.state.WithMessage(model.Message{
+		interruptMsg := model.Message{
 			Kind:    model.MsgAgent,
 			Content: "Interrupt requested. Press Ctrl+C again within 1 second to exit.",
-		})
+		}
+		a.state = a.state.WithMessage(interruptMsg)
 		a.updateViewport()
+		if a.inlineMode {
+			return a, a.inlinePrintMessage(interruptMsg)
+		}
 		return a, nil
 	}
 
@@ -2862,6 +2866,9 @@ func (a App) activeHUDHeight() int {
 func (a App) viewportRenderState() model.State {
 	s := a.state
 	s.WaitElapsed = a.currentWaitElapsed()
+	if a.modelPicker != nil || a.setupPopup != nil {
+		s = s.WithThinking(false).ClearWait()
+	}
 	msgs := make([]model.Message, len(s.Messages))
 	copy(msgs, s.Messages)
 	for i := range msgs {

@@ -135,3 +135,44 @@ func TestInlineModeSetupPopupUsesTemporaryFullscreenView(t *testing.T) {
 		t.Fatal("expected temporary alt-screen flag to clear after popup close")
 	}
 }
+
+func TestModelSetupPopupSuppressesThinkingIndicatorWithoutClearingState(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	app = next.(App)
+
+	next, _ = app.handleEvent(model.Event{Type: model.AgentThinking})
+	app = next.(App)
+	if view := app.View(); !strings.Contains(view, "Thinking...") {
+		t.Fatalf("expected thinking indicator before popup, got:\n%s", view)
+	}
+
+	next, _ = app.handleEvent(model.Event{
+		Type: model.ModelSetupOpen,
+		SetupPopup: &model.SetupPopup{
+			Screen:    model.SetupScreenModeSelect,
+			CanEscape: true,
+		},
+	})
+	app = next.(App)
+
+	if !app.state.IsThinking {
+		t.Fatal("expected popup open to preserve underlying thinking state")
+	}
+	view := app.View()
+	if !strings.Contains(view, "mscode-provided") {
+		t.Fatalf("expected model setup popup in view, got:\n%s", view)
+	}
+	if strings.Contains(view, "Thinking...") {
+		t.Fatalf("expected popup view to suppress background thinking indicator, got:\n%s", view)
+	}
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
+	app = next.(App)
+	app.updateViewport()
+	if view := app.View(); !strings.Contains(view, "Thinking...") {
+		t.Fatalf("expected thinking indicator to return after popup close, got:\n%s", view)
+	}
+}

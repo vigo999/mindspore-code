@@ -586,6 +586,39 @@ func TestCtrlCSendsInterruptTokenForActiveTask(t *testing.T) {
 	}
 }
 
+func TestInlineModeCtrlCPrintsInterruptHint(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096).WithInlineMode()
+	app.bootActive = false
+	app.state = app.state.WithThinking(true)
+
+	next, cmd := app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	app = next.(App)
+
+	select {
+	case msg := <-userCh:
+		if msg != interruptActiveTaskToken {
+			t.Fatalf("expected ctrl+c to send interrupt token, got %q", msg)
+		}
+	default:
+		t.Fatal("expected ctrl+c to send interrupt token")
+	}
+
+	if cmd == nil {
+		t.Fatal("expected inline mode ctrl+c to print interrupt hint into normal buffer")
+	}
+	last := app.state.Messages[len(app.state.Messages)-1]
+	if !strings.Contains(last.Content, "Interrupt requested.") {
+		t.Fatalf("expected interrupt hint message, got %#v", last)
+	}
+	if app.state.IsThinking {
+		t.Fatal("expected ctrl+c to clear thinking state")
+	}
+	if view := app.View(); strings.Contains(view, "Thinking...") {
+		t.Fatalf("expected ctrl+c to remove inline thinking indicator, got:\n%s", view)
+	}
+}
+
 func TestToolErrorClearsThinkingIndicator(t *testing.T) {
 	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false

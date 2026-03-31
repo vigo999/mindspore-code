@@ -72,7 +72,7 @@ func RenderInlineBanner(version, workDir, repoURL, modelName string, ctxMax int)
 		rows = append(rows, inlineBannerRow("Repo", repo))
 	}
 
-	body := title + "\n\n" + strings.Join(rows, "\n\n")
+	body := title + "\n\n" + strings.Join(rows, "\n")
 	return inlineBannerBoxStyle.Render(body)
 }
 

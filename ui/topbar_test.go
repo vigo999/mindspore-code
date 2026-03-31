@@ -57,18 +57,7 @@ func TestRenderInlineBannerIncludesMetadata(t *testing.T) {
 	if !strings.Contains(banner, "Model: demo-model") {
 		t.Fatalf("expected banner rows to stay left aligned, got:\n%s", banner)
 	}
-	if blankRows := countBlankBannerRows(banner); blankRows < 6 {
-		t.Fatalf("expected banner rows to use wider vertical spacing, got %d blank rows:\n%s", blankRows, banner)
+	if strings.Contains(banner, "Version: MindSpore Code. test\n│                                           │\n│  Model: demo-model") {
+		t.Fatalf("expected banner rows to render without per-row blank spacing, got:\n%s", banner)
 	}
-}
-
-func countBlankBannerRows(banner string) int {
-	count := 0
-	for _, line := range strings.Split(banner, "\n") {
-		trimmed := strings.TrimSpace(strings.Trim(line, "│"))
-		if trimmed == "" && strings.Contains(line, "│") {
-			count++
-		}
-	}
-	return count
 }

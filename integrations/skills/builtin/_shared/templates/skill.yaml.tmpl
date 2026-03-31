@@ -1,0 +1,37 @@
+schema_version: "1.0.0"
+name: "{{ skill_name }}"
+display_name: "{{ display_name }}"
+description: "{{ description }}"
+version: "0.1.0"
+
+entry:
+  type: "python"
+  path: "run.py"
+
+inputs:
+  - name: "target"
+    type: "string"
+    required: true
+    description: "Primary target for this run."
+  - name: "mode"
+    type: "enum"
+    required: false
+    default: "default"
+    choices: ["default"]
+    description: "Execution mode."
+
+outputs:
+  report_schema: "skills/_shared/contract/report.schema.json"
+  out_dir_layout: "runs/<run_id>/out/"
+
+permissions:
+  network: "none"
+  filesystem: "workspace-write"
+
+dependencies:
+  tools:
+    - "bash"
+  python: []
+
+tags:
+  - "mindspore"

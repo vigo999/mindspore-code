@@ -186,12 +186,14 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	toolRegistry := initTools(config, workDir)
 
-	// Skills: all skills live under ~/.mscode/skills/.
-	// Shared repo skills are copied there after sync.
+	// Skills: embedded skills are extracted next to the executable,
+	// user-installed skills in ~/.mscode/skills/ override them,
+	// project-local skills in .mscode/skills/ override both.
 	homeDir, _ := os.UserHomeDir()
 	execSkillsDir := ""
 	if ep, err := os.Executable(); err == nil {
 		execSkillsDir = filepath.Join(filepath.Dir(ep), ".mscode", "skills")
+		_ = skills.ExtractBuiltin(execSkillsDir)
 	}
 	skillLoader := skills.NewLoader(
 		execSkillsDir,

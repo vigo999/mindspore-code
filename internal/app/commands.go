@@ -75,8 +75,6 @@ func (a *Application) handleCommand(input string) {
 		a.cmdSkill(parts[1:])
 	case "/skill-add":
 		a.cmdSkillAddInput(strings.TrimSpace(strings.TrimPrefix(input, "/skill-add")))
-	case "/skill-update":
-		a.cmdSkillUpdate()
 	case "/help":
 		a.cmdHelp()
 	default:
@@ -841,7 +839,6 @@ func (a *Application) cmdHelp() {
 
   /skill [name] [request] Load and run a skill; omit request to start immediately
   /skill-add <path|git-url|owner/repo>  Add skills into ~/.mscode/skills
-  /skill-update              Update shared skills repo
   /train <model> <method> Start train workflow (e.g. /train qwen3 lora)
   /train <action>         Control active train HUD (start, stop, analyze, apply fix, retry, view diff, exit)
   /project [status]        Show project status snapshot (server + git status)

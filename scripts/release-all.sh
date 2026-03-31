@@ -47,6 +47,10 @@ if [ "$CURRENT_BRANCH" != "main" ]; then
   exit 1
 fi
 
+# ── Step 0: Update embedded skills ─────────────────────────────
+echo "==> Update embedded skills"
+"${SCRIPT_DIR}/update-skills.sh"
+
 # ── Step 1: Build + GitHub release ──────────────────────────────
 if [ "$SKIP_GITHUB" -eq 0 ]; then
   echo "==> GitHub release"

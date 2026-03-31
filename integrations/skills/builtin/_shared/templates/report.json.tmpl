@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0.0",
+  "skill": "{{ skill_name }}",
+  "run_id": "{{ run_id }}",
+  "status": "{{ status }}",
+  "start_time": "{{ start_time_iso }}",
+  "end_time": "{{ end_time_iso }}",
+  "duration_sec": {{ duration_sec }},
+  "steps": [
+    {
+      "name": "build",
+      "status": "{{ build_status }}",
+      "duration_sec": {{ build_duration_sec }},
+      "message": "{{ build_message }}"
+    },
+    {
+      "name": "verify",
+      "status": "{{ verify_status }}",
+      "duration_sec": {{ verify_duration_sec }},
+      "message": "{{ verify_message }}"
+    }
+  ],
+  "logs": [
+    "logs/run.log",
+    "logs/build.log",
+    "logs/verify.log"
+  ],
+  "artifacts": [
+    "{{ artifact_path_or_remove_entry }}"
+  ],
+  "env_ref": "meta/env.json",
+  "inputs_ref": "meta/inputs.json"
+}

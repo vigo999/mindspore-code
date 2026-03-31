@@ -279,16 +279,12 @@ func nextIssueStatus(current string) string {
 }
 
 func (a App) renderIssueView() string {
-	topBar := ""
-	if !a.inlineMode {
-		topBar = panels.RenderTopBar(a.state, a.width)
-	}
 	hintBar := panels.RenderIssueHintBar(a.width, a.issueView.Mode)
 	input := ""
 	if a.issueView.Mode == model.IssueModeDetail {
 		input = a.input.View()
 	}
-	bodyHeight := a.height - lipgloss.Height(topBar) - lipgloss.Height(hintBar) - lipgloss.Height(input) - a.bottomPaddingHeight()
+	bodyHeight := a.height - lipgloss.Height(hintBar) - lipgloss.Height(input) - a.bottomPaddingHeight()
 	if bodyHeight < 1 {
 		bodyHeight = 1
 	}
@@ -305,17 +301,10 @@ func (a App) renderIssueView() string {
 		body = panels.RenderIssueDetail(bodyWidth, bodyHeight, a.issueView.Detail)
 	}
 
-	parts := []string{}
-	if topBar != "" {
-		parts = append(parts, topBar)
-	}
-	parts = append(parts, body)
+	parts := []string{body}
 	if input != "" {
 		parts = append(parts, input)
 	}
 	parts = append(parts, hintBar)
-	for i := 0; i < a.bottomPaddingHeight(); i++ {
-		parts = append(parts, "")
-	}
-	return trimViewHeight(lipgloss.JoinVertical(lipgloss.Left, parts...), a.height, !a.inlineMode)
+	return trimViewHeight(lipgloss.JoinVertical(lipgloss.Left, parts...), a.height, false)
 }

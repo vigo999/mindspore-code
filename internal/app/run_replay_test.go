@@ -236,9 +236,6 @@ func TestParseBootstrapConfigReplay(t *testing.T) {
 	if cfg.ReplaySpeed != 1 {
 		t.Fatalf("replay speed = %v, want 1", cfg.ReplaySpeed)
 	}
-	if cfg.TUIMode != TUIModeAltScreenMouse {
-		t.Fatalf("tui mode = %v, want %v", cfg.TUIMode, TUIModeAltScreenMouse)
-	}
 }
 
 func TestParseBootstrapConfigReplayWithSpeed(t *testing.T) {
@@ -267,50 +264,6 @@ func TestParseBootstrapConfigReplaySpeedOnly(t *testing.T) {
 	}
 }
 
-func TestParseBootstrapConfigTUIModeAcrossEntrypoints(t *testing.T) {
-	tests := []struct {
-		name string
-		args []string
-		want TUIMode
-	}{
-		{
-			name: "default",
-			args: []string{},
-			want: TUIModeAltScreenMouse,
-		},
-		{
-			name: "root override",
-			args: []string{"--tui-mode", "2"},
-			want: TUIModeAltScreen,
-		},
-		{
-			name: "resume override",
-			args: []string{"resume", "--tui-mode", "3", "sess_123"},
-			want: TUIModeInline,
-		},
-		{
-			name: "replay override",
-			args: []string{"replay", "--tui-mode", "2", "sess_123"},
-			want: TUIModeAltScreen,
-		},
-	}
-
-	for _, tt := range tests {
-		cfg, err := parseBootstrapConfig(tt.args)
-		if err != nil {
-			t.Fatalf("%s: parse bootstrap config: %v", tt.name, err)
-		}
-		if cfg.TUIMode != tt.want {
-			t.Fatalf("%s: tui mode = %v, want %v", tt.name, cfg.TUIMode, tt.want)
-		}
-	}
-}
-
-func TestParseBootstrapConfigRejectsInvalidTUIMode(t *testing.T) {
-	if _, err := parseBootstrapConfig([]string{"--tui-mode", "9"}); err == nil {
-		t.Fatal("expected invalid tui mode error")
-	}
-}
 
 func TestLooksLikeTrajectoryPath(t *testing.T) {
 	tests := []struct {

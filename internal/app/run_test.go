@@ -177,14 +177,14 @@ func (m *renderOnceModel) View() string {
 	return "success\n"
 }
 
-func captureTUIStartupOutput(t *testing.T, mode TUIMode) string {
+func captureTUIStartupOutput(t *testing.T) string {
 	t.Helper()
 
 	var in bytes.Buffer
 	var out bytes.Buffer
 
 	m := &renderOnceModel{rendered: make(chan struct{})}
-	p := tea.NewProgram(m, tuiProgramOptions(mode, tea.WithInput(&in), tea.WithOutput(&out))...)
+	p := tea.NewProgram(m, tuiProgramOptions(tea.WithInput(&in), tea.WithOutput(&out))...)
 
 	go func() {
 		<-m.rendered
@@ -198,46 +198,17 @@ func captureTUIStartupOutput(t *testing.T, mode TUIMode) string {
 	return out.String()
 }
 
-func TestTUIProgramOptionsMode1EnablesAltScreenMouseAndBracketedPaste(t *testing.T) {
-	got := captureTUIStartupOutput(t, TUIModeAltScreenMouse)
-	for _, want := range []string{
-		"\x1b[?1049h", // alt screen
-		"\x1b[?2004h", // bracketed paste
-		"\x1b[?1002h", // mouse cell motion
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("expected startup output to include %q, got %q", want, got)
-		}
-	}
-}
-
-func TestTUIProgramOptionsMode2KeepsAltScreenWithoutMouseCellMotion(t *testing.T) {
-	got := captureTUIStartupOutput(t, TUIModeAltScreen)
-
-	for _, want := range []string{
-		"\x1b[?1049h", // alt screen
-		"\x1b[?2004h", // bracketed paste
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("expected startup output to include %q, got %q", want, got)
-		}
-	}
-	if strings.Contains(got, "\x1b[?1002h") {
-		t.Fatal("mouse cell motion should be disabled in mode 2")
-	}
-}
-
-func TestTUIProgramOptionsMode3RunsInlineWithoutAltScreenOrMouseCellMotion(t *testing.T) {
-	got := captureTUIStartupOutput(t, TUIModeInline)
+func TestTUIProgramOptionsInlineWithBracketedPaste(t *testing.T) {
+	got := captureTUIStartupOutput(t)
 
 	if !strings.Contains(got, "\x1b[?2004h") {
 		t.Fatalf("expected startup output to include bracketed paste, got %q", got)
 	}
 	if strings.Contains(got, "\x1b[?1049h") {
-		t.Fatal("alt screen should be disabled in mode 3")
+		t.Fatal("alt screen should not be enabled in inline mode")
 	}
 	if strings.Contains(got, "\x1b[?1002h") {
-		t.Fatal("mouse cell motion should be disabled in mode 3")
+		t.Fatal("mouse cell motion should not be enabled in inline mode")
 	}
 }
 

@@ -28,52 +28,6 @@ const provideAPIKeyFirstMsg = "LLM unavailable: provide api key first, or /login
 const interruptActiveTaskToken = "__interrupt_active_task__"
 const internalPermissionsActionPrefix = "\x00permissions:"
 
-type TUIMode uint8
-
-const (
-	TUIModeAltScreenMouse TUIMode = 1
-	TUIModeAltScreen      TUIMode = 2
-	TUIModeInline         TUIMode = 3
-)
-
-func (m TUIMode) normalize() TUIMode {
-	switch m {
-	case TUIModeAltScreenMouse, TUIModeAltScreen, TUIModeInline:
-		return m
-	default:
-		return TUIModeAltScreenMouse
-	}
-}
-
-func (m TUIMode) usesAltScreen() bool {
-	return m.normalize() != TUIModeInline
-}
-
-func (m TUIMode) usesMouseCellMotion() bool {
-	return m.normalize() == TUIModeAltScreenMouse
-}
-
-func defaultTUIModeFlagValue() string {
-	return strconv.Itoa(int(TUIModeAltScreenMouse))
-}
-
-func tuiModeFlagUsage() string {
-	return "TUI startup mode: 1=alt screen + mouse scroll (default), 2=alt screen without mouse scroll, 3=inline TUI in the normal buffer"
-}
-
-func parseTUIMode(raw string) (TUIMode, error) {
-	mode, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil {
-		return 0, fmt.Errorf("invalid --tui-mode %q: want 1, 2, or 3", raw)
-	}
-	switch TUIMode(mode) {
-	case TUIModeAltScreenMouse, TUIModeAltScreen, TUIModeInline:
-		return TUIMode(mode), nil
-	default:
-		return 0, fmt.Errorf("invalid --tui-mode %q: want 1, 2, or 3", raw)
-	}
-}
-
 var waitReplayDelay = func(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return nil
@@ -140,10 +94,7 @@ func (a *Application) runReal() error {
 	if a.replayOnly {
 		tui = ui.NewReplay(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.Window)
 	}
-	if a.tuiMode == TUIModeInline {
-		tui = tui.WithInlineMode()
-	}
-	p := tea.NewProgram(tui, tuiProgramOptions(a.tuiMode)...)
+	p := tea.NewProgram(tui, tuiProgramOptions()...)
 
 	// Emit saved login so the topbar shows the user immediately.
 	if a.issueUser != "" {
@@ -164,16 +115,8 @@ func (a *Application) runReal() error {
 	return err
 }
 
-func tuiProgramOptions(mode TUIMode, extra ...tea.ProgramOption) []tea.ProgramOption {
-	mode = mode.normalize()
-	opts := make([]tea.ProgramOption, 0, 2+len(extra))
-	if mode.usesAltScreen() {
-		opts = append(opts, tea.WithAltScreen())
-	}
-	if mode.usesMouseCellMotion() {
-		opts = append(opts, tea.WithMouseCellMotion())
-	}
-	return append(opts, extra...)
+func tuiProgramOptions(extra ...tea.ProgramOption) []tea.ProgramOption {
+	return extra
 }
 
 func (a *Application) inputLoop(userCh <-chan string) {
@@ -540,7 +483,7 @@ func (a *Application) activateSessionPersistence() error {
 }
 
 func (a *Application) exitResumeHint() string {
-	if a == nil || a.replayOnly || a.session == nil || !a.session.HasPersistedDialogue() {
+	if a == nil || a.replayOnly || a.session == nil {
 		return ""
 	}
 
@@ -595,12 +538,7 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 	if len(args) > 0 && args[0] == "replay" {
 		fs := flag.NewFlagSet("mindspore-code replay", flag.ContinueOnError)
 		fs.SetOutput(os.Stderr)
-		tuiModeFlag := fs.String("tui-mode", defaultTUIModeFlagValue(), tuiModeFlagUsage())
 		if err := fs.Parse(args[1:]); err != nil {
-			return BootstrapConfig{}, err
-		}
-		tuiMode, err := parseTUIMode(*tuiModeFlag)
-		if err != nil {
 			return BootstrapConfig{}, err
 		}
 		target, speed, err := parseReplayTargetAndSpeed(fs.Args())
@@ -611,7 +549,6 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 			Replay:          true,
 			ReplaySessionID: target,
 			ReplaySpeed:     speed,
-			TUIMode:         tuiMode,
 		}, nil
 	}
 
@@ -621,12 +558,7 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 		url := fs.String("url", "", "LLM API base URL")
 		modelFlag := fs.String("model", "", "Model name")
 		apiKey := fs.String("api-key", "", "API key")
-		tuiModeFlag := fs.String("tui-mode", defaultTUIModeFlagValue(), tuiModeFlagUsage())
 		if err := fs.Parse(args[1:]); err != nil {
-			return BootstrapConfig{}, err
-		}
-		tuiMode, err := parseTUIMode(*tuiModeFlag)
-		if err != nil {
 			return BootstrapConfig{}, err
 		}
 		rest := fs.Args()
@@ -634,11 +566,10 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 			return BootstrapConfig{}, fmt.Errorf("usage: mscode resume [sess_xxx]")
 		}
 		cfg := BootstrapConfig{
-			URL:     *url,
-			Model:   *modelFlag,
-			Key:     *apiKey,
-			TUIMode: tuiMode,
-			Resume:  true,
+			URL:    *url,
+			Model:  *modelFlag,
+			Key:    *apiKey,
+			Resume: true,
 		}
 		if len(rest) == 1 {
 			cfg.ResumeSessionID = rest[0]
@@ -651,13 +582,8 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 	url := fs.String("url", "", "LLM API base URL")
 	modelFlag := fs.String("model", "", "Model name")
 	apiKey := fs.String("api-key", "", "API key")
-	tuiModeFlag := fs.String("tui-mode", defaultTUIModeFlagValue(), tuiModeFlagUsage())
 
 	if err := fs.Parse(args); err != nil {
-		return BootstrapConfig{}, err
-	}
-	tuiMode, err := parseTUIMode(*tuiModeFlag)
-	if err != nil {
 		return BootstrapConfig{}, err
 	}
 	if len(fs.Args()) > 0 {
@@ -665,10 +591,9 @@ func parseBootstrapConfig(args []string) (BootstrapConfig, error) {
 	}
 
 	return BootstrapConfig{
-		URL:     *url,
-		Model:   *modelFlag,
-		Key:     *apiKey,
-		TUIMode: tuiMode,
+		URL:   *url,
+		Model: *modelFlag,
+		Key:   *apiKey,
 	}, nil
 }
 

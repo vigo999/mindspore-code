@@ -101,7 +101,7 @@ func TestSetupPopupNoEscapeOnFirstBoot(t *testing.T) {
 }
 
 func TestInlineModeSetupPopupUsesTemporaryFullscreenView(t *testing.T) {
-	app := New(nil, nil, "test", ".", "", "demo-model", 4096).WithInlineMode()
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false
 	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	app = next.(App)

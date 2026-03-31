@@ -17,6 +17,7 @@ func InitStyles() {
 
 	// ── chat.go ──────────────────────────────────────────────────
 	userStyle = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	userBlockStyle = lipgloss.NewStyle().Foreground(t.TextPrimary).Background(lipgloss.Color("248"))
 	agentStyle = lipgloss.NewStyle().Foreground(t.TextPrimary)
 	thinkingStyle = lipgloss.NewStyle().Foreground(t.Thinking).Italic(true)
 	toolBorderStyle = lipgloss.NewStyle().Foreground(t.TextMuted)

@@ -13,6 +13,7 @@ import (
 // Style vars are populated by InitStyles() in styles.go.
 var (
 	userStyle             lipgloss.Style
+	userBlockStyle        lipgloss.Style
 	agentStyle            lipgloss.Style
 	thinkingStyle         lipgloss.Style
 	toolBorderStyle       lipgloss.Style
@@ -53,7 +54,7 @@ func RenderMessages(state model.State, spinnerView, spinnerFrame string, width i
 	for _, m := range messages {
 		switch m.Kind {
 		case model.MsgUser:
-			parts = append(parts, renderUserMsg(m.Content, width))
+			parts = append(parts, renderUserMsg(m.Content, width)+"\n")
 		case model.MsgAgent:
 			parts = append(parts, renderAgentMsg(m.Content, width))
 		case model.MsgTool:
@@ -73,7 +74,23 @@ func RenderMessages(state model.State, spinnerView, spinnerFrame string, width i
 }
 
 func renderUserMsg(content string, width int) string {
-	return renderPrefixedBlock(userStyle.Render(content), width, "  "+userStyle.Render(">")+" ", "    ")
+	bodyWidth := width - 4
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+	// Wrap plain text — no nested ANSI, so background fills the full line.
+	wrapped := lipgloss.NewStyle().Width(bodyWidth).Render(content)
+	lines := strings.Split(wrapped, "\n")
+	firstLineStyle := userBlockStyle.Copy().Bold(true).Width(width)
+	restLineStyle := userBlockStyle.Copy().Width(width)
+	for i, line := range lines {
+		if i == 0 {
+			lines[i] = firstLineStyle.Render("  ❯ " + line)
+		} else {
+			lines[i] = restLineStyle.Render("    " + line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderAgentMsg(content string, width int) string {

@@ -16,23 +16,13 @@ import (
 var (
 	inlineBannerBoxStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("63")).
+				BorderForeground(lipgloss.Color("252")).
 				Align(lipgloss.Left).
 				Padding(1, 2)
 
-	inlineBadgeStyle = lipgloss.NewStyle().
-				Background(lipgloss.Color("63")).
-				Foreground(lipgloss.Color("255")).
-				Bold(true).
-				Padding(0, 1)
-
 	inlineTitleStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("252")).
+				Foreground(lipgloss.Color("39")).
 				Bold(true)
-
-	inlineModeStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("117")).
-			Italic(true)
 
 	inlineLabelStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("244"))
@@ -51,25 +41,31 @@ var (
 			Italic(true)
 )
 
+// maybePrintBanner prints the startup banner once, deferred until
+// no modal popup is blocking the normal buffer.
+func (a *App) maybePrintBanner() tea.Cmd {
+	if a.bannerPrinted || a.bootActive || a.setupPopup != nil || a.modelPicker != nil {
+		return nil
+	}
+	a.bannerPrinted = true
+	return tea.Println(RenderInlineBanner(a.state.Version, a.state.WorkDir, a.state.RepoURL, a.state.Model.Name, a.state.Model.CtxMax))
+}
+
 // RenderInlineBanner renders the one-shot banner shown after boot in inline mode.
 func RenderInlineBanner(version, workDir, repoURL, modelName string, ctxMax int) string {
-	title := lipgloss.JoinHorizontal(
-		lipgloss.Left,
-		inlineBadgeStyle.Render("MS"),
-		" ",
-		inlineTitleStyle.Render("MindSpore Code"),
-		"  ",
-		inlineModeStyle.Render("inline mode"),
-	)
+	ver := strings.TrimSpace(version)
+	// Strip product name prefix (e.g. "MindSpore Code. v0.5.0" → "v0.5.0")
+	for _, prefix := range []string{"MindSpore Code. ", "MindSpore CLI. "} {
+		ver = strings.TrimPrefix(ver, prefix)
+	}
+	if ver == "" {
+		ver = "dev"
+	}
+	title := inlineTitleStyle.Render("MindSpore Code") + " " + inlineValueStyle.Render("("+ver+")")
 
 	rows := []string{
-		inlineBannerRow("Version", valueOrString(strings.TrimSpace(version), "unknown")),
-		inlineBannerRow("Model", valueOrString(strings.TrimSpace(modelName), "unknown")),
-		inlineBannerRow("Directory", valueOrString(shortenInlinePath(strings.TrimSpace(workDir)), ".")),
-		inlineBannerRow("Context", formatInlineContext(ctxMax)),
-	}
-	if repo := strings.TrimSpace(repoURL); repo != "" {
-		rows = append(rows, inlineBannerRow("Repo", repo))
+		inlineBannerRow("model", valueOrString(strings.TrimSpace(modelName), "unknown")),
+		inlineBannerRow("directory", valueOrString(shortenInlinePath(strings.TrimSpace(workDir)), ".")),
 	}
 
 	body := title + "\n\n" + strings.Join(rows, "\n")
@@ -116,7 +112,7 @@ func (a App) renderInlineMainView() string {
 	if len(a.queuedInputs) > 0 {
 		parts = append(parts, queueBannerStyle.Render("messages queued (press esc to interrupt)"))
 	}
-	parts = append(parts, a.input.View())
+	parts = append(parts, "", a.input.View())
 	if a.trainView.Active {
 		parts = append(parts, panels.RenderTrainHUDHintBar(a.width))
 	} else {
@@ -154,8 +150,9 @@ func (a App) renderInlineTranscriptMessage(msg model.Message) string {
 }
 
 func (a App) inlinePrintMessage(msg model.Message) tea.Cmd {
-	rendered := strings.TrimSpace(a.renderInlineTranscriptMessage(msg))
-	if rendered == "" {
+	rendered := a.renderInlineTranscriptMessage(msg)
+	rendered = strings.TrimRight(rendered, "\n")
+	if strings.TrimSpace(rendered) == "" {
 		return nil
 	}
 	return tea.Println(rendered)
@@ -166,7 +163,12 @@ func (a App) inlinePrintUserInput(input string) tea.Cmd {
 	if input == "" {
 		return nil
 	}
-	return a.inlinePrintMessage(model.Message{Kind: model.MsgUser, Content: input})
+	cmd := a.inlinePrintMessage(model.Message{Kind: model.MsgUser, Content: input})
+	if cmd == nil {
+		return nil
+	}
+	// Add a blank line after user input for visual separation.
+	return tea.Sequence(cmd, tea.Println(""))
 }
 
 func (a App) inlinePrintResolvedTool(ev model.Event) tea.Cmd {

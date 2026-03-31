@@ -27,8 +27,11 @@ func TestEnterStartsThinkingWaitImmediately(t *testing.T) {
 	if got, want := app.state.WaitKind, model.WaitModel; got != want {
 		t.Fatalf("wait kind = %v, want %v", got, want)
 	}
-	if view := app.View(); !strings.Contains(view, "Thinking... 00:0") {
-		t.Fatalf("expected thinking timer in view, got:\n%s", view)
+	if !app.state.IsThinking {
+		t.Fatal("expected thinking state to be set after enter")
+	}
+	if app.state.WaitStartedAt.IsZero() {
+		t.Fatal("expected wait timer to be started")
 	}
 }
 

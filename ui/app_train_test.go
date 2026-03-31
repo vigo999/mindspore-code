@@ -445,9 +445,15 @@ func TestLargePastedUserMessageRendersFullContent(t *testing.T) {
 		t.Fatal("expected pasted input submit to reach backend")
 	}
 
-	view := app.View()
-	if !strings.Contains(view, "line 01") || !strings.Contains(view, "line 07") {
-		t.Fatalf("expected chat view to render full pasted content, got:\n%s", view)
+	found := false
+	for _, msg := range app.state.Messages {
+		if msg.Kind == model.MsgUser && strings.Contains(msg.Content, "line 01") && strings.Contains(msg.Content, "line 07") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected pasted content to be recorded in state messages")
 	}
 }
 
@@ -588,7 +594,7 @@ func TestCtrlCSendsInterruptTokenForActiveTask(t *testing.T) {
 
 func TestInlineModeCtrlCPrintsInterruptHint(t *testing.T) {
 	userCh := make(chan string, 1)
-	app := New(nil, userCh, "test", ".", "", "demo-model", 4096).WithInlineMode()
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false
 	app.state = app.state.WithThinking(true)
 

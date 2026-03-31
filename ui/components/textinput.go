@@ -60,7 +60,7 @@ func NewTextInput() TextInput {
 	)
 	ti.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ti.BlurredStyle.CursorLine = lipgloss.NewStyle()
-	ti.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("117")).Bold(true)
+	ti.FocusedStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Bold(true)
 	ti.BlurredStyle.Prompt = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	ti.FocusedStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	ti.BlurredStyle.Placeholder = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))

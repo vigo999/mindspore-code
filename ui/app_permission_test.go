@@ -307,16 +307,13 @@ func TestPermissionsView_DoubleCtrlCQuitsWithoutEsc(t *testing.T) {
 	})
 	app = next.(App)
 
-	nextModel, cmd := app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	nextModel, _ := app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
 	app = nextModel.(App)
-	if cmd != nil {
-		t.Fatal("first ctrl+c should not quit immediately")
-	}
 	if app.permissionsView == nil {
 		t.Fatal("permissions view should still be open after first ctrl+c")
 	}
 
-	nextModel, cmd = app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	nextModel, cmd := app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
 	app = nextModel.(App)
 	if cmd == nil {
 		t.Fatal("second ctrl+c should quit")

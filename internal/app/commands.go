@@ -885,17 +885,11 @@ Permission Levels:
 
 Keybindings:
   enter      Send input
-  shift+drag Select terminal text in modes 2/3 on compatible terminals
-  mouse wheel Scroll chat in mode 1
+  shift+drag Select terminal text
   pgup/pgdn  Scroll chat
   home/end   Jump to top/bottom
   /          Start a slash command
   ctrl+c     Cancel/Quit (press twice to exit)
-
-Startup Flags:
-  --tui-mode 1          Alt screen + mouse scroll (default)
-  --tui-mode 2          Alt screen without mouse scroll; terminal selection works
-  --tui-mode 3          Inline TUI in the normal buffer
 
 Environment Variables:
   MSCODE_PROVIDER          Provider (openai-completion/openai-responses/anthropic)

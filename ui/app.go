@@ -176,7 +176,6 @@ type App struct {
 	lastInterrupt        time.Time     // track last ctrl+c for double-press exit
 	mouseEnabled         bool
 	replayWait           *model.ReplayWaitData
-	inlineMode           bool
 	inlineModalAltScreen bool
 
 	// Train mode
@@ -186,6 +185,7 @@ type App struct {
 	issueView     model.IssueViewState
 	bootActive    bool
 	bootHighlight int
+	bannerPrinted bool
 	queuedInputs  []string
 
 	permissionPrompt *permissionPromptState
@@ -215,11 +215,6 @@ func NewReplay(ch <-chan model.Event, userCh chan<- string, version, workDir, re
 	return app
 }
 
-// WithInlineMode disables fullscreen chrome so the TUI renders into the normal buffer.
-func (a App) WithInlineMode() App {
-	a.inlineMode = true
-	return a
-}
 
 func (a App) waitForEvent() tea.Msg {
 	ev, ok := <-a.eventCh
@@ -261,9 +256,6 @@ func (a App) chatHeight() int {
 
 func (a App) desiredChatHeight(contentLines int) int {
 	maxHeight := a.chatHeight()
-	if !a.inlineMode {
-		return maxHeight
-	}
 	if contentLines < 1 {
 		contentLines = 1
 	}
@@ -274,17 +266,11 @@ func (a App) desiredChatHeight(contentLines int) int {
 }
 
 func (a App) persistentTopBarHeight() int {
-	if a.inlineMode {
-		return 0
-	}
-	return topBarHeight
+	return 0
 }
 
 func (a App) bottomPaddingHeight() int {
-	if a.inlineMode {
-		return 0
-	}
-	return bottomSafePadding
+	return 0
 }
 
 func (a App) queueBannerHeight() int {
@@ -319,7 +305,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.resizeActiveLayout()
-		return a, nil
+		if a.bannerPrinted && !a.bootActive && !a.inlineModalAltScreen {
+			a.bannerPrinted = false
+			return a, tea.Sequence(tea.ClearScreen, a.maybePrintBanner())
+		}
+		return a, tea.ClearScreen
 
 	case bootTickMsg:
 		if !a.bootActive {
@@ -333,10 +323,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case bootDoneMsg:
 		a.bootActive = false
 		a.updateViewport()
-		if a.inlineMode {
-			return a, tea.Println(RenderInlineBanner(a.state.Version, a.state.WorkDir, a.state.RepoURL, a.state.Model.Name, a.state.Model.CtxMax))
-		}
-		return a, nil
+		return a, a.maybePrintBanner()
 
 	case model.Event:
 		return a.handleEvent(msg)
@@ -386,14 +373,14 @@ func (a *App) resizeActiveLayout() {
 }
 
 func (a *App) wantsInlineModalAltScreen() bool {
-	if a == nil || !a.inlineMode {
+	if a == nil {
 		return false
 	}
 	return a.modelPicker != nil || a.setupPopup != nil
 }
 
 func (a *App) syncInlineModalAltScreen() tea.Cmd {
-	if a == nil || !a.inlineMode {
+	if a == nil {
 		return nil
 	}
 
@@ -433,10 +420,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		a.state = a.state.WithMessage(interruptMsg)
 		a.updateViewport()
-		if a.inlineMode {
-			return a, a.inlinePrintMessage(interruptMsg)
-		}
-		return a, nil
+		return a, a.inlinePrintMessage(interruptMsg)
 	}
 
 	if a.issueView.Active() {
@@ -832,7 +816,12 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc":
 			a.trainView.SelectionPopup = nil
 			a.modelPicker = nil
-			return a, a.syncInlineModalAltScreen()
+			exitAlt := a.syncInlineModalAltScreen()
+			banner := a.maybePrintBanner()
+			if exitAlt != nil && banner != nil {
+				return a, tea.Sequence(exitAlt, banner)
+			}
+			return a, combineCmds(exitAlt, banner)
 		}
 		return a, nil
 	}
@@ -888,10 +877,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.input = a.input.PushHistory(val)
 			a.input = a.input.Reset()
 			a.resizeActiveLayout()
-			if a.inlineMode {
-				return a, a.inlinePrintUserInput(val)
-			}
-			return a, nil
+			return a, a.inlinePrintUserInput(val)
 		}
 		// Reset stats for new task
 		a.state = a.state.ResetStats()
@@ -905,10 +891,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.input = a.input.Reset()
 		a.resizeActiveLayout()
 		a.updateViewport()
-		var inlineCmd tea.Cmd
-		if a.inlineMode {
-			inlineCmd = a.inlinePrintUserInput(val)
-		}
+		inlineCmd := a.inlinePrintUserInput(val)
 		if a.userCh != nil {
 			select {
 			case a.userCh <- val:
@@ -918,9 +901,14 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return a, inlineCmd
 
-	case "pgup", "pgdown", "home", "end":
+	case "pgup", "pgdown":
 		var cmd tea.Cmd
 		a.viewport, cmd = a.viewport.Update(msg)
+		return a, cmd
+
+	case "home", "end":
+		var cmd tea.Cmd
+		a.input.Model, cmd = a.input.Model.Update(msg)
 		return a, cmd
 
 	case "up", "down":
@@ -1218,7 +1206,13 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 
 	case model.ModelSetupClose:
 		a.setupPopup = nil
-		eventCmd = combineCmds(eventCmd, a.syncInlineModalAltScreen())
+		exitAlt := a.syncInlineModalAltScreen()
+		banner := a.maybePrintBanner()
+		if exitAlt != nil && banner != nil {
+			eventCmd = combineCmds(eventCmd, tea.Sequence(exitAlt, banner))
+		} else {
+			eventCmd = combineCmds(eventCmd, exitAlt, banner)
+		}
 
 	case model.ModelSetupTokenError:
 		if a.setupPopup != nil {
@@ -1562,10 +1556,8 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 
 	a = a.maybeDispatchQueuedInput()
 	a.updateViewport()
-	if a.inlineMode {
-		inlineCmd := a.inlineEventCmd(ev, prevMessages)
-		eventCmd = combineCmds(eventCmd, inlineCmd)
-	}
+	inlineCmd := a.inlineEventCmd(ev, prevMessages)
+	eventCmd = combineCmds(eventCmd, inlineCmd, a.maybePrintBanner())
 	if eventCmd != nil {
 		return a, tea.Batch(eventCmd, a.waitForEvent)
 	}
@@ -2844,10 +2836,8 @@ func (a *App) agentStatus() string {
 }
 
 func (a *App) updateViewport() {
-	if a.inlineMode {
-		a.viewport = a.viewport.SetContent("")
-		return
-	}
+	a.viewport = a.viewport.SetContent("")
+	return
 	// Check if user is at (or near) bottom before updating content.
 	atBottom := a.viewport.AtBottom() || a.viewport.TotalLines() <= a.viewport.Model.Height
 	width := a.viewport.Model.Width
@@ -2862,8 +2852,7 @@ func (a *App) updateViewport() {
 	contentLines := strings.Count(content, "\n") + 1
 	viewHeight := a.desiredChatHeight(contentLines)
 	a.viewport = a.viewport.SetSize(width, viewHeight)
-	if !a.inlineMode && contentLines < viewHeight && content != "" {
-		// Fullscreen modes keep the transcript bottom-anchored.
+	if contentLines < viewHeight && content != "" {
 		padding := strings.Repeat("\n", viewHeight-contentLines)
 		content = padding + content
 	}
@@ -2943,57 +2932,22 @@ func (a App) View() string {
 	if a.bugView.Active() {
 		return a.renderBugView()
 	}
-	if a.inlineMode && !a.inlineModalAltScreen {
+	if !a.inlineModalAltScreen {
 		return a.renderInlineMainView()
 	}
 
-	topBar := ""
-	if !a.inlineMode {
-		topBar = panels.RenderTopBar(a.state, a.width)
-	}
-	chat := a.viewport.View()
-	queueBanner := ""
-	if len(a.queuedInputs) > 0 {
-		queueBanner = queueBannerStyle.Render("messages queued (press esc to interrupt)")
-	}
-	input := a.input.View()
-	hintBar := panels.RenderHintBar(a.state, a.width)
-
-	parts := []string{}
-	if topBar != "" {
-		parts = append(parts, topBar)
-	}
-	if a.trainView.Active {
-		parts = append(parts, panels.RenderTrainHUD(a.trainView, a.width, a.agentStatus()))
-		hintBar = panels.RenderTrainHUDHintBar(a.width)
-	}
-	parts = append(parts,
-		chat,
-	)
-	if queueBanner != "" {
-		parts = append(parts, queueBanner)
-	}
-	parts = append(parts,
-		input,
-		hintBar,
-	)
-	for i := 0; i < a.bottomPaddingHeight(); i++ {
-		parts = append(parts, "")
-	}
-
-	layout := lipgloss.JoinVertical(lipgloss.Left, parts...)
-
+	// Temporary alt screen for modal popups — render only the popup on a blank backdrop.
+	blank := strings.Repeat("\n", a.height-1)
 	if a.trainView.Active && a.trainView.SelectionPopup != nil {
-		layout = overlayPopup(layout, panels.RenderSelectionPopup(a.trainView.SelectionPopup), a.width, a.height)
+		return overlayPopup(blank, panels.RenderSelectionPopup(a.trainView.SelectionPopup), a.width, a.height)
 	}
 	if a.modelPicker != nil {
-		layout = overlayPopup(layout, panels.RenderSelectionPopup(a.modelPicker), a.width, a.height)
+		return overlayPopup(blank, panels.RenderSelectionPopup(a.modelPicker), a.width, a.height)
 	}
 	if a.setupPopup != nil {
-		layout = overlayPopup(layout, panels.RenderSetupPopup(a.setupPopup), a.width, a.height)
+		return overlayPopup(blank, panels.RenderSetupPopup(a.setupPopup), a.width, a.height)
 	}
-
-	return trimViewHeight(layout, a.height, !a.inlineMode)
+	return blank
 }
 
 func trimViewHeight(content string, height int, fill bool) string {

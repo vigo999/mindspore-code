@@ -77,6 +77,7 @@ type Session struct {
 	path         string
 	snapshotPath string
 	persisted    bool
+	runtimeLLM   bool
 	file         *os.File
 	enc          *json.Encoder
 }
@@ -650,6 +651,22 @@ func (s *Session) Activate() error {
 	return nil
 }
 
+// NoteRuntimeLLM activates persistence if needed and marks that this process
+// has observed a real LLM response for the session.
+func (s *Session) NoteRuntimeLLM() error {
+	if s == nil {
+		return fmt.Errorf("session is nil")
+	}
+	if err := s.Activate(); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeLLM = true
+	return nil
+}
+
 // HasPersistedDialogue reports whether this session has persisted user/assistant dialogue.
 func (s *Session) HasPersistedDialogue() bool {
 	if s == nil {
@@ -668,6 +685,18 @@ func (s *Session) HasPersistedDialogue() bool {
 		}
 	}
 	return false
+}
+
+// HasRuntimeLLM reports whether this process has observed a real LLM response
+// for the session.
+func (s *Session) HasRuntimeLLM() bool {
+	if s == nil {
+		return false
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.runtimeLLM
 }
 
 // Meta returns a copy of the persisted meta record.

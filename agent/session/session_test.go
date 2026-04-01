@@ -92,6 +92,37 @@ func TestCreateDefersDiskWritesUntilActivate(t *testing.T) {
 	}
 }
 
+func TestNoteRuntimeLLMMarksSessionOnlyAfterActivation(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	workDir := t.TempDir()
+	s, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	if s.HasRuntimeLLM() {
+		t.Fatal("expected no runtime llm before activation")
+	}
+	if _, err := os.Stat(s.Path()); !os.IsNotExist(err) {
+		t.Fatalf("expected no trajectory before runtime llm, got err=%v", err)
+	}
+
+	if err := s.AppendUserInput("hello"); err != nil {
+		t.Fatalf("append user input: %v", err)
+	}
+	if err := s.NoteRuntimeLLM(); err != nil {
+		t.Fatalf("note runtime llm: %v", err)
+	}
+
+	if !s.HasRuntimeLLM() {
+		t.Fatal("expected runtime llm after note")
+	}
+	if _, err := os.Stat(s.Path()); err != nil {
+		t.Fatalf("expected trajectory after runtime llm, got %v", err)
+	}
+}
+
 func TestWorkDirKeySanitizesWindowsInvalidFilenameChars(t *testing.T) {
 	key := workDirKey(`C:\Users\alice\work\mscode`)
 

@@ -37,6 +37,7 @@ type Engine struct {
 
 // TrajectoryRecorder records runtime conversation events for persistence.
 type TrajectoryRecorder struct {
+	ActivatePersistence func() error
 	RecordUserInput     func(string) error
 	RecordAssistant     func(string) error
 	RecordToolCall      func(llm.ToolCall) error
@@ -355,6 +356,14 @@ func (ex *executor) applyStreamChunk(resp *llm.CompletionResponse, chunk *llm.St
 }
 
 func (ex *executor) handleResponse(ctx context.Context, resp *llm.CompletionResponse) (bool, error) {
+	if (strings.TrimSpace(resp.Content) != "" || len(resp.ToolCalls) > 0) &&
+		ex.engine.recorder != nil &&
+		ex.engine.recorder.ActivatePersistence != nil {
+		if err := ex.engine.recorder.ActivatePersistence(); err != nil {
+			return false, err
+		}
+	}
+
 	notice, err := ex.addContextMessage(llm.Message{
 		Role:      "assistant",
 		Content:   resp.Content,

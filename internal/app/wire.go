@@ -436,6 +436,12 @@ func initProvider(cfg configs.ModelConfig, opts llm.ResolveOptions) (llm.Provide
 
 func newTrajectoryRecorder(s *session.Session, cm *agentctx.Manager) *loop.TrajectoryRecorder {
 	return &loop.TrajectoryRecorder{
+		ActivatePersistence: func() error {
+			if s == nil {
+				return nil
+			}
+			return s.NoteRuntimeLLM()
+		},
 		RecordUserInput: func(content string) error {
 			if s == nil {
 				return nil

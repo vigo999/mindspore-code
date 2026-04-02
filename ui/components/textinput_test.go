@@ -1,15 +1,18 @@
 package components
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/vigo999/mindspore-code/ui/slash"
 )
 
 const largePastedBlock = "line 01\nline 02\nline 03\nline 04\nline 05\nline 06\nline 07\nline 08\n"
+const normalPastedBlock = "The first line.\nThe second line.\nThe third line.\nThe fourth line."
 
 func TestTextInputHistoryRecall(t *testing.T) {
 	input := NewTextInput()
@@ -106,6 +109,98 @@ func TestTextInputKeepsFirstLineVisibleAfterExplicitNewlineGrowth(t *testing.T) 
 	}
 	if !strings.Contains(view, composerContinue+"beta") {
 		t.Fatalf("expected second line to remain visible after newline growth, got %q", view)
+	}
+}
+
+func TestTextInputKeepsFirstLineVisibleAfterNormalMultilinePaste(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(40)
+
+	input, _ = input.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(normalPastedBlock),
+		Paste: true,
+	})
+
+	if got := input.Value(); got != normalPastedBlock {
+		t.Fatalf("expected pasted value to be preserved, got %q", got)
+	}
+
+	view := input.View()
+	if !strings.Contains(view, composerPrompt+"The first line.") {
+		t.Fatalf("expected first pasted line to remain visible, got %q", view)
+	}
+	if !strings.Contains(view, composerContinue+"The fourth line.") {
+		t.Fatalf("expected last pasted line to remain visible, got %q", view)
+	}
+}
+
+func TestTextInputKeepsFirstLineVisibleAfterMultilineRunesWithoutPasteFlag(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(40)
+
+	input, _ = input.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(normalPastedBlock),
+	})
+
+	if got := input.Value(); got != normalPastedBlock {
+		t.Fatalf("expected multiline runes to be preserved, got %q", got)
+	}
+
+	view := input.View()
+	if !strings.Contains(view, composerPrompt+"The first line.") {
+		t.Fatalf("expected first multiline rune line to remain visible, got %q", view)
+	}
+	if !strings.Contains(view, composerContinue+"The fourth line.") {
+		t.Fatalf("expected last multiline rune line to remain visible, got %q", view)
+	}
+}
+
+func TestTextInputKeepsFirstLineVisibleWhenMultilinePasteArrivesAsRuneSequence(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(40)
+
+	events := []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune("The first line.")},
+		{Type: tea.KeyRunes, Runes: []rune("\n")},
+		{Type: tea.KeyRunes, Runes: []rune("The second line.")},
+		{Type: tea.KeyRunes, Runes: []rune("\n")},
+		{Type: tea.KeyRunes, Runes: []rune("The third line.")},
+		{Type: tea.KeyRunes, Runes: []rune("\n")},
+		{Type: tea.KeyRunes, Runes: []rune("The fourth line.")},
+	}
+	for _, msg := range events {
+		input, _ = input.Update(msg)
+	}
+
+	if got := input.Value(); got != normalPastedBlock {
+		t.Fatalf("expected rune sequence to preserve multiline value, got %q", got)
+	}
+
+	view := input.View()
+	if !strings.Contains(view, composerPrompt+"The first line.") {
+		t.Fatalf("expected first rune sequence line to remain visible, got %q", view)
+	}
+	if !strings.Contains(view, composerContinue+"The fourth line.") {
+		t.Fatalf("expected last rune sequence line to remain visible, got %q", view)
+	}
+}
+
+func TestTextInputProgramRenderKeepsAllLinesVisibleAfterNormalMultilinePaste(t *testing.T) {
+	output := renderTextInputProgram([]tea.KeyMsg{
+		{
+			Type:  tea.KeyRunes,
+			Runes: []rune(normalPastedBlock),
+			Paste: true,
+		},
+	})
+
+	if !strings.Contains(output, "The first line.") {
+		t.Fatalf("expected renderer output to contain first pasted line, got %q", output)
+	}
+	if !strings.Contains(output, "The fourth line.") {
+		t.Fatalf("expected renderer output to contain last pasted line, got %q", output)
 	}
 }
 
@@ -344,4 +439,55 @@ func newSlashSuggestionInput(count int) TextInput {
 	}
 
 	return input
+}
+
+type textInputProgramModel struct {
+	input TextInput
+}
+
+func (m textInputProgramModel) Init() tea.Cmd { return nil }
+
+func (m textInputProgramModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.input = m.input.SetWidth(msg.Width - 4)
+		return m, nil
+	case tea.KeyMsg:
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(msg)
+		m.input = m.input.SetWidth(40)
+		return m, cmd
+	}
+	return m, nil
+}
+
+func (m textInputProgramModel) View() string {
+	return m.input.View()
+}
+
+func renderTextInputProgram(events []tea.KeyMsg) string {
+	var out bytes.Buffer
+	program := tea.NewProgram(
+		textInputProgramModel{input: NewTextInput().SetWidth(40)},
+		tea.WithInput(nil),
+		tea.WithOutput(&out),
+		tea.WithoutSignals(),
+	)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = program.Run()
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	program.Send(tea.WindowSizeMsg{Width: 44, Height: 12})
+	for _, msg := range events {
+		program.Send(msg)
+	}
+	time.Sleep(100 * time.Millisecond)
+	program.Quit()
+	<-done
+
+	return out.String()
 }

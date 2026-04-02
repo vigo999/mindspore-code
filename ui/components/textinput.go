@@ -127,6 +127,12 @@ func (t TextInput) SetWidth(width int) TextInput {
 func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		if isMultilineRunesInput(msg) {
+			t.Model.InsertString(string(msg.Runes))
+			t.syncHeight()
+			t.updateSuggestions()
+			return t, nil
+		}
 		t.maybeGrowHeightBeforeUpdate(msg)
 
 		// Handle slash command suggestions navigation
@@ -383,6 +389,10 @@ func isExplicitNewlineKey(msg tea.KeyMsg) bool {
 	default:
 		return false
 	}
+}
+
+func isMultilineRunesInput(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyRunes && strings.ContainsRune(string(msg.Runes), '\n') && len(msg.Runes) > 1
 }
 
 // CanNavigateHistory reports whether up/down should switch prompt history

@@ -9,6 +9,7 @@ import (
 )
 
 const largePastedBlock = "line 01\nline 02\nline 03\nline 04\nline 05\nline 06\nline 07\nline 08\n"
+const normalPastedBlock = "The first line.\nThe second line.\nThe third line.\nThe fourth line."
 
 func TestTrainFixActionClearsStaleButtonAndKeepsCompletionMessage(t *testing.T) {
 	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
@@ -454,6 +455,135 @@ func TestLargePastedUserMessageRendersFullContent(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected pasted content to be recorded in state messages")
+	}
+}
+
+func TestNormalMultilinePasteRendersImmediatelyWithoutSubmitting(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(normalPastedBlock),
+		Paste: true,
+	})
+	app = next.(App)
+
+	select {
+	case msg := <-userCh:
+		t.Fatalf("expected paste not to submit input, got %q", msg)
+	default:
+	}
+
+	view := app.View()
+	if !strings.Contains(view, "The first line.") {
+		t.Fatalf("expected composer view to contain first pasted line, got:\n%s", view)
+	}
+	if !strings.Contains(view, "The fourth line.") {
+		t.Fatalf("expected composer view to contain last pasted line, got:\n%s", view)
+	}
+}
+
+func TestNormalMultilineRunesWithoutPasteFlagRenderImmediatelyWithoutSubmitting(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(normalPastedBlock),
+	})
+	app = next.(App)
+
+	select {
+	case msg := <-userCh:
+		t.Fatalf("expected multiline runes not to submit input, got %q", msg)
+	default:
+	}
+
+	view := app.View()
+	if !strings.Contains(view, "The first line.") {
+		t.Fatalf("expected composer view to contain first multiline rune line, got:\n%s", view)
+	}
+	if !strings.Contains(view, "The fourth line.") {
+		t.Fatalf("expected composer view to contain last multiline rune line, got:\n%s", view)
+	}
+}
+
+func TestMultilinePasteRuneSequenceRendersImmediatelyWithoutSubmitting(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	events := []tea.KeyMsg{
+		{Type: tea.KeyRunes, Runes: []rune("The first line.")},
+		{Type: tea.KeyRunes, Runes: []rune("\n")},
+		{Type: tea.KeyRunes, Runes: []rune("The second line.")},
+		{Type: tea.KeyRunes, Runes: []rune("\n")},
+		{Type: tea.KeyRunes, Runes: []rune("The third line.")},
+		{Type: tea.KeyRunes, Runes: []rune("\n")},
+		{Type: tea.KeyRunes, Runes: []rune("The fourth line.")},
+	}
+	for _, msg := range events {
+		next, _ = app.handleKey(msg)
+		app = next.(App)
+	}
+
+	select {
+	case msg := <-userCh:
+		t.Fatalf("expected rune-sequence paste not to submit input, got %q", msg)
+	default:
+	}
+
+	view := app.View()
+	if !strings.Contains(view, "The first line.") {
+		t.Fatalf("expected composer view to contain first rune-sequence line, got:\n%s", view)
+	}
+	if !strings.Contains(view, "The fourth line.") {
+		t.Fatalf("expected composer view to contain last rune-sequence line, got:\n%s", view)
+	}
+}
+
+func TestNormalMultilinePasteSubmitPreservesSingleHistoryEntry(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(normalPastedBlock),
+		Paste: true,
+	})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	select {
+	case msg := <-userCh:
+		if msg != normalPastedBlock {
+			t.Fatalf("expected one multiline submit, got %q", msg)
+		}
+	default:
+		t.Fatal("expected multiline paste submit to reach backend")
+	}
+
+	app.input = app.input.PrevHistory()
+	if got := app.input.Value(); got != normalPastedBlock {
+		t.Fatalf("expected history to keep one complete multiline entry, got %q", got)
 	}
 }
 

@@ -3,6 +3,8 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -166,7 +168,6 @@ const (
 // App is the TUI root model.
 type App struct {
 	state                model.State
-	viewport             components.Viewport
 	input                components.TextInput
 	thinking             components.ThinkingSpinner
 	width                int
@@ -176,7 +177,13 @@ type App struct {
 	lastInterrupt        time.Time     // track last ctrl+c for double-press exit
 	mouseEnabled         bool
 	replayWait           *model.ReplayWaitData
-	inlineModalAltScreen bool
+	modalAltScreen bool
+	deltaMu        *sync.Mutex
+	deltaBuf       *strings.Builder // buffers agent deltas until a full line is ready
+	deltaStarted   *bool            // true after the first agent delta line is printed
+	eventListening *int32           // atomic flag: 1 = waitForEvent goroutine is active
+	cmdOutputStarted *bool          // true after first shell output line is printed
+	cmdOutputLines   *int           // lines printed so far for current shell command
 
 	// Train mode
 	trainView     model.TrainViewState
@@ -190,21 +197,37 @@ type App struct {
 
 	permissionPrompt *permissionPromptState
 	permissionsView  *permissionsViewState
-	toolsExpanded    bool
+	toolsExpanded    *bool
 	modelPicker      *model.SelectionPopup
 	setupPopup       *model.SetupPopup
+
+	// Tool output viewer (alt-screen overlay, toggled via Ctrl+O)
+	toolOutputView *toolOutputViewState
+}
+
+// toolOutputViewState holds state for the alt-screen tool output viewer.
+type toolOutputViewState struct {
+	msg       model.Message
+	scrollOff int // vertical scroll offset (line index)
 }
 
 // New creates a new App driven by the given event channel.
 // userCh may be nil — user input won't be forwarded.
 func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
 	return App{
-		state:      model.NewState(version, workDir, repoURL, modelName, ctxMax),
-		input:      components.NewTextInput(),
-		thinking:   components.NewThinkingSpinner(),
-		eventCh:    ch,
-		userCh:     userCh,
-		bootActive: true,
+		state:          model.NewState(version, workDir, repoURL, modelName, ctxMax),
+		input:          components.NewTextInput(),
+		thinking:       components.NewThinkingSpinner(),
+		eventCh:        ch,
+		userCh:         userCh,
+		bootActive:     true,
+		deltaMu:           &sync.Mutex{},
+		deltaBuf:          &strings.Builder{},
+		eventListening:    new(int32),
+		deltaStarted:      new(bool),
+		cmdOutputStarted:  new(bool),
+		cmdOutputLines:    new(int),
+		toolsExpanded:     new(bool),
 	}
 }
 
@@ -217,7 +240,14 @@ func NewReplay(ch <-chan model.Event, userCh chan<- string, version, workDir, re
 
 
 func (a App) waitForEvent() tea.Msg {
+	// Prevent multiple goroutines from reading the event channel
+	// concurrently — that causes non-deterministic event ordering.
+	if !atomic.CompareAndSwapInt32(a.eventListening, 0, 1) {
+		// Another goroutine is already listening; yield a no-op.
+		return nil
+	}
 	ev, ok := <-a.eventCh
+	atomic.StoreInt32(a.eventListening, 0)
 	if !ok {
 		return model.Event{Type: model.Done}
 	}
@@ -290,26 +320,16 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		m, cmd := a.handleKey(msg)
-		if updated, ok := m.(App); ok {
-			updated.updateViewport()
-			m = updated
-		}
 		return m, a.ensureWaitForEvent(cmd)
 
 	case tea.MouseMsg:
-		var cmd tea.Cmd
-		a.viewport, cmd = a.viewport.Update(msg)
-		return a, cmd
+		return a, nil
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
 		a.resizeActiveLayout()
-		if a.bannerPrinted && !a.bootActive && !a.inlineModalAltScreen {
-			a.bannerPrinted = false
-			return a, tea.Sequence(tea.ClearScreen, a.maybePrintBanner())
-		}
-		return a, tea.ClearScreen
+		return a, nil
 
 	case bootTickMsg:
 		if !a.bootActive {
@@ -322,7 +342,6 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bootDoneMsg:
 		a.bootActive = false
-		a.updateViewport()
 		return a, a.maybePrintBanner()
 
 	case model.Event:
@@ -331,10 +350,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		a.thinking, cmd = a.thinking.Update(msg)
+		a.thinking.Elapsed = a.currentWaitElapsed()
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		a.updateViewport()
 	}
 
 	return a, tea.Batch(cmds...)
@@ -349,8 +368,7 @@ func (a App) ensureWaitForEvent(cmd tea.Cmd) tea.Cmd {
 	return tea.Batch(cmd, a.waitForEvent)
 }
 
-// chatWidth returns the width available for the chat panel.
-// In the stacked train layout the viewport is full-width.
+// chatWidth returns the width available for the chat area.
 func (a App) chatWidth() int {
 	return a.width
 }
@@ -365,32 +383,27 @@ func (a *App) resizeInput() {
 
 func (a *App) resizeActiveLayout() {
 	a.resizeInput()
-	contentLines := a.viewport.TotalLines()
-	if contentLines < 1 {
-		contentLines = 1
-	}
-	a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.desiredChatHeight(contentLines))
 }
 
-func (a *App) wantsInlineModalAltScreen() bool {
+func (a *App) wantsModalAltScreen() bool {
 	if a == nil {
 		return false
 	}
-	return a.modelPicker != nil || a.setupPopup != nil
+	return a.modelPicker != nil || a.setupPopup != nil || a.toolOutputView != nil
 }
 
-func (a *App) syncInlineModalAltScreen() tea.Cmd {
+func (a *App) syncModalAltScreen() tea.Cmd {
 	if a == nil {
 		return nil
 	}
 
-	wants := a.wantsInlineModalAltScreen()
+	wants := a.wantsModalAltScreen()
 	switch {
-	case wants && !a.inlineModalAltScreen:
-		a.inlineModalAltScreen = true
+	case wants && !a.modalAltScreen:
+		a.modalAltScreen = true
 		return tea.EnterAltScreen
-	case !wants && a.inlineModalAltScreen:
-		a.inlineModalAltScreen = false
+	case !wants && a.modalAltScreen:
+		a.modalAltScreen = false
 		return tea.ExitAltScreen
 	default:
 		return nil
@@ -419,8 +432,12 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Content: "Interrupt requested. Press Ctrl+C again within 1 second to exit.",
 		}
 		a.state = a.state.WithMessage(interruptMsg)
-		a.updateViewport()
-		return a, a.inlinePrintMessage(interruptMsg)
+		return a, a.printMessage(interruptMsg)
+	}
+
+	// Tool output viewer intercepts all keys when active.
+	if a.toolOutputView != nil {
+		return a.handleToolOutputViewKey(msg)
 	}
 
 	if a.issueView.Active() {
@@ -428,8 +445,18 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.String() == "ctrl+o" {
-		a.toolsExpanded = !a.toolsExpanded
-		return a, nil
+		if a.toolOutputView != nil {
+			a.toolOutputView = nil
+		} else {
+			for i := len(a.state.Messages) - 1; i >= 0; i-- {
+				msg := a.state.Messages[i]
+				if msg.Kind == model.MsgTool && !msg.Pending && !msg.Streaming {
+					a.toolOutputView = &toolOutputViewState{msg: msg}
+					break
+				}
+			}
+		}
+		return a, a.syncModalAltScreen()
 	}
 
 	if a.bugView.Active() {
@@ -712,7 +739,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if a.setupPopup.CanEscape {
 					a.setupPopup = nil
 				}
-				return a, a.syncInlineModalAltScreen()
+				return a, a.syncModalAltScreen()
 			}
 		case model.SetupScreenPresetPicker:
 			switch msg.String() {
@@ -812,11 +839,11 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				default:
 				}
 			}
-			return a, a.syncInlineModalAltScreen()
+			return a, a.syncModalAltScreen()
 		case "esc":
 			a.trainView.SelectionPopup = nil
 			a.modelPicker = nil
-			exitAlt := a.syncInlineModalAltScreen()
+			exitAlt := a.syncModalAltScreen()
 			banner := a.maybePrintBanner()
 			if exitAlt != nil && banner != nil {
 				return a, tea.Sequence(exitAlt, banner)
@@ -877,7 +904,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.input = a.input.PushHistory(val)
 			a.input = a.input.Reset()
 			a.resizeActiveLayout()
-			return a, a.inlinePrintUserInput(val)
+			return a, a.printUserInput(val)
 		}
 		// Reset stats for new task
 		a.state = a.state.ResetStats()
@@ -890,8 +917,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.input = a.input.PushHistory(val)
 		a.input = a.input.Reset()
 		a.resizeActiveLayout()
-		a.updateViewport()
-		inlineCmd := a.inlinePrintUserInput(val)
+		printCmd := a.printUserInput(val)
 		if a.userCh != nil {
 			select {
 			case a.userCh <- val:
@@ -899,12 +925,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// drop if buffer full — avoids freezing the UI
 			}
 		}
-		return a, inlineCmd
-
-	case "pgup", "pgdown":
-		var cmd tea.Cmd
-		a.viewport, cmd = a.viewport.Update(msg)
-		return a, cmd
+		return a, printCmd
 
 	case "home", "end":
 		var cmd tea.Cmd
@@ -1020,11 +1041,12 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		a.state = a.finalizeAgentMessage(content)
 
 	case model.ContextNotice:
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message, Display: model.DisplayNotice})
 
 	case model.AgentReplyDelta:
 		a.replayWait = nil
-		a.state = a.clearThinking()
+		// Keep WaitStartedAt so the elapsed timer continues through "Responding...".
+		a.state = a.state.WithThinking(false)
 		a.state = a.appendToStreamingAgent(ev.Message)
 
 	case model.PermissionPrompt:
@@ -1049,9 +1071,9 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		a.state = a.state.WithStats(stats)
 		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind:       model.MsgTool,
-			ToolName:   "Shell",
+			ToolName:   "Bash",
 			ToolCallID: ev.ToolCallID,
-			Display:    model.DisplayExpanded,
+			Display:    model.DisplayCollapsed,
 			Streaming:  true,
 		})
 
@@ -1063,9 +1085,9 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		a.state = a.clearThinking()
 		a.state = a.resolveToolEvent(ev, model.Message{
 			Kind:       model.MsgTool,
-			ToolName:   "Shell",
+			ToolName:   "Bash",
 			ToolCallID: ev.ToolCallID,
-			Display:    model.DisplayExpanded,
+			Display:    model.DisplayCollapsed,
 			Content:    ev.Message,
 			Summary:    ev.Summary,
 		})
@@ -1193,7 +1215,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			cp := *ev.Popup
 			cp.Options = append([]model.SelectionOption(nil), ev.Popup.Options...)
 			a.modelPicker = &cp
-			eventCmd = combineCmds(eventCmd, a.syncInlineModalAltScreen())
+			eventCmd = combineCmds(eventCmd, a.syncModalAltScreen())
 		}
 
 	case model.ModelSetupOpen:
@@ -1201,12 +1223,12 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			cp := *ev.SetupPopup
 			cp.PresetOptions = append([]model.SelectionOption(nil), ev.SetupPopup.PresetOptions...)
 			a.setupPopup = &cp
-			eventCmd = combineCmds(eventCmd, a.syncInlineModalAltScreen())
+			eventCmd = combineCmds(eventCmd, a.syncModalAltScreen())
 		}
 
 	case model.ModelSetupClose:
 		a.setupPopup = nil
-		exitAlt := a.syncInlineModalAltScreen()
+		exitAlt := a.syncModalAltScreen()
 		banner := a.maybePrintBanner()
 		if exitAlt != nil && banner != nil {
 			eventCmd = combineCmds(eventCmd, tea.Sequence(exitAlt, banner))
@@ -1555,11 +1577,13 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	}
 
 	a = a.maybeDispatchQueuedInput()
-	a.updateViewport()
-	inlineCmd := a.inlineEventCmd(ev, prevMessages)
-	eventCmd = combineCmds(eventCmd, inlineCmd, a.maybePrintBanner())
+	printCmd := a.eventPrintCmd(ev, prevMessages)
+	eventCmd = combineCmds(eventCmd, printCmd, a.maybePrintBanner())
 	if eventCmd != nil {
-		return a, tea.Batch(eventCmd, a.waitForEvent)
+		// Sequence ensures tea.Println output is processed before
+		// waitForEvent picks up the next event, preventing race
+		// conditions with streaming shell output ordering.
+		return a, tea.Sequence(eventCmd, a.waitForEvent)
 	}
 	return a, a.waitForEvent
 }
@@ -2246,7 +2270,6 @@ func (a App) pendingToolMessage(ev model.Event) model.Message {
 	display := model.DisplayCollapsed
 	switch ev.ToolName {
 	case "shell":
-		display = model.DisplayExpanded
 		summary = "running command..."
 	case "edit", "write":
 		display = model.DisplayExpanded
@@ -2383,10 +2406,10 @@ func finalizeToolMessage(pending model.Message, ev model.Event) model.Message {
 	case model.CmdStarted:
 		return model.Message{
 			Kind:       model.MsgTool,
-			ToolName:   valueOrString(pending.ToolName, "Shell"),
+			ToolName:   valueOrString(pending.ToolName, "Bash"),
 			ToolCallID: valueOrString(pending.ToolCallID, ev.ToolCallID),
 			ToolArgs:   valueOrString(pending.ToolArgs, ev.Message),
-			Display:    model.DisplayExpanded,
+			Display:    model.DisplayCollapsed,
 			Content:    ev.Message,
 			Summary:    ev.Summary,
 			Streaming:  true,
@@ -2394,10 +2417,10 @@ func finalizeToolMessage(pending model.Message, ev model.Event) model.Message {
 	case model.CmdFinished:
 		return model.Message{
 			Kind:       model.MsgTool,
-			ToolName:   valueOrString(pending.ToolName, "Shell"),
+			ToolName:   valueOrString(pending.ToolName, "Bash"),
 			ToolCallID: valueOrString(pending.ToolCallID, ev.ToolCallID),
 			ToolArgs:   valueOrString(pending.ToolArgs, pending.Content),
-			Display:    model.DisplayExpanded,
+			Display:    model.DisplayCollapsed,
 			Content:    ev.Message,
 			Summary:    ev.Summary,
 		}
@@ -2482,7 +2505,7 @@ func displayToolName(name string) string {
 	case "write":
 		return "Write"
 	case "shell":
-		return "Shell"
+		return "Bash"
 	case "load_skill":
 		return "Skill"
 	default:
@@ -2498,8 +2521,10 @@ func replayToolMessage(ev model.Event) model.Message {
 	content := ev.Message
 
 	switch strings.TrimSpace(ev.ToolName) {
-	case "shell", "edit", "write":
+	case "edit", "write":
 		display = model.DisplayExpanded
+		content = truncateToolContentForTool(ev.ToolName, ev.Message)
+	case "shell":
 		content = truncateToolContentForTool(ev.ToolName, ev.Message)
 	}
 
@@ -2601,6 +2626,136 @@ func collapsedPreviewLines(toolName string) int {
 	default:
 		return collapsedPreviewMaxLines
 	}
+}
+
+// ── Tool output viewer (alt-screen overlay) ────────────────────────
+
+var (
+	toolViewTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	toolViewHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
+	toolViewLineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+)
+
+// handleToolOutputViewKey handles keys while the tool output viewer is open.
+func (a App) handleToolOutputViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	v := a.toolOutputView
+	contentHeight := a.toolOutputContentHeight()
+
+	switch msg.String() {
+	case "ctrl+o", "q", "esc":
+		a.toolOutputView = nil
+		return a, a.syncModalAltScreen()
+	case "up", "k":
+		if v.scrollOff > 0 {
+			v.scrollOff--
+		}
+	case "down", "j":
+		if v.scrollOff < contentHeight-a.toolOutputViewportHeight() {
+			v.scrollOff++
+		}
+	case "pgup", "b":
+		v.scrollOff -= a.toolOutputViewportHeight()
+		if v.scrollOff < 0 {
+			v.scrollOff = 0
+		}
+	case "pgdown", "f", " ":
+		v.scrollOff += a.toolOutputViewportHeight()
+		max := contentHeight - a.toolOutputViewportHeight()
+		if max < 0 {
+			max = 0
+		}
+		if v.scrollOff > max {
+			v.scrollOff = max
+		}
+	case "home", "g":
+		v.scrollOff = 0
+	case "end", "G":
+		max := contentHeight - a.toolOutputViewportHeight()
+		if max < 0 {
+			max = 0
+		}
+		v.scrollOff = max
+	}
+	return a, nil
+}
+
+func (a App) toolOutputViewportHeight() int {
+	// 3 lines reserved: title bar, bottom divider, hint bar
+	h := a.height - 3
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+func (a App) toolOutputContentLines() []string {
+	if a.toolOutputView == nil {
+		return nil
+	}
+	content := strings.TrimSpace(a.toolOutputView.msg.Content)
+	if content == "" {
+		return []string{"(no output)"}
+	}
+	return strings.Split(content, "\n")
+}
+
+func (a App) toolOutputContentHeight() int {
+	return len(a.toolOutputContentLines())
+}
+
+// renderToolOutputView renders the full-screen tool output viewer.
+func (a App) renderToolOutputView() string {
+	v := a.toolOutputView
+	if v == nil {
+		return ""
+	}
+	w := a.width
+	if w < 10 {
+		w = 10
+	}
+	vpHeight := a.toolOutputViewportHeight()
+	allLines := a.toolOutputContentLines()
+	totalLines := len(allLines)
+
+	// Title bar
+	toolName := strings.TrimSpace(v.msg.ToolName)
+	toolArgs := strings.TrimSpace(v.msg.ToolArgs)
+	if toolArgs == "" {
+		toolArgs = strings.TrimSpace(v.msg.Summary)
+	}
+	title := toolViewTitleStyle.Render(fmt.Sprintf(" %s(%s)", toolName, toolArgs))
+	lineInfo := toolViewHintStyle.Render(fmt.Sprintf(" %d/%d ", v.scrollOff+1, totalLines))
+	titlePad := w - lipgloss.Width(title) - lipgloss.Width(lineInfo)
+	if titlePad < 0 {
+		titlePad = 0
+	}
+	titleBar := title + strings.Repeat(" ", titlePad) + lineInfo
+
+	// Visible content slice
+	end := v.scrollOff + vpHeight
+	if end > totalLines {
+		end = totalLines
+	}
+	start := v.scrollOff
+	if start > totalLines {
+		start = totalLines
+	}
+	visible := allLines[start:end]
+
+	// Pad to fill viewport height
+	for len(visible) < vpHeight {
+		visible = append(visible, "~")
+	}
+
+	// Bottom bar
+	divider := toolViewLineStyle.Render(strings.Repeat("─", w))
+	hint := toolViewHintStyle.Render(" ctrl+o/q/esc: close  j/k: scroll  pgup/pgdn: page  g/G: top/bottom")
+
+	parts := []string{titleBar, divider}
+	parts = append(parts, visible...)
+	parts = append(parts, divider, hint)
+
+	return strings.Join(parts, "\n")
 }
 
 func firstNonEmpty(values ...string) string {
@@ -2835,86 +2990,11 @@ func (a *App) agentStatus() string {
 	return ""
 }
 
-func (a *App) updateViewport() {
-	a.viewport = a.viewport.SetContent("")
-	return
-	// Check if user is at (or near) bottom before updating content.
-	atBottom := a.viewport.AtBottom() || a.viewport.TotalLines() <= a.viewport.Model.Height
-	width := a.viewport.Model.Width
-	if width <= 0 {
-		width = a.chatWidth() - 4
-	}
-	if width < 1 {
-		width = 1
-	}
-	a.thinking.SetText(a.thinkingStatusText())
-	content := panels.RenderMessages(a.viewportRenderState(), a.thinking.View(), a.thinking.FrameView(), width, a.trainView.Active)
-	contentLines := strings.Count(content, "\n") + 1
-	viewHeight := a.desiredChatHeight(contentLines)
-	a.viewport = a.viewport.SetSize(width, viewHeight)
-	if contentLines < viewHeight && content != "" {
-		padding := strings.Repeat("\n", viewHeight-contentLines)
-		content = padding + content
-	}
-	a.viewport = a.viewport.SetContent(content)
-	// Only auto-scroll to bottom if user hasn't scrolled up.
-	if atBottom {
-		a.viewport.Model.GotoBottom()
-	}
-}
-
 func (a App) activeHUDHeight() int {
 	if a.trainView.Active {
 		return lipgloss.Height(panels.RenderTrainHUD(a.trainView, a.width, a.agentStatus()))
 	}
 	return 0
-}
-
-func (a App) viewportRenderState() model.State {
-	s := a.state
-	s.WaitElapsed = a.currentWaitElapsed()
-	if a.modelPicker != nil || a.setupPopup != nil {
-		s = s.WithThinking(false).ClearWait()
-	}
-	msgs := make([]model.Message, len(s.Messages))
-	copy(msgs, s.Messages)
-	for i := range msgs {
-		msgs[i] = a.renderToolMessageContent(msgs[i])
-	}
-
-	if a.permissionPrompt != nil {
-		msgs = append(msgs, model.Message{
-			Kind:    model.MsgAgent,
-			Content: renderPermissionPromptPopup(a.permissionPrompt),
-		})
-	} else if a.permissionsView != nil {
-		msgs = append(msgs, model.Message{
-			Kind:    model.MsgAgent,
-			Content: renderPermissionsViewPopup(a.permissionsView),
-		})
-	}
-
-	s.Messages = msgs
-	return s
-}
-
-func (a App) renderToolMessageContent(msg model.Message) model.Message {
-	if msg.Kind != model.MsgTool || msg.Pending {
-		return msg
-	}
-	if strings.EqualFold(strings.TrimSpace(msg.ToolName), "Read") {
-		msg.Content = ""
-		return msg
-	}
-	if a.toolsExpanded {
-		return msg
-	}
-	if msg.Display == model.DisplayCollapsed {
-		msg.Content = collapsedToolDetails(msg.Content, collapsedPreviewLines(msg.ToolName))
-		return msg
-	}
-	msg.Content = truncateToolContentForTool(msg.ToolName, msg.Content)
-	return msg
 }
 
 func (a App) chatLine() string {
@@ -2932,8 +3012,13 @@ func (a App) View() string {
 	if a.bugView.Active() {
 		return a.renderBugView()
 	}
-	if !a.inlineModalAltScreen {
-		return a.renderInlineMainView()
+	if !a.modalAltScreen {
+		return a.renderMainView()
+	}
+
+	// Tool output viewer — full-screen scrollable view of tool output.
+	if a.toolOutputView != nil {
+		return a.renderToolOutputView()
 	}
 
 	// Temporary alt screen for modal popups — render only the popup on a blank backdrop.
@@ -3035,29 +3120,43 @@ func toPermissionPromptState(ev model.Event) *permissionPromptState {
 }
 
 func renderPermissionPromptPopup(p *permissionPromptState) string {
-	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245")).Bold(false)
-	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
-	selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Underline(true)
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
+	t := theme.Current
+	golden := lipgloss.Color("#E5A100")
+	titleStyle := lipgloss.NewStyle().Foreground(golden).Bold(true)
+	detailStyle := lipgloss.NewStyle().Foreground(t.TextPrimary)
+	selectedStyle := lipgloss.NewStyle().Foreground(golden).Bold(true)
+	unselectedStyle := lipgloss.NewStyle().Foreground(t.TextPrimary)
+	hintStyle := lipgloss.NewStyle().Foreground(t.TextPrimary)
 
-	lines := []string{titleStyle.Render(p.title), ""}
+	lines := []string{titleStyle.Render(p.title)}
 	if strings.TrimSpace(p.message) != "" {
-		lines = append(lines, normalStyle.Render(p.message), "")
+		lines = append(lines, detailStyle.Render(p.message))
 	}
+	lines = append(lines, "")
 	for i, opt := range p.options {
 		prefix := "  "
-		style := normalStyle
+		style := unselectedStyle
 		if i == p.selected {
-			prefix = "> "
+			prefix = "❯ "
 			style = selectedStyle
 		}
 		lines = append(lines, prefix+style.Render(opt.Label))
 	}
 	lines = append(lines, "", hintStyle.Render("↑/↓ select · enter confirm · esc cancel"))
 
+	// Find max visible width to ensure uniform box sizing.
 	content := strings.Join(lines, "\n")
+	maxW := 0
+	for _, line := range lines {
+		if w := lipgloss.Width(line); w > maxW {
+			maxW = w
+		}
+	}
 	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(golden).
 		Padding(0, 1).
+		Width(maxW + 2). // +2 for padding
 		Render(content)
 }
 

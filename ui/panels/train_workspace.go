@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/vigo999/mindspore-code/ui/model"
+	"github.com/vigo999/mindspore-code/ui/theme"
 )
 
 // panelTitleStyle and panelBodyStyle are layout-only (not themed).
@@ -356,10 +357,11 @@ func RenderTrainActionStrip(tv model.TrainWorkspaceState, width int, focused boo
 
 // RenderSelectionPopup renders a selection popup box string (without placement).
 func RenderSelectionPopup(popup *model.SelectionPopup) string {
-	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("12")).Bold(true).Align(lipgloss.Center)
-	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	selectedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
-	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("8")).Italic(true)
+	t := theme.Current
+	titleStyle := lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Align(lipgloss.Center)
+	normalStyle := lipgloss.NewStyle().Foreground(t.TextSecondary)
+	selectedStyle := lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
+	hintStyle := lipgloss.NewStyle().Foreground(t.TextMuted).Italic(true)
 
 	// Find the widest option line to size the title
 	maxW := lipgloss.Width(popup.Title)
@@ -380,7 +382,7 @@ func RenderSelectionPopup(popup *model.SelectionPopup) string {
 		marker := "  "
 		style := normalStyle
 		if i == popup.Selected {
-			marker = "> "
+			marker = "❯ "
 			style = selectedStyle
 		}
 		lines = append(lines, marker+style.Render(opt.Label))
@@ -391,7 +393,7 @@ func RenderSelectionPopup(popup *model.SelectionPopup) string {
 	content := strings.Join(lines, "\n")
 	return lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("12")).
+		BorderForeground(t.TextPrimary).
 		Padding(0, 2).
 		Render(content)
 }

@@ -6,11 +6,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/vigo999/mindspore-code/ui/model"
 )
 
-// thinkingSpinnerFrames are Braille characters for a smooth spinning animation
+// thinkingSpinnerFrames alternates ✻ visibility for a pulsing effect.
 var thinkingSpinnerFrames = []string{
-	"⣷", "⣯", "⣟", "⣿", "⣻", "⣽", "⣾", "⣷",
+	"✻", "✻", "✻", "✻", "✹", "✧", "·", "✧", "✹", "✻",
 }
 
 // Style vars are populated by InitStyles() in styles.go.
@@ -19,23 +20,30 @@ var thinkingSpinnerStyle lipgloss.Style
 
 // ThinkingSpinner shows a "⣻ Thinking..." animated indicator
 type ThinkingSpinner struct {
-	frame int
-	text  string
+	frame      int
+	text       string
+	tipText    string
+	TextStyle  lipgloss.Style
+	DotStyle   lipgloss.Style
+	customStyle bool
+	Elapsed    time.Duration
 }
 
 // NewThinkingSpinner creates a new thinking spinner with default text.
 func NewThinkingSpinner() ThinkingSpinner {
 	return ThinkingSpinner{
-		frame: 0,
-		text:  "Thinking...",
+		frame:   0,
+		text:    "Thinking...",
+		tipText: RandomTip(),
 	}
 }
 
 // NewThinkingSpinnerWithText creates a spinner with custom text.
 func NewThinkingSpinnerWithText(text string) ThinkingSpinner {
 	return ThinkingSpinner{
-		frame: 0,
-		text:  text,
+		frame:   0,
+		text:    text,
+		tipText: RandomTip(),
 	}
 }
 
@@ -67,12 +75,29 @@ func (t ThinkingSpinner) Update(msg tea.Msg) (ThinkingSpinner, tea.Cmd) {
 	}
 }
 
+// SetStyle sets custom dot and text styles.
+func (t *ThinkingSpinner) SetStyle(dot, text lipgloss.Style) {
+	t.DotStyle = dot
+	t.TextStyle = text
+	t.customStyle = true
+}
+
 // View renders the thinking spinner.
 func (t ThinkingSpinner) View() string {
 	frame := thinkingSpinnerFrames[t.frame]
-	return fmt.Sprintf("%s %s", 
-		thinkingSpinnerStyle.Render(frame),
-		thinkingStyle.Render(t.text))
+	text := t.text
+	if t.Elapsed >= time.Second {
+		text += " " + model.FormatWaitDuration(t.Elapsed)
+	}
+	dotStyle := thinkingSpinnerStyle
+	textStyle := thinkingStyle
+	if t.customStyle {
+		dotStyle = t.DotStyle
+		textStyle = t.TextStyle
+	}
+	return fmt.Sprintf("%s %s",
+		dotStyle.Render(frame),
+		textStyle.Render(text))
 }
 
 // FrameView renders only the animated spinner character (no text).
@@ -90,7 +115,17 @@ func (t ThinkingSpinner) Frame() int {
 	return t.frame
 }
 
-// Reset resets the spinner to the first frame.
+// ViewWithTip renders the thinking spinner with a tip line below.
+func (t ThinkingSpinner) ViewWithTip() string {
+	base := t.View()
+	tip := fmt.Sprintf("  %s  %s",
+		tipPrefixStyle.Render("⎿"),
+		tipStyle.Render("Tip: "+t.tipText))
+	return base + "\n" + tip
+}
+
+// Reset resets the spinner to the first frame and re-rolls the tip.
 func (t *ThinkingSpinner) Reset() {
 	t.frame = 0
+	t.tipText = RandomTip()
 }

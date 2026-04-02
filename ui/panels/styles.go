@@ -68,8 +68,8 @@ func InitStyles() {
 
 	// ── model_setup.go ───────────────────────────────────────────
 	setupTitleStyle = lipgloss.NewStyle().Foreground(t.Accent).Bold(true).Align(lipgloss.Center)
-	setupNormalStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("7"))
-	setupSelectedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+	setupNormalStyle = lipgloss.NewStyle().Foreground(t.TextSecondary)
+	setupSelectedStyle = lipgloss.NewStyle().Foreground(t.Accent).Bold(true)
 	setupDisabledStyle = lipgloss.NewStyle().Foreground(t.TextMuted)
 	setupHintStyle = lipgloss.NewStyle().Foreground(t.TextMuted).Italic(true)
 	setupErrorStyle = lipgloss.NewStyle().Foreground(t.Error)
@@ -77,7 +77,7 @@ func InitStyles() {
 	setupBadgeStyle = lipgloss.NewStyle().Foreground(t.TextSecondary)
 	setupBorderStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Accent).
+		BorderForeground(t.TextPrimary).
 		Padding(0, 2)
 	tokenCursorStyle = lipgloss.NewStyle().Background(t.TextPrimary).Foreground(t.SurfaceDim)
 	tokenTextStyle = lipgloss.NewStyle().Foreground(t.TextPrimary)

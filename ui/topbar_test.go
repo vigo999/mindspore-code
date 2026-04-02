@@ -28,8 +28,8 @@ func TestViewOmitsPersistentTopBarAndViewportFill(t *testing.T) {
 	}
 }
 
-func TestRenderInlineBannerIncludesMetadata(t *testing.T) {
-	banner := RenderInlineBanner("MindSpore Code. test", "/tmp/project", "github.com/vigo999/mindspore-code", "demo-model", 4096)
+func TestRenderBannerIncludesMetadata(t *testing.T) {
+	banner := RenderBanner("MindSpore Code. test", "/tmp/project", "github.com/vigo999/mindspore-code", "demo-model", 4096)
 	for _, want := range []string{
 		"MindSpore Code",
 		"demo-model",

@@ -69,9 +69,11 @@ func TestReadToolFinalization_HidesContent(t *testing.T) {
 	}
 }
 
-func TestCtrlO_TogglesToolExpansion(t *testing.T) {
+func TestCtrlO_OpensToolOutputViewer(t *testing.T) {
 	app := New(make(chan model.Event), nil, "dev", ".", "", "model", 1024)
 	app.bootActive = false
+	app.width = 80
+	app.height = 24
 	app.state.Messages = []model.Message{{
 		Kind:     model.MsgTool,
 		ToolName: "Write",
@@ -82,19 +84,27 @@ func TestCtrlO_TogglesToolExpansion(t *testing.T) {
 		}, "\n"),
 	}}
 
-	collapsed := app.viewportRenderState().Messages[0].Content
-	if !strings.Contains(collapsed, "ctrl+o to expand") {
-		t.Fatalf("expected collapsed content with expansion hint, got:\n%s", collapsed)
-	}
-
+	// Ctrl+O opens the tool output viewer
 	next, _ := app.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
 	updated := next.(App)
-	expanded := updated.viewportRenderState().Messages[0].Content
-	if strings.Contains(expanded, "ctrl+o to expand") {
-		t.Fatalf("expected expanded content after ctrl+o, got:\n%s", expanded)
+	if updated.toolOutputView == nil {
+		t.Fatal("expected tool output view to be open after ctrl+o")
 	}
-	if !strings.Contains(expanded, "\nf\ng") {
-		t.Fatalf("expected full content after ctrl+o, got:\n%s", expanded)
+	if updated.toolOutputView.msg.ToolName != "Write" {
+		t.Fatalf("expected Write tool in viewer, got %q", updated.toolOutputView.msg.ToolName)
+	}
+
+	// View should show full content
+	view := updated.View()
+	if !strings.Contains(view, "f") || !strings.Contains(view, "g") {
+		t.Fatalf("expected full content in viewer, got:\n%s", view)
+	}
+
+	// Ctrl+O again closes it (goes through handleToolOutputViewKey)
+	next, _ = updated.handleKey(tea.KeyMsg{Type: tea.KeyCtrlO})
+	closed := next.(App)
+	if closed.toolOutputView != nil {
+		t.Fatal("expected tool output view to be closed after second ctrl+o")
 	}
 }
 
@@ -142,12 +152,11 @@ func TestShellCmdOutputRendersLiveInUI(t *testing.T) {
 	}
 
 	view := app.View()
-	if !strings.Contains(view, "running command...") {
+	if !strings.Contains(view, "running") {
 		t.Fatalf("expected running shell status in view, got:\n%s", view)
 	}
-	if !strings.Contains(view, "=== RUN   TestShell") {
-		t.Fatalf("expected streamed shell output in view, got:\n%s", view)
-	}
+	// Shell output is printed via tea.Println above the live area,
+	// not rendered in the live View() during streaming.
 
 	next, _ = app.handleEvent(model.Event{
 		Type:       model.CmdFinished,

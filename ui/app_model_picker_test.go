@@ -22,6 +22,7 @@ func TestSetupPopupOpenAndNavigate(t *testing.T) {
 			Screen: model.SetupScreenModeSelect,
 			PresetOptions: []model.SelectionOption{
 				{ID: "kimi-k2.5-free", Label: "kimi-k2.5 [free]"},
+				{ID: "deepseek-v3", Label: "deepseek-v3"},
 				{ID: "glm-4.7", Label: "glm-4.7 (coming soon)", Disabled: true},
 			},
 			CanEscape: true,
@@ -118,7 +119,7 @@ func TestInlineModeSetupPopupUsesTemporaryFullscreenView(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected inline mode setup popup to request temporary alt-screen")
 	}
-	if !app.inlineModalAltScreen {
+	if !app.modalAltScreen {
 		t.Fatal("expected inline mode setup popup to mark temporary alt-screen active")
 	}
 	if view := app.View(); !strings.Contains(view, "mscode-provided") {
@@ -131,7 +132,7 @@ func TestInlineModeSetupPopupUsesTemporaryFullscreenView(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("expected closing inline setup popup to request alt-screen exit")
 	}
-	if app.inlineModalAltScreen {
+	if app.modalAltScreen {
 		t.Fatal("expected temporary alt-screen flag to clear after popup close")
 	}
 }
@@ -145,7 +146,7 @@ func TestModelSetupPopupSuppressesThinkingIndicatorWithoutClearingState(t *testi
 
 	next, _ = app.handleEvent(model.Event{Type: model.AgentThinking})
 	app = next.(App)
-	if view := app.View(); !strings.Contains(view, "Thinking...") {
+	if view := app.View(); !strings.Contains(view, "Working...") {
 		t.Fatalf("expected thinking indicator before popup, got:\n%s", view)
 	}
 
@@ -165,14 +166,13 @@ func TestModelSetupPopupSuppressesThinkingIndicatorWithoutClearingState(t *testi
 	if !strings.Contains(view, "mscode-provided") {
 		t.Fatalf("expected model setup popup in view, got:\n%s", view)
 	}
-	if strings.Contains(view, "Thinking...") {
+	if strings.Contains(view, "Working...") {
 		t.Fatalf("expected popup view to suppress background thinking indicator, got:\n%s", view)
 	}
 
 	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEscape})
 	app = next.(App)
-	app.updateViewport()
-	if view := app.View(); !strings.Contains(view, "Thinking...") {
+	if view := app.View(); !strings.Contains(view, "Working...") {
 		t.Fatalf("expected thinking indicator to return after popup close, got:\n%s", view)
 	}
 }

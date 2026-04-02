@@ -323,10 +323,12 @@ func TestPermissionsView_DoubleCtrlCQuitsWithoutEsc(t *testing.T) {
 	}
 }
 
-func TestViewportRenderState_IncludesPermissionsViewAsAgentMessage(t *testing.T) {
+func TestPermissionsView_RendersInLiveArea(t *testing.T) {
 	userCh := make(chan string, 1)
 	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false
+	app.width = 80
+	app.height = 24
 
 	next, _ := app.handleEvent(model.Event{
 		Type: model.PermissionsView,
@@ -338,16 +340,8 @@ func TestViewportRenderState_IncludesPermissionsViewAsAgentMessage(t *testing.T)
 	})
 	app = next.(App)
 
-	rs := app.viewportRenderState()
-	if len(rs.Messages) == 0 {
-		t.Fatal("render state messages should not be empty")
-	}
-	last := rs.Messages[len(rs.Messages)-1]
-	if last.Kind != model.MsgAgent {
-		t.Fatalf("last message kind = %v, want %v", last.Kind, model.MsgAgent)
-	}
-	if !strings.Contains(last.Content, "Permissions:") {
-		t.Fatalf("last message content should include permissions view header, got %q", last.Content)
+	if app.permissionsView == nil {
+		t.Fatal("permissions view should be set after PermissionsView event")
 	}
 }
 

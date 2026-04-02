@@ -56,7 +56,7 @@ func RenderMessages(state model.State, spinnerView, spinnerFrame string, width i
 		case model.MsgUser:
 			parts = append(parts, renderUserMsg(m.Content, width)+"\n")
 		case model.MsgAgent:
-			parts = append(parts, renderAgentMsg(m.Content, width))
+			parts = append(parts, renderAgentMsg(m, width))
 		case model.MsgTool:
 			parts = append(parts, renderTool(state, m, spinnerFrame, width))
 		}
@@ -93,8 +93,30 @@ func renderUserMsg(content string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderAgentMsg(content string, width int) string {
-	return renderPrefixedBlock(agentStyle.Render(content), width, "  ", "  ")
+func renderAgentMsg(msg model.Message, width int) string {
+	// Pre-render the prefix as a complete ANSI string so it doesn't
+	// interfere with glamour's escape sequences (same approach as crush).
+	bulletPrefix := agentStyle.Render("• ")
+	blankPrefix := agentStyle.Render("  ")
+	if msg.Streaming || msg.Display == model.DisplayNotice {
+		bulletPrefix = blankPrefix
+	}
+
+	prefixWidth := lipgloss.Width(bulletPrefix)
+	bodyWidth := cappedMessageWidth(width) - prefixWidth
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+	rendered := RenderMarkdown(msg.Content, bodyWidth)
+	lines := strings.Split(rendered, "\n")
+	for i, line := range lines {
+		if i == 0 {
+			lines[i] = bulletPrefix + line
+		} else {
+			lines[i] = blankPrefix + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderThinking(thinkingView string, width int) string {
@@ -106,23 +128,35 @@ func renderThinking(thinkingView string, width int) string {
 func renderTool(state model.State, m model.Message, spinnerFrame string, width int) string {
 	call := renderToolCallLine(state, m, spinnerFrame)
 	if m.Pending {
-		return renderPrefixedBlock(call, width, "  ", "  ")
+		return "  " + call
 	}
 	summary, details := toolResult(m)
 	if summary == "" && len(details) == 0 {
-		return renderPrefixedBlock(call, width, "  ", "  ")
+		return "  " + call
 	}
-	lines := []string{call}
+	// Tool call is indented under agent message; result lines indent further.
+	bodyWidth := width - 7
+	if bodyWidth < 1 {
+		bodyWidth = 1
+	}
+	wrapStyle := lipgloss.NewStyle().Width(bodyWidth)
+	lines := []string{"  " + call}
 	if summary != "" {
-		lines = append(lines, "  "+toolResultPrefixStyle.Render("⎿")+"  "+renderToolSummary(m, summary))
+		lines = append(lines, "    "+toolResultPrefixStyle.Render("⎿")+"  "+renderToolSummary(m, summary))
 	}
 	for _, line := range details {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		lines = append(lines, "      "+renderToolDetail(m, line))
+		lines = append(lines, "       "+wrapStyle.Render(renderToolDetail(m, line)))
 	}
-	return renderPrefixedBlock(strings.Join(lines, "\n"), width, "  ", "  ")
+	return strings.Join(lines, "\n")
+}
+
+// RenderToolCallHeader renders a tool call header line for inline printing.
+func RenderToolCallHeader(toolName, args string) string {
+	dot := toolPendingDotStyle.Render("⏺")
+	return toolCallLineStyle.Render(dot + " " + strings.TrimSpace(toolName) + "(" + strings.TrimSpace(args) + ")")
 }
 
 func renderToolCallLine(state model.State, m model.Message, spinnerFrame string) string {
@@ -137,13 +171,15 @@ func renderToolCallLine(state model.State, m model.Message, spinnerFrame string)
 		}
 		suffix = renderPendingToolStatus(state, m)
 	case m.Display == model.DisplayWarning:
-		dot = toolWarningDotStyle.Render("⏺")
+		dot = toolWarningDotStyle.Render("⚠")
 	case m.Display == model.DisplayError:
-		dot = toolErrorDotStyle.Render("⏺")
+		dot = toolErrorDotStyle.Render("✗")
 	default:
-		dot = toolSuccessDotStyle.Render("⏺")
+		dot = toolSuccessDotStyle.Render("✓")
 	}
-	return toolCallLineStyle.Render(dot+" "+strings.TrimSpace(m.ToolName)+"("+strings.TrimSpace(toolCallArgs(m))+")") + suffix
+	name := toolCallLineStyle.Copy().Bold(true).Render(strings.TrimSpace(m.ToolName))
+	args := toolCallLineStyle.Render("(" + strings.TrimSpace(toolCallArgs(m)) + ")")
+	return dot + " " + name + args + suffix
 }
 
 func renderPendingToolStatus(state model.State, m model.Message) string {

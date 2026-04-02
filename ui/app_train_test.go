@@ -587,7 +587,7 @@ func TestCtrlCSendsInterruptTokenForActiveTask(t *testing.T) {
 	if app.state.IsThinking {
 		t.Fatal("expected ctrl+c to clear thinking state")
 	}
-	if view := app.View(); strings.Contains(view, "Thinking...") {
+	if view := app.View(); strings.Contains(view, "Working...") {
 		t.Fatalf("expected ctrl+c to remove thinking indicator, got:\n%s", view)
 	}
 }
@@ -620,7 +620,7 @@ func TestInlineModeCtrlCPrintsInterruptHint(t *testing.T) {
 	if app.state.IsThinking {
 		t.Fatal("expected ctrl+c to clear thinking state")
 	}
-	if view := app.View(); strings.Contains(view, "Thinking...") {
+	if view := app.View(); strings.Contains(view, "Working...") {
 		t.Fatalf("expected ctrl+c to remove inline thinking indicator, got:\n%s", view)
 	}
 }
@@ -634,7 +634,7 @@ func TestToolErrorClearsThinkingIndicator(t *testing.T) {
 
 	next, _ = app.handleEvent(model.Event{Type: model.AgentThinking})
 	app = next.(App)
-	if view := app.View(); !strings.Contains(view, "Thinking...") {
+	if view := app.View(); !strings.Contains(view, "Working...") {
 		t.Fatalf("expected thinking indicator to render from state, got:\n%s", view)
 	}
 
@@ -649,7 +649,7 @@ func TestToolErrorClearsThinkingIndicator(t *testing.T) {
 		t.Fatal("expected tool error to clear thinking state")
 	}
 	view := app.View()
-	if strings.Contains(view, "Thinking...") {
+	if strings.Contains(view, "Working...") {
 		t.Fatalf("expected no stale thinking indicator after tool error, got:\n%s", view)
 	}
 }

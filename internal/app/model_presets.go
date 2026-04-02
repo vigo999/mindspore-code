@@ -50,15 +50,21 @@ var builtinModelPresets = []builtinModelPreset{
 		},
 	},
 	{
+		ID:       "deepseek-v3",
+		Label:    "deepseek-v3",
+		Provider: "openai-completion",
+		BaseURL:  "https://api.deepseek.com/v1",
+		Model:    "deepseek-chat",
+		Aliases:  []string{"deepseek-v3", "deepseek-chat", "deepseek"},
+		Credential: modelCredentialSpec{
+			Strategy: credentialStrategyMSCODEServer,
+			Path:     "/model-presets/deepseek-v3/credential",
+		},
+	},
+	{
 		ID:         "glm-4.7",
 		Label:      "glm-4.7 (coming soon)",
 		Model:      "glm-4.7",
-		ComingSoon: true,
-	},
-	{
-		ID:         "deepseek-v4",
-		Label:      "deepseek-v4 (coming soon)",
-		Model:      "deepseek-v4",
 		ComingSoon: true,
 	},
 	{
@@ -95,6 +101,49 @@ func resolveBuiltinModelPreset(input string) (builtinModelPreset, bool) {
 		}
 	}
 	return builtinModelPreset{}, false
+}
+
+// fetchPresetAPIKey fetches the API key for a preset without needing an Application instance.
+// Used at startup before the Application is created.
+func fetchPresetAPIKey(preset builtinModelPreset) (string, error) {
+	switch preset.Credential.Strategy {
+	case credentialStrategyStatic:
+		return strings.TrimSpace(preset.Credential.StaticKey), nil
+	case credentialStrategyMSCODEServer:
+		cred, err := loadCredentials()
+		if err != nil || strings.TrimSpace(cred.Token) == "" || strings.TrimSpace(cred.ServerURL) == "" {
+			return "", fmt.Errorf("not logged in")
+		}
+		path := strings.TrimSpace(preset.Credential.Path)
+		if path == "" {
+			path = "/model-presets/" + preset.ID + "/credential"
+		}
+		url := strings.TrimRight(strings.TrimSpace(cred.ServerURL), "/") + path
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("Authorization", "Bearer "+cred.Token)
+		client := &http.Client{Timeout: 5 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", err
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("status %d", resp.StatusCode)
+		}
+		var payload struct {
+			APIKey string `json:"api_key"`
+		}
+		if err := json.Unmarshal(data, &payload); err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(payload.APIKey), nil
+	default:
+		return "", fmt.Errorf("unsupported strategy %q", preset.Credential.Strategy)
+	}
 }
 
 func (a *Application) resolveModelPresetAPIKey(ctx context.Context, preset builtinModelPreset) (string, error) {

@@ -48,6 +48,7 @@ const (
 	DisplayCollapsed                    // 1-line summary (Read, Grep, Glob, agent-internal Shell)
 	DisplayWarning                      // expanded + yellow highlight
 	DisplayError                        // expanded + red highlight
+	DisplayNotice                       // non-reply agent text (context notices, etc.)
 )
 
 // Message is a single entry in the chat stream.
@@ -403,17 +404,19 @@ func (s State) WithMouseEnabled(enabled bool) State {
 	}
 }
 
-// FormatWaitDuration renders elapsed wait time for the UI.
+// FormatWaitDuration renders elapsed wait time for the UI in human-readable form.
 func FormatWaitDuration(d time.Duration) string {
 	if d < 0 {
 		d = 0
 	}
 	totalSeconds := int(d / time.Second)
-	hours := totalSeconds / 3600
-	minutes := (totalSeconds % 3600) / 60
-	seconds := totalSeconds % 60
-	if hours > 0 {
-		return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+	if totalSeconds < 60 {
+		return fmt.Sprintf("%ds", totalSeconds)
 	}
-	return fmt.Sprintf("%02d:%02d", minutes, seconds)
+	minutes := totalSeconds / 60
+	seconds := totalSeconds % 60
+	if seconds == 0 {
+		return fmt.Sprintf("%dm", minutes)
+	}
+	return fmt.Sprintf("%dm %ds", minutes, seconds)
 }

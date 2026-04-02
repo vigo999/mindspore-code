@@ -7,8 +7,8 @@ func TestSetupPopupPresetNavigatesAllItems(t *testing.T) {
 		Screen: SetupScreenPresetPicker,
 		PresetOptions: []SelectionOption{
 			{ID: "kimi-k2.5-free", Label: "kimi-k2.5 [free]"},
+			{ID: "deepseek-v3", Label: "deepseek-v3"},
 			{ID: "glm-4.7", Label: "glm-4.7 (coming soon)", Disabled: true},
-			{ID: "deepseek-v4", Label: "deepseek-v4 (coming soon)", Disabled: true},
 			{ID: "minimax-m2.7", Label: "minimax-m2.7 (coming soon)", Disabled: true},
 		},
 		PresetSelected: 0,

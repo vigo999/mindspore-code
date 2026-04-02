@@ -44,10 +44,10 @@ func TestRenderMessages_ToolSuccessShowsSummaryAndDetails(t *testing.T) {
 	}
 
 	view := RenderMessages(state, "", "", 80, true)
-	if !strings.Contains(view, "⏺ Write(none.md)") {
+	if !strings.Contains(view, "✓ Write(none.md)") {
 		t.Fatalf("expected success call line, got:\n%s", view)
 	}
-	if !strings.Contains(view, "⎿  Wrote 1 lines to none.md") {
+	if !strings.Contains(view, "⎿") || !strings.Contains(view, "Wrote 1 lines to none.md") {
 		t.Fatalf("expected success summary line, got:\n%s", view)
 	}
 	if !strings.Contains(view, "1 (No content)") {
@@ -69,10 +69,10 @@ func TestRenderMessages_ToolFailureShowsErrorSummaryAndDetails(t *testing.T) {
 	}
 
 	view := RenderMessages(state, "", "", 80, true)
-	if !strings.Contains(view, "⏺ Write(none.md)") {
+	if !strings.Contains(view, "✗ Write(none.md)") {
 		t.Fatalf("expected failure call line, got:\n%s", view)
 	}
-	if !strings.Contains(view, "⎿  User rejected write to none.md") {
+	if !strings.Contains(view, "⎿") || !strings.Contains(view, "User rejected write to none.md") {
 		t.Fatalf("expected failure summary line, got:\n%s", view)
 	}
 	if !strings.Contains(view, "1 (No content)") {
@@ -120,7 +120,7 @@ func TestRenderMessages_ToolPendingShowsSpinnerAndTimer(t *testing.T) {
 	if !strings.Contains(view, "⣷ Shell($ go test ./ui)") {
 		t.Fatalf("expected pending spinner in tool line, got:\n%s", view)
 	}
-	if !strings.Contains(view, "running command... 00:0") {
+	if !strings.Contains(view, "running command... 2s") {
 		t.Fatalf("expected pending timer suffix, got:\n%s", view)
 	}
 }
@@ -137,10 +137,10 @@ func TestRenderMessages_ToolWarningUsesWarningSummaryStyle(t *testing.T) {
 	}
 
 	view := RenderMessages(state, "", "", 80, true)
-	if !strings.Contains(view, "⏺ Engine(timeout)") {
+	if !strings.Contains(view, "⚠ Engine(timeout)") {
 		t.Fatalf("expected warning call line, got:\n%s", view)
 	}
-	if !strings.Contains(view, "⎿  request timeout") {
+	if !strings.Contains(view, "⎿") || !strings.Contains(view, "request timeout") {
 		t.Fatalf("expected warning summary, got:\n%s", view)
 	}
 }

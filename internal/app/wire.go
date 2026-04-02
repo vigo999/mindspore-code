@@ -169,7 +169,17 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 				config.Model.URL = preset.BaseURL
 				config.Model.Provider = preset.Provider
 				config.Model.Model = preset.Model
-				config.Model.Key = appCfg.ModelToken
+				// Always re-fetch the API key from the server instead of
+				// reusing the cached one — it may have been rotated.
+				apiKey := appCfg.ModelToken
+				if freshKey, fetchErr := fetchPresetAPIKey(preset); fetchErr == nil {
+					apiKey = freshKey
+					// Update the saved config with the fresh key.
+					appCfg.ModelToken = freshKey
+					_ = saveAppConfig(appCfg)
+				}
+				config.Model.Key = apiKey
+				savedModelToken = apiKey
 				configs.RefreshModelTokenDefaults(config, previousModel)
 				provider, err = initProvider(config.Model, llm.ResolveOptions{PreferConfigAPIKey: true})
 				if err == nil {

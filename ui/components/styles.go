@@ -5,6 +5,9 @@ import (
 	"github.com/vigo999/mindspore-code/ui/theme"
 )
 
+var tipPrefixStyle lipgloss.Style
+var tipStyle lipgloss.Style
+
 // InitStyles rebuilds all package-level style vars from theme.Current.
 func InitStyles() {
 	t := theme.Current
@@ -15,6 +18,8 @@ func InitStyles() {
 	// thinking.go
 	thinkingStyle = lipgloss.NewStyle().Foreground(t.Thinking).Italic(true)
 	thinkingSpinnerStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("212"))
+	tipPrefixStyle = lipgloss.NewStyle().Foreground(t.TextSecondary)
+	tipStyle = lipgloss.NewStyle().Foreground(t.TextMuted).Italic(true)
 
 	// textinput.go
 	sugCmdStyle = lipgloss.NewStyle().Foreground(t.TextPrimary)

@@ -64,7 +64,7 @@ func renderModeSelect(popup *model.SetupPopup) string {
 		marker := "  "
 		style := setupNormalStyle
 		if i == popup.ModeSelected {
-			marker = "> "
+			marker = "❯ "
 			style = setupSelectedStyle
 		}
 		label := m.label
@@ -101,7 +101,7 @@ func renderPresetPicker(popup *model.SetupPopup) string {
 			style = setupDisabledStyle
 		}
 		if i == popup.PresetSelected {
-			marker = "> "
+			marker = "❯ "
 			if !opt.Disabled {
 				style = setupSelectedStyle
 			}

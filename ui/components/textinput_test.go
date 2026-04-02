@@ -322,6 +322,109 @@ func TestTextInputPasteKeepsAllRowsVisibleAfterGrowth(t *testing.T) {
 	}
 }
 
+// Regression: pasting after a prior render frame must not hide the first
+// lines.  The textarea's internal viewport could retain a stale scroll
+// offset from the previous View() → SetContent() cycle, causing
+// repositionView() inside textarea.Update to scroll past the top lines.
+func TestTextInputPasteAfterPriorRenderShowsAllLines(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(80)
+
+	// Simulate a render frame BEFORE the paste (the app calls View() every
+	// frame, populating the textarea's internal viewport with old content).
+	_ = input.View()
+
+	input, _ = input.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("The first line.\nThe second line.\nThe third line.\nThe fourth line."),
+		Paste: true,
+	})
+
+	// Simulate resizeActiveLayout → resizeInput that the app does after
+	// every key event.
+	input = input.SetWidth(80)
+
+	view := input.View()
+	for _, want := range []string{"first line", "second line", "third line", "fourth line"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("expected %q visible after paste (prior render), got view:\n%s", want, view)
+		}
+	}
+}
+
+// Pasting two lines must show both — the minimal reproduction of the
+// reported bug where only the last line was visible.
+func TestTextInputPasteTwoLinesShowsBoth(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(60)
+	_ = input.View()
+
+	input, _ = input.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("Line A\nLine B"),
+		Paste: true,
+	})
+	input = input.SetWidth(60)
+
+	view := input.View()
+	if !strings.Contains(view, "Line A") {
+		t.Fatalf("first pasted line missing:\n%s", view)
+	}
+	if !strings.Contains(view, "Line B") {
+		t.Fatalf("second pasted line missing:\n%s", view)
+	}
+}
+
+// After paste the cursor must be at the end of the pasted text (industry
+// standard behaviour matching Claude Code / Codex CLI).
+func TestTextInputPasteCursorAtEnd(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(60)
+
+	input, _ = input.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune("alpha\nbeta\ngamma"),
+		Paste: true,
+	})
+
+	if !input.atInputEnd() {
+		t.Fatal("expected cursor at the end of pasted text")
+	}
+}
+
+// Large paste (many lines) must store all content and render at least the
+// first and last lines in the view.
+func TestTextInputLargePasteShowsContent(t *testing.T) {
+	input := NewTextInput()
+	input = input.SetWidth(60)
+	_ = input.View()
+
+	var lines []string
+	for i := 0; i < 50; i++ {
+		lines = append(lines, fmt.Sprintf("line %03d content", i))
+	}
+	payload := strings.Join(lines, "\n")
+
+	input, _ = input.Update(tea.KeyMsg{
+		Type:  tea.KeyRunes,
+		Runes: []rune(payload),
+		Paste: true,
+	})
+	input = input.SetWidth(60)
+
+	if got := input.Value(); got != payload {
+		t.Fatalf("not all lines stored; got %d runes, want %d", len(got), len(payload))
+	}
+
+	view := input.View()
+	if !strings.Contains(view, "line 000") {
+		t.Fatalf("first line not visible in large paste:\n%s", view)
+	}
+	if !strings.Contains(view, "line 049") {
+		t.Fatalf("last line not visible in large paste:\n%s", view)
+	}
+}
+
 func TestTextInputHistoryRecallOfSlashCommandDoesNotReopenSuggestions(t *testing.T) {
 	input := NewTextInput()
 	input = input.PushHistory("/project")

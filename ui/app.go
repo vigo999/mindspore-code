@@ -378,6 +378,30 @@ func (a *App) resizeInput() {
 		inputWidth = 1
 	}
 	a.input = a.input.SetWidth(inputWidth)
+	a.input = a.input.SetMaxVisibleRows(a.maxComposerEditorRows())
+}
+
+// maxComposerEditorRows returns the maximum number of editor rows the
+// composer may display before it becomes internally scrollable.
+// It subtracts all fixed and dynamic layout overhead from the terminal
+// height, ensuring the total view never exceeds the terminal.
+func (a App) maxComposerEditorRows() int {
+	if a.height <= 0 {
+		return 0 // unknown terminal size → no cap
+	}
+	avail := a.height
+	avail -= a.persistentTopBarHeight()
+	avail -= chatLineHeight
+	avail -= hintBarHeight
+	avail -= a.activeHUDHeight()
+	avail -= a.queueBannerHeight()
+	avail -= a.bottomPaddingHeight()
+	avail -= 1 // empty-line separator before the input
+	rows := avail - a.input.ReservedHeight()
+	if rows < 1 {
+		return 1
+	}
+	return rows
 }
 
 func (a *App) resizeActiveLayout() {

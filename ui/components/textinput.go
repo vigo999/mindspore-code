@@ -45,6 +45,7 @@ type TextInput struct {
 	historyIndex     int
 	historyDraft     string
 	width            int
+	maxVisibleRows int // 0 = unlimited; when set, the editor becomes scrollable
 }
 
 // NewTextInput creates a focused multiline composer with a prompt.
@@ -123,10 +124,23 @@ func (t TextInput) SetWidth(width int) TextInput {
 	return t
 }
 
+// SetMaxVisibleRows sets the maximum number of editor rows before the
+// composer becomes internally scrollable.  0 means unlimited.
+func (t TextInput) SetMaxVisibleRows(rows int) TextInput {
+	if rows < 0 {
+		rows = 0
+	}
+	t.maxVisibleRows = rows
+	t.syncHeight()
+	return t
+}
+
 // Update handles key events.
 func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
+	var isPaste bool
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		isPaste = msg.Paste
 		t.maybeGrowHeightBeforeUpdate(msg)
 
 		// Handle slash command suggestions navigation
@@ -175,7 +189,32 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 
 	m, cmd := t.Model.Update(msg)
 	t.Model = m
+
+	// After a bracketed paste the textarea's internal viewport may have
+	// scrolled to a stale offset.  Re-setting the value via SetValue
+	// clears the viewport state (Reset → GotoTop), then we restore the
+	// cursor to where the paste left it and let scrollToCursor position
+	// the viewport so the cursor is visible.
+	if isPaste {
+		savedRow := t.Model.Line()
+		li := t.Model.LineInfo()
+		savedCol := li.StartColumn + li.ColumnOffset
+
+		t.Model.SetValue(t.Model.Value())
+
+		for i := 0; t.Model.Line() > savedRow && i < 10000; i++ {
+			t.Model.CursorUp()
+		}
+		t.Model.SetCursor(savedCol)
+	}
+
 	t.syncHeight()
+
+	// For content that exceeds the visible height (paste or any other
+	// insertion that grew past the cap), ensure the cursor is visible.
+	if isPaste {
+		t.scrollToCursor()
+	}
 
 	// Update suggestions based on current input
 	t.updateSuggestions()
@@ -250,6 +289,7 @@ func (t TextInput) PrevHistory() TextInput {
 	}
 	t.Model.SetValue(t.history[t.historyIndex])
 	t.syncHeight()
+	t.scrollToCursor()
 	t.showSuggestions = false
 	t.slashMode = false
 	t.suggestions = nil
@@ -266,6 +306,7 @@ func (t TextInput) NextHistory() TextInput {
 		t.historyIndex++
 		t.Model.SetValue(t.history[t.historyIndex])
 		t.syncHeight()
+		t.scrollToCursor()
 		t.showSuggestions = false
 		t.slashMode = false
 		t.suggestions = nil
@@ -275,6 +316,7 @@ func (t TextInput) NextHistory() TextInput {
 	t.historyIndex = -1
 	t.Model.SetValue(t.historyDraft)
 	t.syncHeight()
+	t.scrollToCursor()
 	t.historyDraft = ""
 	t.showSuggestions = false
 	t.slashMode = false
@@ -387,11 +429,17 @@ func (t TextInput) View() string {
 
 // Height returns the total height including suggestions area.
 func (t TextInput) Height() int {
-	height := t.editorHeight() + 2
+	return t.editorHeight() + t.ReservedHeight()
+}
+
+// ReservedHeight returns composer chrome outside the editor rows
+// (separators, slash suggestion area).
+func (t TextInput) ReservedHeight() int {
+	h := 2 // top + bottom separator
 	if t.slashMode {
-		return height + maxVisibleSuggestions
+		h += maxVisibleSuggestions
 	}
-	return height
+	return h
 }
 
 // IsSlashMode returns true if showing slash suggestions.
@@ -479,7 +527,10 @@ func (t *TextInput) syncHeight() {
 func (t TextInput) editorHeight() int {
 	lines := t.visibleLineCountForValue(t.Model.Value())
 	if lines < minComposerRows {
-		return minComposerRows
+		lines = minComposerRows
+	}
+	if t.maxVisibleRows > 0 && lines > t.maxVisibleRows {
+		return t.maxVisibleRows
 	}
 	return lines
 }
@@ -506,9 +557,34 @@ func (t *TextInput) maybeGrowHeightBeforeUpdate(msg tea.KeyMsg) {
 		return
 	}
 	nextHeight := t.visibleLineCountForValue(nextValue)
+	if t.maxVisibleRows > 0 && nextHeight > t.maxVisibleRows {
+		nextHeight = t.maxVisibleRows
+	}
 	if nextHeight > t.Model.Height() {
 		t.Model.SetHeight(nextHeight)
 	}
+}
+
+// scrollToCursor makes the textarea's internal viewport show the cursor.
+// When content exceeds maxVisibleRows the viewport must scroll; we force
+// correct viewport content via View(), then run a lightweight Update(nil)
+// which triggers the textarea's built-in repositionView().
+func (t *TextInput) scrollToCursor() {
+	if t.maxVisibleRows <= 0 {
+		return // unlimited height — viewport always shows everything
+	}
+	if t.visibleLineCountForValue(t.Model.Value()) <= t.maxVisibleRows {
+		return // all content fits — no scrolling needed
+	}
+	// Populate viewport.lines with current content so repositionView has
+	// accurate data (without this, it operates on stale lines from the
+	// previous render frame and the scroll math is wrong).
+	_ = t.Model.View()
+	// Run a minimal Update cycle — nil message triggers no key handling
+	// but does run repositionView(), which scrolls the viewport to keep
+	// the cursor visible.
+	m, _ := t.Model.Update(nil)
+	t.Model = m
 }
 
 func (t TextInput) valueAfterKey(msg tea.KeyMsg) (string, bool) {

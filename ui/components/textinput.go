@@ -32,20 +32,44 @@ const (
 	composerContinue      = "  "
 )
 
+type suggestionKind int
+
+const (
+	suggestionKindNone suggestionKind = iota
+	suggestionKindSlash
+	suggestionKindFile
+)
+
+type suggestionItem struct {
+	Value       string
+	Display     string
+	Description string
+	Kind        suggestionKind
+}
+
+type tokenRange struct {
+	start int
+	end   int
+}
+
 // TextInput wraps a multiline textarea for the chat composer.
 type TextInput struct {
 	Model            textarea.Model
 	slashRegistry    *slash.Registry
+	fileSuggestion   *fileSuggestionProvider
 	showSuggestions  bool
-	slashMode        bool // true once suggestions have been shown, until submit/esc
-	suggestions      []string
+	suggestionKind   suggestionKind
+	suggestionItems  []suggestionItem
 	selectedIdx      int
 	suggestionOffset int
+	activeToken      tokenRange
 	history          []string
 	historyIndex     int
 	historyDraft     string
+	maskedPasteRaw   string
+	maskedPasteLabel string
 	width            int
-	maxVisibleRows int // 0 = unlimited; when set, the editor becomes scrollable
+	maxVisibleRows   int // 0 = unlimited; when set, the editor becomes scrollable
 }
 
 // NewTextInput creates a focused multiline composer with a prompt.
@@ -82,6 +106,12 @@ func NewTextInput() TextInput {
 	return input
 }
 
+// WithFileSuggestions enables @file suggestions from the given workspace root.
+func (t TextInput) WithFileSuggestions(workDir string) TextInput {
+	t.fileSuggestion = newFileSuggestionProvider(workDir)
+	return t
+}
+
 // Value returns the current input text.
 func (t TextInput) Value() string {
 	return t.Model.Value()
@@ -91,11 +121,7 @@ func (t TextInput) Value() string {
 func (t TextInput) Reset() TextInput {
 	t.Model.Reset()
 	t.syncHeight()
-	t.showSuggestions = false
-	// Keep slashMode — it gets cleared when the command result arrives.
-	t.suggestions = nil
-	t.selectedIdx = 0
-	t.suggestionOffset = 0
+	t = t.clearSuggestions()
 	t.historyIndex = -1
 	t.historyDraft = ""
 	return t
@@ -143,45 +169,31 @@ func (t TextInput) Update(msg tea.Msg) (TextInput, tea.Cmd) {
 		isPaste = msg.Paste
 		t.maybeGrowHeightBeforeUpdate(msg)
 
-		// Handle slash command suggestions navigation
-		if t.showSuggestions && len(t.suggestions) > 0 {
+		if t.showSuggestions && len(t.suggestionItems) > 0 {
 			switch msg.String() {
 			case "up":
 				if t.selectedIdx > 0 {
 					t.selectedIdx--
 				} else {
-					// Wrap to last
-					t.selectedIdx = len(t.suggestions) - 1
+					t.selectedIdx = len(t.suggestionItems) - 1
 				}
 				t.syncSuggestionWindow()
 				return t, nil
 			case "down":
-				if t.selectedIdx < len(t.suggestions)-1 {
+				if t.selectedIdx < len(t.suggestionItems)-1 {
 					t.selectedIdx++
 				} else {
-					// Wrap to first
 					t.selectedIdx = 0
 				}
 				t.syncSuggestionWindow()
 				return t, nil
 			case "tab", "enter":
-				// Accept selected suggestion
-				if t.selectedIdx < len(t.suggestions) {
-					val := t.suggestions[t.selectedIdx] + " "
-					t.Model.SetValue(val)
-					t.Model.SetCursor(len(val))
-					t.syncHeight()
-					t.showSuggestions = false
-					t.suggestions = nil
-					t.suggestionOffset = 0
+				if t.selectedIdx < len(t.suggestionItems) {
+					t = t.applySuggestion(t.suggestionItems[t.selectedIdx])
 				}
 				return t, nil
 			case "esc":
-				// Cancel suggestions
-				t.showSuggestions = false
-				t.slashMode = false
-				t.suggestions = nil
-				t.suggestionOffset = 0
+				t = t.clearSuggestions()
 				return t, nil
 			}
 		}
@@ -290,10 +302,9 @@ func (t TextInput) PrevHistory() TextInput {
 	t.Model.SetValue(t.history[t.historyIndex])
 	t.syncHeight()
 	t.scrollToCursor()
-	t.showSuggestions = false
-	t.slashMode = false
-	t.suggestions = nil
-	t.suggestionOffset = 0
+	t.maskedPasteRaw = ""
+	t.maskedPasteLabel = ""
+	t = t.clearSuggestions()
 	return t
 }
 
@@ -307,10 +318,9 @@ func (t TextInput) NextHistory() TextInput {
 		t.Model.SetValue(t.history[t.historyIndex])
 		t.syncHeight()
 		t.scrollToCursor()
-		t.showSuggestions = false
-		t.slashMode = false
-		t.suggestions = nil
-		t.suggestionOffset = 0
+		t.maskedPasteRaw = ""
+		t.maskedPasteLabel = ""
+		t = t.clearSuggestions()
 		return t
 	}
 	t.historyIndex = -1
@@ -318,44 +328,28 @@ func (t TextInput) NextHistory() TextInput {
 	t.syncHeight()
 	t.scrollToCursor()
 	t.historyDraft = ""
-	t.showSuggestions = false
-	t.slashMode = false
-	t.suggestions = nil
-	t.suggestionOffset = 0
+	t = t.clearSuggestions()
 	return t
 }
 
-// updateSuggestions updates the slash command suggestions based on current input.
+// updateSuggestions chooses between slash and @file suggestions based on the current token.
 func (t *TextInput) updateSuggestions() {
-	val := t.Model.Value()
-	val = strings.TrimSpace(val)
-
-	// Only show suggestions if input starts with "/"
-	if !strings.HasPrefix(val, "/") {
-		t.showSuggestions = false
-		t.slashMode = false
-		t.suggestions = nil
-		t.selectedIdx = 0
-		t.suggestionOffset = 0
+	token, span, ok := t.currentToken()
+	if !ok {
+		*t = t.clearSuggestions()
 		return
 	}
 
-	// Get suggestions
-	t.suggestions = t.slashRegistry.Suggestions(val)
-	t.showSuggestions = len(t.suggestions) > 0
-	if t.showSuggestions {
-		t.slashMode = true
-	}
-
-	// Reset selection if it's out of bounds
-	if t.selectedIdx >= len(t.suggestions) {
-		t.selectedIdx = 0
-	}
-	if len(t.suggestions) == 0 {
-		t.suggestionOffset = 0
+	if items, ok := t.slashSuggestionItems(token, span); ok {
+		t.setSuggestions(suggestionKindSlash, span, items)
 		return
 	}
-	t.syncSuggestionWindow()
+	if items, ok := t.fileSuggestionItems(token, span); ok {
+		t.setSuggestions(suggestionKindFile, span, items)
+		return
+	}
+
+	*t = t.clearSuggestions()
 }
 
 func (t TextInput) separator() string {
@@ -371,8 +365,8 @@ func (t TextInput) View() string {
 	sep := t.separator()
 	inputView := composerStyle.Render(t.Model.View())
 
-	if !t.showSuggestions || len(t.suggestions) == 0 {
-		if t.slashMode {
+	if !t.showSuggestions || len(t.suggestionItems) == 0 {
+		if t.suggestionKind != suggestionKindNone {
 			return sep + "\n" + inputView + strings.Repeat("\n", maxVisibleSuggestions) + "\n" + sep
 		}
 		return sep + "\n" + inputView + "\n" + sep
@@ -390,29 +384,23 @@ func (t TextInput) View() string {
 		start = 0
 	}
 	end := start + maxVisibleSuggestions
-	if end > len(t.suggestions) {
-		end = len(t.suggestions)
+	if end > len(t.suggestionItems) {
+		end = len(t.suggestionItems)
 	}
 
 	for i := start; i < end; i++ {
-		sug := t.suggestions[i]
-
-		// Get command description
-		cmd, ok := t.slashRegistry.Get(sug)
-		if !ok {
-			continue
-		}
+		item := t.suggestionItems[i]
 
 		if i == t.selectedIdx {
 			sb.WriteString("    ")
-			sb.WriteString(sugSelCmdStyle.Render(sug))
+			sb.WriteString(sugSelCmdStyle.Render(item.Display))
 			sb.WriteString("  ")
-			sb.WriteString(sugSelDescStyle.Render(cmd.Description))
+			sb.WriteString(sugSelDescStyle.Render(item.Description))
 		} else {
 			sb.WriteString("    ")
-			sb.WriteString(sugCmdStyle.Render(sug))
+			sb.WriteString(sugCmdStyle.Render(item.Display))
 			sb.WriteString("  ")
-			sb.WriteString(sugDescStyle.Render(cmd.Description))
+			sb.WriteString(sugDescStyle.Render(item.Description))
 		}
 
 		sb.WriteString("\n")
@@ -436,7 +424,7 @@ func (t TextInput) Height() int {
 // (separators, slash suggestion area).
 func (t TextInput) ReservedHeight() int {
 	h := 2 // top + bottom separator
-	if t.slashMode {
+	if t.suggestionKind != suggestionKindNone {
 		h += maxVisibleSuggestions
 	}
 	return h
@@ -444,21 +432,20 @@ func (t TextInput) ReservedHeight() int {
 
 // IsSlashMode returns true if showing slash suggestions.
 func (t TextInput) IsSlashMode() bool {
-	return t.showSuggestions
+	return t.showSuggestions && t.suggestionKind == suggestionKindSlash
 }
 
 // ClearSlashMode exits the slash suggestion reserved area.
 func (t TextInput) ClearSlashMode() TextInput {
-	t.slashMode = false
-	t.showSuggestions = false
-	t.suggestions = nil
-	t.suggestionOffset = 0
+	if t.suggestionKind == suggestionKindSlash {
+		return t.clearSuggestions()
+	}
 	return t
 }
 
 // HasSuggestions returns true if there are visible suggestion candidates.
 func (t TextInput) HasSuggestions() bool {
-	return t.showSuggestions && len(t.suggestions) > 0
+	return t.showSuggestions && len(t.suggestionItems) > 0
 }
 
 func isExplicitNewlineKey(msg tea.KeyMsg) bool {
@@ -485,7 +472,7 @@ func (t TextInput) CanNavigateHistory(direction string) bool {
 }
 
 func (t *TextInput) syncSuggestionWindow() {
-	if len(t.suggestions) == 0 {
+	if len(t.suggestionItems) == 0 {
 		t.suggestionOffset = 0
 		return
 	}
@@ -493,8 +480,8 @@ func (t *TextInput) syncSuggestionWindow() {
 	if t.selectedIdx < 0 {
 		t.selectedIdx = 0
 	}
-	if t.selectedIdx >= len(t.suggestions) {
-		t.selectedIdx = len(t.suggestions) - 1
+	if t.selectedIdx >= len(t.suggestionItems) {
+		t.selectedIdx = len(t.suggestionItems) - 1
 	}
 
 	if t.selectedIdx < t.suggestionOffset {
@@ -504,7 +491,7 @@ func (t *TextInput) syncSuggestionWindow() {
 		t.suggestionOffset = t.selectedIdx - maxVisibleSuggestions + 1
 	}
 
-	maxOffset := len(t.suggestions) - maxVisibleSuggestions
+	maxOffset := len(t.suggestionItems) - maxVisibleSuggestions
 	if maxOffset < 0 {
 		maxOffset = 0
 	}
@@ -513,6 +500,154 @@ func (t *TextInput) syncSuggestionWindow() {
 	}
 	if t.suggestionOffset < 0 {
 		t.suggestionOffset = 0
+	}
+}
+
+func (t TextInput) clearSuggestions() TextInput {
+	t.showSuggestions = false
+	t.suggestionKind = suggestionKindNone
+	t.suggestionItems = nil
+	t.selectedIdx = 0
+	t.suggestionOffset = 0
+	t.activeToken = tokenRange{}
+	return t
+}
+
+func (t *TextInput) setSuggestions(kind suggestionKind, span tokenRange, items []suggestionItem) {
+	if len(items) == 0 {
+		*t = t.clearSuggestions()
+		return
+	}
+	t.showSuggestions = true
+	t.suggestionKind = kind
+	t.suggestionItems = items
+	t.activeToken = span
+	if t.selectedIdx >= len(items) {
+		t.selectedIdx = 0
+	}
+	t.syncSuggestionWindow()
+}
+
+func (t TextInput) applySuggestion(item suggestionItem) TextInput {
+	replacement := item.Value + " "
+	switch item.Kind {
+	case suggestionKindFile:
+		replacement = "@" + item.Value + " "
+	}
+
+	t.Model.SetValue(replaceRunesInRange(t.Model.Value(), t.activeToken, replacement))
+	t.Model.SetCursor(t.activeToken.start + len([]rune(replacement)))
+	t.syncHeight()
+	t.maskedPasteRaw = ""
+	t.maskedPasteLabel = ""
+	t = t.clearSuggestions()
+	return t
+}
+
+func (t TextInput) slashSuggestionItems(token string, span tokenRange) ([]suggestionItem, bool) {
+	if span.start != 0 || !strings.HasPrefix(token, "/") {
+		return nil, false
+	}
+
+	names := t.slashRegistry.Suggestions(token)
+	items := make([]suggestionItem, 0, len(names))
+	for _, name := range names {
+		cmd, ok := t.slashRegistry.Get(name)
+		if !ok {
+			continue
+		}
+		items = append(items, suggestionItem{
+			Value:       name,
+			Display:     name,
+			Description: cmd.Description,
+			Kind:        suggestionKindSlash,
+		})
+	}
+	return items, true
+}
+
+func (t TextInput) fileSuggestionItems(token string, span tokenRange) ([]suggestionItem, bool) {
+	if !isFileSuggestionToken(token) {
+		return nil, false
+	}
+	return t.fileSuggestion.suggestions(token[1:]), true
+}
+
+func (t TextInput) currentToken() (string, tokenRange, bool) {
+	value := t.Model.Value()
+	runes := []rune(value)
+	cursor := t.absoluteCursorPosition()
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+
+	start := cursor
+	for start > 0 && !unicode.IsSpace(runes[start-1]) {
+		start--
+	}
+	end := cursor
+	for end < len(runes) && !unicode.IsSpace(runes[end]) {
+		end++
+	}
+	if start == end {
+		return "", tokenRange{}, false
+	}
+	return string(runes[start:end]), tokenRange{start: start, end: end}, true
+}
+
+func (t TextInput) absoluteCursorPosition() int {
+	row, col, lines := t.cursorPosition()
+	offset := 0
+	for i := 0; i < row && i < len(lines); i++ {
+		offset += len([]rune(lines[i])) + 1
+	}
+	return offset + col
+}
+
+func replaceRunesInRange(value string, span tokenRange, replacement string) string {
+	runes := []rune(value)
+	prefix := string(runes[:span.start])
+	suffix := string(runes[span.end:])
+	if strings.HasSuffix(replacement, " ") {
+		suffix = strings.TrimLeftFunc(suffix, unicode.IsSpace)
+	}
+	return prefix + replacement + suffix
+}
+
+func isFileSuggestionToken(token string) bool {
+	switch {
+	case token == "":
+		return false
+	case strings.HasPrefix(token, "@@"):
+		return false
+	case !strings.HasPrefix(token, "@") || len(token) == 1:
+		return false
+	}
+	for _, r := range token[1:] {
+		if !isAllowedFileSuggestionRune(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func isAllowedFileSuggestionRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z':
+		return true
+	case r >= 'A' && r <= 'Z':
+		return true
+	case r >= '0' && r <= '9':
+		return true
+	}
+	switch r {
+	case '.', '_', '/', '\\', '-':
+		return true
+	default:
+		return false
 	}
 }
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -52,6 +53,7 @@ var (
 	trainSuccessStyle lipgloss.Style
 	trainWorkingStyle lipgloss.Style
 	queueBannerStyle  lipgloss.Style
+	atFileCandidateRE = regexp.MustCompile(`^[A-Za-z0-9._/\\-]+$`)
 )
 
 // agentMsg formats an agent message with a status marker and fixed-width source prefix.
@@ -169,6 +171,7 @@ const (
 // App is the TUI root model.
 type App struct {
 	state            model.State
+	viewport         components.Viewport
 	input            components.TextInput
 	thinking         components.ThinkingSpinner
 	width            int
@@ -185,6 +188,9 @@ type App struct {
 	eventListening   *int32           // atomic flag: 1 = waitForEvent goroutine is active
 	cmdOutputStarted *bool            // true after first shell output line is printed
 	cmdOutputLines   *int             // lines printed so far for current shell command
+	followBottom     bool
+	unreadCount      int
+	lastMsgCount     int
 
 	// Train mode
 	trainView     model.TrainViewState
@@ -217,7 +223,7 @@ type toolOutputViewState struct {
 func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
 	return App{
 		state:            model.NewState(version, workDir, repoURL, modelName, ctxMax),
-		input:            components.NewTextInput(),
+		input:            components.NewTextInput().WithFileSuggestions(workDir),
 		thinking:         components.NewThinkingSpinner(),
 		eventCh:          ch,
 		userCh:           userCh,
@@ -229,6 +235,7 @@ func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL,
 		cmdOutputStarted: new(bool),
 		cmdOutputLines:   new(int),
 		toolsExpanded:    new(bool),
+		followBottom:     true,
 	}
 }
 
@@ -323,7 +330,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, a.ensureWaitForEvent(cmd)
 
 	case tea.MouseMsg:
-		return a, nil
+		var cmd tea.Cmd
+		a.viewport, cmd = a.viewport.Update(msg)
+		a.syncViewportScrollState()
+		return a, cmd
 
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
@@ -407,6 +417,8 @@ func (a App) maxComposerEditorRows() int {
 
 func (a *App) resizeActiveLayout() {
 	a.resizeInput()
+	a.viewport = a.viewport.SetSize(a.chatWidth()-4, a.chatHeight())
+	a.syncViewportScrollState()
 }
 
 func (a *App) wantsModalAltScreen() bool {
@@ -724,20 +736,17 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Check if we're in slash suggestion mode
-	if a.input.IsSlashMode() {
+	if a.input.HasSuggestions() {
 		switch msg.String() {
-		case "tab", "esc":
+		case "tab", "esc", "enter":
 			var cmd tea.Cmd
 			a.input, cmd = a.input.Update(msg)
 			a.resizeActiveLayout()
 			return a, cmd
 		case "up", "down":
-			// Only capture for suggestions if there are visible candidates
-			if a.input.HasSuggestions() {
-				var cmd tea.Cmd
-				a.input, cmd = a.input.Update(msg)
-				return a, cmd
-			}
+			var cmd tea.Cmd
+			a.input, cmd = a.input.Update(msg)
+			return a, cmd
 		}
 	}
 
@@ -931,7 +940,6 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			a.resizeActiveLayout()
 			return a, cmd
 		}
-
 		val := strings.TrimSpace(a.input.Value())
 		if val == "" {
 			if a.trainView.Active && len(a.trainView.GlobalActions.Items) > 0 {
@@ -950,7 +958,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.state = a.state.ResetStats()
 		a.replayWait = nil
 		a.state = a.clearThinking()
-		if !strings.HasPrefix(val, "/") {
+		if !strings.HasPrefix(val, "/") && !shouldDeferUserEcho(val) {
 			a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
 			a.state = a.startWait(model.WaitModel)
 		}
@@ -1027,8 +1035,8 @@ func (a App) maybeDispatchQueuedInput() App {
 	a.state = a.state.ResetStats()
 	a.replayWait = nil
 	a.state = a.clearThinking()
-	a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: next})
-	if !strings.HasPrefix(strings.TrimSpace(next), "/") {
+	if !strings.HasPrefix(strings.TrimSpace(next), "/") && !shouldDeferUserEcho(next) {
+		a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: next})
 		a.state = a.startWait(model.WaitModel)
 	}
 	select {
@@ -1047,7 +1055,13 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 
 	switch ev.Type {
 	case model.UserInput:
-		a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: ev.Message})
+		if last := len(a.state.Messages) - 1; last >= 0 && a.state.Messages[last].Kind == model.MsgUser {
+			msgs := append([]model.Message{}, a.state.Messages...)
+			msgs[last].Content = ev.Message
+			a.state.Messages = msgs
+		} else {
+			a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: ev.Message})
+		}
 	case model.IssueIndexOpen:
 		a.openIssueIndex(ev.IssueView)
 
@@ -3030,6 +3044,23 @@ func (a *App) agentStatus() string {
 	return ""
 }
 
+func (a *App) updateViewport() {
+	// Check if user is at (or near) bottom before updating content.
+	atBottom := a.viewport.AtBottom() || a.viewport.TotalLines() <= a.viewport.VisibleHeight()
+	width := a.viewport.Model.Width
+	if width <= 0 {
+		width = a.chatWidth() - 4
+	}
+	if width < 1 {
+		width = 1
+	}
+	content := panels.RenderMessages(a.state, a.thinking.View(), a.thinking.FrameView(), width, a.trainView.Active)
+	a.viewport = a.viewport.SetContent(content)
+	// Only auto-scroll to bottom if user hasn't scrolled up.
+	if atBottom {
+		a.viewport.Model.GotoBottom()
+	}
+}
 func (a App) activeHUDHeight() int {
 	if a.trainView.Active {
 		return lipgloss.Height(panels.RenderTrainHUD(a.trainView, a.width, a.agentStatus()))
@@ -3075,6 +3106,26 @@ func (a App) View() string {
 	return blank
 }
 
+func (a *App) syncViewportScrollState() {
+	if a.viewport.AtBottom() {
+		a.followBottom = true
+		a.unreadCount = 0
+		return
+	}
+	a.followBottom = false
+}
+
+func (a *App) syncUnreadState(prevCount int, wasAtBottom bool) {
+	currentCount := len(a.state.Messages)
+	if currentCount > prevCount && !wasAtBottom {
+		a.unreadCount += currentCount - prevCount
+	}
+	if a.viewport.AtBottom() {
+		a.unreadCount = 0
+		a.followBottom = true
+	}
+}
+
 func trimViewHeight(content string, height int, fill bool) string {
 	if height <= 0 {
 		return content
@@ -3097,6 +3148,27 @@ func trimViewHeight(content string, height int, fill bool) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func shouldDeferUserEcho(input string) bool {
+	for _, token := range strings.Fields(input) {
+		if isAtFileCandidateToken(token) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAtFileCandidateToken(token string) bool {
+	switch {
+	case token == "":
+		return false
+	case strings.HasPrefix(token, "@@"):
+		return false
+	case !strings.HasPrefix(token, "@") || len(token) == 1:
+		return false
+	}
+	return atFileCandidateRE.MatchString(token[1:])
 }
 
 // overlayPopup centers a popup box on top of existing rendered content.

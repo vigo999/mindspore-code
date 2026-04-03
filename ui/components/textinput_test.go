@@ -2,6 +2,8 @@ package components
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -200,8 +202,8 @@ func TestTextInputConsumeEscapedEnterCanRunWhenSlashModeHasNoSuggestions(t *test
 	input.Model.SetValue("/\\")
 	input.Model.SetCursor(len([]rune("/\\")))
 	input.showSuggestions = false
-	input.suggestions = nil
-	input.slashMode = true
+	input.suggestionItems = nil
+	input.suggestionKind = suggestionKindSlash
 
 	input, consumed := input.ConsumeEscapedEnter()
 	if !consumed {
@@ -566,13 +568,124 @@ func TestTextInputSuggestionsWrapUpToLastPage(t *testing.T) {
 	}
 }
 
+func TestTextInputShowsFileSuggestionsForAtToken(t *testing.T) {
+	root := t.TempDir()
+	writeSuggestionFile(t, root, "ctx.txt")
+	writeSuggestionFile(t, root, "sub/first.md")
+	writeSuggestionFile(t, root, "sub/final.md")
+
+	input := NewTextInput().WithFileSuggestions(root)
+	input.Model.SetValue("read @sub/f")
+	input.Model.SetCursor(len("read @sub/f"))
+	input.updateSuggestions()
+
+	if !input.HasSuggestions() {
+		t.Fatal("expected file suggestions for @ token")
+	}
+	if input.IsSlashMode() {
+		t.Fatal("expected @file suggestions not to report slash mode")
+	}
+	if len(input.suggestionItems) != 2 {
+		t.Fatalf("expected 2 matching file suggestions, got %d", len(input.suggestionItems))
+	}
+	if got := input.suggestionItems[0].Value; got != "sub/final.md" {
+		t.Fatalf("expected lexicographic file suggestion, got %q", got)
+	}
+}
+
+func TestTextInputEnterAcceptsFileSuggestionWithoutSubmitting(t *testing.T) {
+	root := t.TempDir()
+	writeSuggestionFile(t, root, "ctx.txt")
+
+	input := NewTextInput().WithFileSuggestions(root)
+	input.Model.SetValue("read @ct")
+	input.Model.SetCursor(len("read @ct"))
+	input.updateSuggestions()
+
+	input, _ = input.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if got := input.Value(); got != "read @ctx.txt " {
+		t.Fatalf("expected enter to accept file suggestion, got %q", got)
+	}
+	if input.HasSuggestions() {
+		t.Fatal("expected suggestions cleared after accepting file suggestion")
+	}
+}
+
+func TestTextInputReplacesOnlyCurrentTokenWhenApplyingFileSuggestion(t *testing.T) {
+	root := t.TempDir()
+	writeSuggestionFile(t, root, "ctx.txt")
+
+	input := NewTextInput().WithFileSuggestions(root)
+	input.Model.SetValue("before @ct after")
+	input.Model.SetCursor(len("before @ct"))
+	input.updateSuggestions()
+
+	input, _ = input.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := input.Value(); got != "before @ctx.txt after" {
+		t.Fatalf("expected current token replacement only, got %q", got)
+	}
+}
+
+func TestTextInputLeavesInvalidAtFormsWithoutSuggestions(t *testing.T) {
+	root := t.TempDir()
+	writeSuggestionFile(t, root, "ctx.txt")
+
+	cases := []string{
+		"read @@ctx",
+		"read @ctx.txt,",
+		"read (@ctx.txt)",
+	}
+
+	for _, tc := range cases {
+		input := NewTextInput().WithFileSuggestions(root)
+		input.Model.SetValue(tc)
+		input.Model.SetCursor(len(tc))
+		input.updateSuggestions()
+		if input.HasSuggestions() {
+			t.Fatalf("expected no suggestions for %q", tc)
+		}
+	}
+}
+
+func TestTextInputReplacesCurrentTokenOnSecondLine(t *testing.T) {
+	root := t.TempDir()
+	writeSuggestionFile(t, root, "ctx.txt")
+
+	input := NewTextInput().WithFileSuggestions(root)
+	input.Model.SetValue("line one\nread @ct")
+	input.Model.SetCursor(len("line one\nread @ct"))
+	input.updateSuggestions()
+
+	input, _ = input.Update(tea.KeyMsg{Type: tea.KeyTab})
+	if got := input.Value(); got != "line one\nread @ctx.txt " {
+		t.Fatalf("expected second-line token replacement, got %q", got)
+	}
+}
+
+func TestTextInputPrefersFileSuggestionsInSlashCommandArguments(t *testing.T) {
+	root := t.TempDir()
+	writeSuggestionFile(t, root, "ctx.txt")
+
+	input := NewTextInput().WithFileSuggestions(root)
+	input.Model.SetValue("/report accuracy @ct")
+	input.Model.SetCursor(len("/report accuracy @ct"))
+	input.updateSuggestions()
+
+	if !input.HasSuggestions() {
+		t.Fatal("expected file suggestions in slash command arguments")
+	}
+	if input.IsSlashMode() {
+		t.Fatal("expected file suggestions to override slash suggestions outside the command token")
+	}
+}
+
 func newSlashSuggestionInput(count int) TextInput {
 	input := NewTextInput()
 	registry := slash.NewRegistry()
 	input.slashRegistry = registry
 	input.showSuggestions = true
-	input.slashMode = true
-	input.suggestions = make([]string, 0, count)
+	input.suggestionKind = suggestionKindSlash
+	input.suggestionItems = make([]suggestionItem, 0, count)
 
 	for i := 0; i < count; i++ {
 		name := fmt.Sprintf("/cmd%02d", i)
@@ -581,8 +694,24 @@ func newSlashSuggestionInput(count int) TextInput {
 			Description: fmt.Sprintf("Command %02d", i),
 			Usage:       name,
 		})
-		input.suggestions = append(input.suggestions, name)
+		input.suggestionItems = append(input.suggestionItems, suggestionItem{
+			Value:       name,
+			Display:     name,
+			Description: fmt.Sprintf("Command %02d", i),
+			Kind:        suggestionKindSlash,
+		})
 	}
 
 	return input
+}
+
+func writeSuggestionFile(t *testing.T, root, relative string) {
+	t.Helper()
+	path := filepath.Join(root, relative)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(relative), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -33,28 +33,29 @@ func TestResolveSafePathRejectsEscapeFromWorkDir(t *testing.T) {
 	}
 }
 
+func TestResolveSafePathAllowsAbsolutePathInsideWorkDir(t *testing.T) {
+	workDir := t.TempDir()
+	insidePath := filepath.Join(workDir, "nested", "inside.txt")
+
+	got, err := resolveSafePath(workDir, insidePath)
+	if err != nil {
+		t.Fatalf("resolveSafePath returned error: %v", err)
+	}
+	if got != insidePath {
+		t.Fatalf("resolveSafePath = %q, want %q", got, insidePath)
+	}
+}
+
 func TestResolveSafePathRejectsAbsolutePathOutsideAllowedRoots(t *testing.T) {
 	workDir := t.TempDir()
+	outsidePath := filepath.Join(filepath.Dir(workDir), "outside.txt")
 
-	_, err := resolveSafePath(workDir, filepath.Join(string(os.PathSeparator), "tmp", "outside.txt"))
+	_, err := resolveSafePath(workDir, outsidePath)
 	if err == nil {
 		t.Fatal("resolveSafePath returned nil error, want absolute path rejection")
 	}
 	if !strings.Contains(err.Error(), "absolute paths are not allowed") {
 		t.Fatalf("resolveSafePath error = %q, want absolute path rejection", err)
-	}
-}
-
-func TestResolveSafePathAllowsAbsolutePathInsideWorkDir(t *testing.T) {
-	workDir := t.TempDir()
-	input := filepath.Join(workDir, "nested", "file.txt")
-
-	got, err := resolveSafePath(workDir, input)
-	if err != nil {
-		t.Fatalf("resolveSafePath returned error: %v", err)
-	}
-	if got != input {
-		t.Fatalf("resolveSafePath = %q, want %q", got, input)
 	}
 }
 

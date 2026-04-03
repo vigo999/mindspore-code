@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -574,6 +576,92 @@ func TestLargePastedUserMessageRendersFullContent(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected pasted content to be recorded in state messages")
+	}
+}
+
+func TestAtFileInputWaitsForBackendEchoBeforeShowingUserMessage(t *testing.T) {
+	userCh := make(chan string, 1)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ctx.txt"), []byte("context payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := New(nil, userCh, "test", root, "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	app.input.Model.SetValue("read @ctx.txt")
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	if got := len(app.state.Messages); got != 0 {
+		t.Fatalf("expected ui to wait for backend-confirmed echo, got %#v", app.state.Messages)
+	}
+
+	select {
+	case msg := <-userCh:
+		if msg != "read @ctx.txt" {
+			t.Fatalf("expected raw input to reach backend, got %q", msg)
+		}
+	default:
+		t.Fatal("expected enter to submit at-file input to backend")
+	}
+
+	next, _ = app.handleEvent(model.Event{
+		Type:    model.UserInput,
+		Message: "read [file path=\"" + filepath.ToSlash(filepath.Join(root, "ctx.txt")) + "\"]",
+	})
+	app = next.(App)
+
+	if got := len(app.state.Messages); got != 1 {
+		t.Fatalf("expected one backend-confirmed user message, got %d", got)
+	}
+	if !strings.Contains(app.state.Messages[0].Content, `[file path="`+filepath.ToSlash(filepath.Join(root, "ctx.txt"))+`"]`) {
+		t.Fatalf("expected expanded user message content, got %#v", app.state.Messages[0])
+	}
+}
+
+func TestEnterAcceptsAtFileSuggestionBeforeSubmittingToBackend(t *testing.T) {
+	userCh := make(chan string, 1)
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "ctx.txt"), []byte("context payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	app := New(nil, userCh, "test", root, "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("read @ct")})
+	app = next.(App)
+	if !app.input.HasSuggestions() {
+		t.Fatal("expected @file suggestions before submit")
+	}
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	select {
+	case msg := <-userCh:
+		t.Fatalf("expected first enter to accept suggestion, got backend submit %q", msg)
+	default:
+	}
+	if got := app.input.Value(); got != "read @ctx.txt " {
+		t.Fatalf("expected first enter to accept suggestion, got %q", got)
+	}
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	select {
+	case msg := <-userCh:
+		if msg != "read @ctx.txt" {
+			t.Fatalf("expected accepted suggestion to submit on second enter, got %q", msg)
+		}
+	default:
+		t.Fatal("expected second enter to submit accepted suggestion")
 	}
 }
 

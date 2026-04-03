@@ -191,7 +191,14 @@ func (a *Application) processInput(input string) {
 		return
 	}
 
-	go a.runTask(trimmed)
+	expanded, err := a.expandInputText(trimmed)
+	if err != nil {
+		a.emitInputExpansionError(err)
+		return
+	}
+	a.EventCh <- model.Event{Type: model.UserInput, Message: expanded}
+
+	go a.runTask(expanded)
 }
 
 func (a *Application) handlePermissionSettingsPromptInput(input string) {

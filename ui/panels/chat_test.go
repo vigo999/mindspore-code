@@ -123,7 +123,7 @@ func TestRenderMessages_ToolPendingShowsSpinnerAndTimer(t *testing.T) {
 	if !strings.Contains(view, "⣷ Shell($ go test ./ui)") {
 		t.Fatalf("expected pending spinner in tool line, got:\n%s", view)
 	}
-	if !strings.Contains(view, "running command... 2s") {
+	if !strings.Contains(view, "running command... ctrl+o to expand 2s") {
 		t.Fatalf("expected pending timer suffix, got:\n%s", view)
 	}
 }

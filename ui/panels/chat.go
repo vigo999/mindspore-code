@@ -12,28 +12,28 @@ import (
 
 // Style vars are populated by InitStyles() in styles.go.
 var (
-	userStyle             lipgloss.Style
-	userBlockStyle        lipgloss.Style
-	agentStyle            lipgloss.Style
-	thinkingStyle         lipgloss.Style
-	toolBorderStyle       lipgloss.Style
-	toolHeaderStyle       lipgloss.Style
-	toolContentStyle      lipgloss.Style
-	collapsedIconStyle    lipgloss.Style
-	collapsedNameStyle    lipgloss.Style
-	collapsedTitleStyle   lipgloss.Style
-	collapsedSummaryStyle lipgloss.Style
-	errorBorderStyle      lipgloss.Style
-	errorHeaderStyle      lipgloss.Style
-	errorContentStyle     lipgloss.Style
-	diffAddStyle          lipgloss.Style
-	diffRemoveStyle       lipgloss.Style
-	diffNeutralStyle      lipgloss.Style
-	toolPendingDotStyle   lipgloss.Style
-	toolSuccessDotStyle   lipgloss.Style
-	toolWarningDotStyle   lipgloss.Style
-	toolErrorDotStyle     lipgloss.Style
-	toolCallLineStyle     lipgloss.Style
+	userStyle              lipgloss.Style
+	userBlockStyle         lipgloss.Style
+	agentStyle             lipgloss.Style
+	thinkingStyle          lipgloss.Style
+	toolBorderStyle        lipgloss.Style
+	toolHeaderStyle        lipgloss.Style
+	toolContentStyle       lipgloss.Style
+	collapsedIconStyle     lipgloss.Style
+	collapsedNameStyle     lipgloss.Style
+	collapsedTitleStyle    lipgloss.Style
+	collapsedSummaryStyle  lipgloss.Style
+	errorBorderStyle       lipgloss.Style
+	errorHeaderStyle       lipgloss.Style
+	errorContentStyle      lipgloss.Style
+	diffAddStyle           lipgloss.Style
+	diffRemoveStyle        lipgloss.Style
+	diffNeutralStyle       lipgloss.Style
+	toolPendingDotStyle    lipgloss.Style
+	toolSuccessDotStyle    lipgloss.Style
+	toolWarningDotStyle    lipgloss.Style
+	toolErrorDotStyle      lipgloss.Style
+	toolCallLineStyle      lipgloss.Style
 	toolPendingStatusStyle lipgloss.Style
 	toolResultPrefixStyle  lipgloss.Style
 	toolResultSummaryStyle lipgloss.Style
@@ -199,7 +199,7 @@ func renderPendingToolStatus(state model.State, m model.Message) string {
 		if elapsed <= 0 {
 			elapsed = time.Since(state.WaitStartedAt)
 		}
-		status += " " + model.FormatWaitDuration(elapsed)
+		status += " ctrl+o to expand " + model.FormatWaitDuration(elapsed)
 	}
 	return " " + toolPendingStatusStyle.Render(status)
 }

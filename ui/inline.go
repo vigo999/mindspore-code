@@ -42,6 +42,8 @@ var (
 			Italic(true)
 )
 
+const liveShellPreviewOutputLines = 8
+
 // maybePrintBanner prints the startup banner once, deferred until
 // no modal popup is blocking the normal buffer.
 func (a *App) maybePrintBanner() tea.Cmd {
@@ -120,40 +122,42 @@ func (a App) renderMainView() string {
 	if a.trainView.Active {
 		parts = append(parts, panels.RenderTrainHUD(a.trainView, a.width, a.agentStatus()))
 	}
+	inputView := a.input.View()
+	hintView := panels.RenderHintBar(a.state, a.width)
+	if a.trainView.Active {
+		hintView = panels.RenderTrainHUDHintBar(a.width)
+	}
+	queueBanner := ""
+	if len(a.queuedInputs) > 0 {
+		queueBanner = queueBannerStyle.Render("messages queued (press esc to interrupt)")
+	}
 	if a.permissionPrompt != nil {
 		parts = append(parts, renderPermissionPromptPopup(a.permissionPrompt))
-	} else if status := a.statusView(); status != "" {
-		parts = append(parts, "", status)
-	}
-	if len(a.queuedInputs) > 0 {
-		parts = append(parts, queueBannerStyle.Render("messages queued (press esc to interrupt)"))
-	}
-	parts = append(parts, "", a.input.View())
-	if a.trainView.Active {
-		parts = append(parts, panels.RenderTrainHUDHintBar(a.width))
 	} else {
-		parts = append(parts, panels.RenderHintBar(a.state, a.width))
+		reservedParts := append([]string{}, parts...)
+		if queueBanner != "" {
+			reservedParts = append(reservedParts, queueBanner)
+		}
+		if status := a.activePreview(reservedParts, inputView, hintView); status != "" {
+			parts = append(parts, "", status)
+		}
 	}
+	if queueBanner != "" {
+		parts = append(parts, queueBanner)
+	}
+	parts = append(parts, "", inputView, hintView)
 	return trimViewHeight(lipgloss.JoinVertical(lipgloss.Left, parts...), a.height, false)
 }
 
-func (a App) statusView() string {
-	return strings.TrimSpace(a.activePreview())
-}
-
-func (a App) activePreview() string {
-	// Agent deltas are buffered and printed as a single glamour-rendered
-	// message when the reply completes. The live area shows a spinner.
+func (a App) activePreview(partsBeforeStatus []string, inputView, hintView string) string {
+	if msg, ok := a.lastStreamingAgent(); ok {
+		return a.fitStatusPreview(a.renderTranscriptMessage(msg), partsBeforeStatus, inputView, hintView)
+	}
 	if msg, ok := a.lastActiveTool(); ok {
-		// Shell output is already printed line-by-line via tea.Println;
-		// only show the status header here to avoid a duplicate tail
-		// that creates a visual "cutoff" effect.
-		if msg.Streaming && strings.EqualFold(strings.TrimSpace(msg.ToolName), "Bash") {
-			headerOnly := msg
-			headerOnly.Content = ""
-			return a.renderTranscriptMessage(headerOnly)
+		if strings.EqualFold(strings.TrimSpace(msg.ToolName), "Bash") {
+			return a.renderShellActivePreview(msg, a.availableStatusLines(partsBeforeStatus, inputView, hintView))
 		}
-		return tailLines(a.renderTranscriptMessage(msg), 8)
+		return a.fitStatusPreview(a.renderTranscriptMessage(msg), partsBeforeStatus, inputView, hintView)
 	}
 	t := theme.Current
 	if a.state.WaitKind == model.WaitModel {
@@ -175,7 +179,7 @@ func (a App) activePreview() string {
 			lipgloss.NewStyle().Foreground(t.Warning).Italic(true))
 		return a.thinking.ViewWithTip()
 	}
-	// Show streaming indicator while buffering agent deltas.
+	// Fallback while deltas are buffered but no streaming message is available.
 	a.deltaMu.Lock()
 	hasDelta := a.deltaBuf.Len() > 0
 	a.deltaMu.Unlock()
@@ -187,6 +191,65 @@ func (a App) activePreview() string {
 		return a.thinking.ViewWithTip()
 	}
 	return ""
+}
+
+func (a App) fitStatusPreview(content string, partsBeforeStatus []string, inputView, hintView string) string {
+	return tailLines(content, a.availableStatusLines(partsBeforeStatus, inputView, hintView))
+}
+
+func (a App) availableStatusLines(partsBeforeStatus []string, inputView, hintView string) int {
+	if a.height <= 0 {
+		return 0
+	}
+
+	reserved := 0
+	for _, part := range partsBeforeStatus {
+		reserved += viewLineCount(part)
+	}
+	// Blank separator before the status block, plus the blank separator before the input.
+	reserved += 2
+	reserved += viewLineCount(inputView)
+	reserved += viewLineCount(hintView)
+
+	available := a.height - reserved
+	if available < 1 {
+		available = 1
+	}
+	return available
+}
+
+func (a App) renderShellActivePreview(msg model.Message, available int) string {
+	if available <= 0 {
+		return ""
+	}
+
+	header := "  " + panels.RenderToolCallHeader("Bash", strings.TrimSpace(msg.ToolArgs)) +
+		" " + metaStyle.Render(a.shellActiveStatusText())
+	if available == 1 {
+		return header
+	}
+
+	outputSlots := available - 1
+	if outputSlots > liveShellPreviewOutputLines {
+		outputSlots = liveShellPreviewOutputLines
+	}
+	if outputSlots < 0 {
+		outputSlots = 0
+	}
+
+	lines := renderShellPreviewOutputLines(msg.Content, outputSlots)
+
+	parts := []string{header}
+	parts = append(parts, lines...)
+	return strings.Join(parts, "\n")
+}
+
+func (a App) shellActiveStatusText() string {
+	text := "running, ctrl+o to expand..."
+	if a.state.WaitKind == model.WaitTool && !a.state.WaitStartedAt.IsZero() {
+		text += " " + model.FormatWaitDuration(a.currentWaitElapsed())
+	}
+	return text
 }
 
 func (a App) renderTranscriptMessage(msg model.Message) string {
@@ -508,6 +571,44 @@ func tailLines(content string, limit int) string {
 		return strings.Join(lines, "\n")
 	}
 	return strings.Join(lines[len(lines)-limit:], "\n")
+}
+
+func viewLineCount(content string) int {
+	if content == "" {
+		return 1
+	}
+	return len(strings.Split(content, "\n"))
+}
+
+func renderShellPreviewOutputLines(content string, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.TrimSuffix(content, "\n")
+	if strings.TrimSpace(content) == "" {
+		return nil
+	}
+
+	lines := strings.Split(content, "\n")
+	if len(lines) > limit {
+		lines = lines[len(lines)-limit:]
+	}
+
+	rendered := make([]string, 0, len(lines))
+	for i, line := range lines {
+		style := cmdOutputStyle
+		if strings.HasPrefix(strings.TrimSpace(line), "[stderr]") {
+			style = cmdStderrStyle
+		}
+		prefix := "     "
+		if i == 0 {
+			prefix = "  ⎿  "
+		}
+		rendered = append(rendered, prefix+style.Render(line))
+	}
+	return rendered
 }
 
 func combineCmds(cmds ...tea.Cmd) tea.Cmd {

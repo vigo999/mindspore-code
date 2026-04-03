@@ -209,8 +209,9 @@ type App struct {
 
 // toolOutputViewState holds state for the alt-screen tool output viewer.
 type toolOutputViewState struct {
-	msg       model.Message
-	scrollOff int // vertical scroll offset (line index)
+	toolCallID string
+	msg        model.Message
+	scrollOff  int // vertical scroll offset (line index)
 }
 
 // New creates a new App driven by the given event channel.
@@ -493,11 +494,10 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if a.toolOutputView != nil {
 			a.toolOutputView = nil
 		} else {
-			for i := len(a.state.Messages) - 1; i >= 0; i-- {
-				msg := a.state.Messages[i]
-				if msg.Kind == model.MsgTool && !msg.Pending && !msg.Streaming {
-					a.toolOutputView = &toolOutputViewState{msg: msg}
-					break
+			if toolMsg, ok := a.latestToolMessage(); ok {
+				a.toolOutputView = &toolOutputViewState{
+					toolCallID: toolMsg.ToolCallID,
+					msg:        toolMsg,
 				}
 			}
 		}
@@ -2750,11 +2750,33 @@ func (a App) toolOutputViewportHeight() int {
 	return h
 }
 
+func (a App) latestToolMessage() (model.Message, bool) {
+	for i := len(a.state.Messages) - 1; i >= 0; i-- {
+		msg := a.state.Messages[i]
+		if msg.Kind == model.MsgTool {
+			return msg, true
+		}
+	}
+	return model.Message{}, false
+}
+
+func (a App) toolOutputMessage() model.Message {
+	if a.toolOutputView == nil {
+		return model.Message{}
+	}
+	if toolCallID := strings.TrimSpace(a.toolOutputView.toolCallID); toolCallID != "" {
+		if msg, ok := findToolMessage(a.state.Messages, toolCallID); ok {
+			return msg
+		}
+	}
+	return a.toolOutputView.msg
+}
+
 func (a App) toolOutputContentLines() []string {
 	if a.toolOutputView == nil {
 		return nil
 	}
-	content := strings.TrimSpace(a.toolOutputView.msg.Content)
+	content := strings.TrimSpace(a.toolOutputMessage().Content)
 	if content == "" {
 		return []string{"(no output)"}
 	}
@@ -2771,6 +2793,7 @@ func (a App) renderToolOutputView() string {
 	if v == nil {
 		return ""
 	}
+	msg := a.toolOutputMessage()
 	w := a.width
 	if w < 10 {
 		w = 10
@@ -2780,10 +2803,10 @@ func (a App) renderToolOutputView() string {
 	totalLines := len(allLines)
 
 	// Title bar
-	toolName := strings.TrimSpace(v.msg.ToolName)
-	toolArgs := strings.TrimSpace(v.msg.ToolArgs)
+	toolName := strings.TrimSpace(msg.ToolName)
+	toolArgs := strings.TrimSpace(msg.ToolArgs)
 	if toolArgs == "" {
-		toolArgs = strings.TrimSpace(v.msg.Summary)
+		toolArgs = strings.TrimSpace(msg.Summary)
 	}
 	title := toolViewTitleStyle.Render(fmt.Sprintf(" %s(%s)", toolName, toolArgs))
 	lineInfo := toolViewHintStyle.Render(fmt.Sprintf(" %d/%d ", v.scrollOff+1, totalLines))

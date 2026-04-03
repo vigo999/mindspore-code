@@ -419,7 +419,7 @@ func (a App) eventPrintCmd(ev model.Event, prevMessages []model.Message) tea.Cmd
 				return a.flushDeltaBuf()
 			}
 		}
-		return a.printMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message})
+		return a.printMessage(model.Message{Kind: model.MsgAgent, Content: ev.Message, RawANSI: ev.RawANSI})
 	case model.AgentReplyDelta:
 		return a.printAgentDelta(ev.Message)
 	case model.AgentThinking, model.TaskDone, model.TokenUpdate:

@@ -107,7 +107,10 @@ func renderAgentMsg(msg model.Message, width int) string {
 	if bodyWidth < 1 {
 		bodyWidth = 1
 	}
-	rendered := RenderMarkdown(msg.Content, bodyWidth)
+	rendered := msg.Content
+	if !msg.RawANSI {
+		rendered = RenderMarkdown(msg.Content, bodyWidth)
+	}
 	lines := strings.Split(rendered, "\n")
 	for i, line := range lines {
 		if i == 0 {

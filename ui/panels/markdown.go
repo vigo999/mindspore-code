@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"regexp"
 	"strings"
 	"sync"
 
@@ -14,6 +15,8 @@ var (
 	mdRendererMu sync.Mutex
 	mdRenderer   *glamour.TermRenderer
 )
+
+var orderedListPattern = regexp.MustCompile(`^\d+\.\s+`)
 
 // markdownStyle returns a custom glamour StyleConfig based on the dark theme
 // but with Document.Margin zeroed out so that external callers control
@@ -178,12 +181,54 @@ func prepareForGlamour(content string) string {
 		if trimmed == "" {
 			continue
 		}
+		if isMarkdownBlockLine(trimmed) {
+			continue
+		}
 		if strings.HasSuffix(line, "  ") {
 			continue
 		}
 		lines[i] = line + "  "
 	}
 	return strings.Join(lines, "\n")
+}
+
+func isMarkdownBlockLine(trimmed string) bool {
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "#") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, ">") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "- ") || strings.HasPrefix(trimmed, "* ") || strings.HasPrefix(trimmed, "+ ") {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "- [") || strings.HasPrefix(trimmed, "* [") || strings.HasPrefix(trimmed, "+ [") {
+		return true
+	}
+	if orderedListPattern.MatchString(trimmed) {
+		return true
+	}
+	if strings.HasPrefix(trimmed, "|") || isMarkdownTableSeparator(trimmed) {
+		return true
+	}
+	if trimmed == "---" || trimmed == "***" || trimmed == "___" {
+		return true
+	}
+	return false
+}
+
+func isMarkdownTableSeparator(trimmed string) bool {
+	if !strings.Contains(trimmed, "|") {
+		return false
+	}
+	candidate := strings.ReplaceAll(trimmed, "|", "")
+	candidate = strings.ReplaceAll(candidate, ":", "")
+	candidate = strings.ReplaceAll(candidate, "-", "")
+	candidate = strings.ReplaceAll(candidate, " ", "")
+	return candidate == ""
 }
 
 // RenderMarkdown converts markdown text to styled ANSI terminal output.

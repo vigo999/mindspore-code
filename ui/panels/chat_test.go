@@ -1,12 +1,15 @@
 package panels
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/vigo999/mindspore-code/ui/model"
 )
+
+var testANSIPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestRenderMessages_ToolPendingShowsOneCallLine(t *testing.T) {
 	state := model.State{
@@ -142,5 +145,61 @@ func TestRenderMessages_ToolWarningUsesWarningSummaryStyle(t *testing.T) {
 	}
 	if !strings.Contains(view, "⎿") || !strings.Contains(view, "request timeout") {
 		t.Fatalf("expected warning summary, got:\n%s", view)
+	}
+}
+
+func TestRenderMessages_AgentReplyWithANSIBypassesMarkdown(t *testing.T) {
+	state := model.State{
+		Messages: []model.Message{{
+			Kind:    model.MsgAgent,
+			Content: "\x1b[38;5;252m[ OVERVIEW ]\x1b[0m\nphase: dogfood",
+			RawANSI: true,
+		}},
+	}
+
+	view := RenderMessages(state, "", "", 80, true)
+	if !strings.Contains(view, "\x1b[38;5;252m[ OVERVIEW ]\x1b[0m") {
+		t.Fatalf("expected ANSI-styled content to be preserved, got:\n%q", view)
+	}
+	if strings.Contains(view, "[38;5;252m[ OVERVIEW ][0m") {
+		t.Fatalf("expected ANSI bytes to remain intact, got:\n%q", view)
+	}
+	if !strings.Contains(view, "phase: dogfood") {
+		t.Fatalf("expected multiline content to be preserved, got:\n%q", view)
+	}
+}
+
+func TestRenderMessages_AgentMarkdownTablePreservesFollowingList(t *testing.T) {
+	state := model.State{
+		Messages: []model.Message{{
+			Kind: model.MsgAgent,
+			Content: strings.Join([]string{
+				"Here is a table:",
+				"",
+				"| ID | Owner | Status | Description |",
+				"| --- | --- | --- | --- |",
+				"| #8 | weixi | 100% | test install and upgrade |",
+				"| #9 | ting | 0% | add sub skill of ads boost |",
+				"",
+				"**Possible causes:**",
+				"- ANSI escape codes are shown as raw text",
+				"- The terminal may not support color",
+			}, "\n"),
+		}},
+	}
+
+	view := RenderMessages(state, "", "", 100, true)
+	plain := testANSIPattern.ReplaceAllString(view, "")
+	if !strings.Contains(plain, "#8") || !strings.Contains(plain, "weixi") || !strings.Contains(plain, "test install and upgrade") {
+		t.Fatalf("expected table row content to remain visible, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "Possible causes:") {
+		t.Fatalf("expected heading after table, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "ANSI escape codes are shown as raw text") {
+		t.Fatalf("expected first list item after table, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "The terminal may not support color") {
+		t.Fatalf("expected second list item after table, got:\n%s", plain)
 	}
 }

@@ -2,12 +2,15 @@ package app
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/vigo999/mindspore-code/internal/project"
 	"github.com/vigo999/mindspore-code/ui/model"
 )
+
+var projectANSIPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // mockProjectStore implements project.Store for testing.
 type mockProjectStore struct {
@@ -143,11 +146,16 @@ func TestCmdProjectStreamsFormattedSnapshot(t *testing.T) {
 	app.cmdProject(nil)
 
 	ev := drainUntilEventType(t, app, model.AgentReply)
+	if !ev.RawANSI {
+		t.Fatal("expected /project snapshot to be marked RawANSI")
+	}
 	for _, want := range []string{
 		"phase: refactor",
 		"owner: travis",
 		"repo: github.com/vigo999/mindspore-code",
 		"branch: refactor-arch-4.2",
+		"1 staged",
+		"ahead 5",
 		"project status command",
 		"status schema draft",
 		"define schema",
@@ -157,6 +165,9 @@ func TestCmdProjectStreamsFormattedSnapshot(t *testing.T) {
 		if !strings.Contains(ev.Message, want) {
 			t.Fatalf("expected project snapshot to contain %q, got:\n%s", want, ev.Message)
 		}
+	}
+	if !projectANSIPattern.MatchString(ev.Message) {
+		t.Fatalf("expected /project snapshot to contain ANSI styling, got:\n%q", ev.Message)
 	}
 }
 
@@ -202,6 +213,9 @@ func TestCmdProjectFallbackWhenNotLoggedIn(t *testing.T) {
 	app.cmdProject(nil)
 
 	ev := drainUntilEventType(t, app, model.AgentReply)
+	if !ev.RawANSI {
+		t.Fatal("expected fallback /project snapshot to be marked RawANSI")
+	}
 	for _, want := range []string{
 		"[ OVERVIEW ]",
 		"repo: " + filepath.Base(root),
@@ -210,6 +224,31 @@ func TestCmdProjectFallbackWhenNotLoggedIn(t *testing.T) {
 		if !strings.Contains(ev.Message, want) {
 			t.Fatalf("expected fallback overview to contain %q, got:\n%s", want, ev.Message)
 		}
+	}
+}
+
+func TestRenderTaskLinesWrapsLongDescription(t *testing.T) {
+	lines := renderTaskLines([]projectTask{{
+		ID:       "29",
+		Title:    "decouple agent session with background training process and keep description fully visible without ellipsis",
+		Status:   "todo",
+		Progress: 0,
+		Owner:    "vigo",
+		Tags:     "mscode,session",
+	}})
+
+	got := strings.Join(lines, "\n")
+	if strings.Contains(got, "...") {
+		t.Fatalf("expected wrapped task description without ellipsis, got:\n%s", got)
+	}
+	if !strings.Contains(got, "decouple agent session") {
+		t.Fatalf("expected first part of description, got:\n%s", got)
+	}
+	if !strings.Contains(got, "process and keep description fully visible without") {
+		t.Fatalf("expected wrapped continuation content, got:\n%s", got)
+	}
+	if !strings.Contains(got, "\n") || !strings.Contains(got, "ellipsis") {
+		t.Fatalf("expected wrapped continuation line, got:\n%s", got)
 	}
 }
 

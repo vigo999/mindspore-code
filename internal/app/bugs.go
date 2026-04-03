@@ -180,6 +180,7 @@ func (a *Application) cmdDock() {
 	}
 	a.EventCh <- model.Event{
 		Type:    model.AgentReply,
+		RawANSI: true,
 		Message: render.Dock(data),
 	}
 }

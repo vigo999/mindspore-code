@@ -55,6 +55,7 @@ const (
 type Message struct {
 	Kind       MessageKind
 	Content    string
+	RawANSI    bool
 	ToolName   string
 	ToolCallID string
 	ToolArgs   string
@@ -110,6 +111,7 @@ type Event struct {
 	Type        EventType
 	Task        string
 	Message     string
+	RawANSI     bool
 	ToolName    string
 	ToolCallID  string
 	Summary     string

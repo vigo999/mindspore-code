@@ -8,10 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	projectpkg "github.com/vigo999/mindspore-code/internal/project"
 	"github.com/vigo999/mindspore-code/ui/model"
-	"github.com/vigo999/mindspore-code/ui/theme"
 )
 
 var runProjectGit = func(workDir string, args ...string) (string, error) {
@@ -141,6 +139,7 @@ func (a *Application) emitProjectSnapshot() {
 
 	a.EventCh <- model.Event{
 		Type:    model.AgentReply,
+		RawANSI: true,
 		Message: renderProjectCard(card),
 	}
 }
@@ -189,7 +188,7 @@ func taskToChecklist(t projectTask) string {
 	if normalizeTaskStatus(t.Status) == "done" || t.Progress >= 100 {
 		marker = "[x] "
 	}
-	return marker + t.Title
+	return marker + "`#" + t.ID + "` " + t.Title
 }
 
 func (a *Application) emitProjectTasksByTag(tag string) {
@@ -231,10 +230,9 @@ func (a *Application) emitProjectTasksByTag(tag string) {
 	if tag != "" {
 		header = "[ TASKS: " + tag + " ]"
 	}
-	sectionHeader := lipgloss.NewStyle().Bold(true).Foreground(theme.Current.TextPrimary)
-	lines := []string{sectionHeader.Render(header)}
+	lines := []string{header}
 	lines = append(lines, renderTaskLines(tasks)...)
-	a.EventCh <- model.Event{Type: model.AgentReply, Message: strings.Join(lines, "\n")}
+	a.EventCh <- model.Event{Type: model.AgentReply, RawANSI: true, Message: strings.Join(lines, "\n")}
 }
 
 func containsTag(tags, target string) bool {
@@ -799,10 +797,6 @@ func fallbackOverview(status model.ProjectStatusView) []string {
 }
 
 func progressBar(pct, width int) string {
-	return progressBarStyled(pct, width, "", "")
-}
-
-func progressBarStyled(pct, width int, filledColor, emptyColor string) string {
 	if width <= 0 {
 		width = 10
 	}
@@ -821,34 +815,27 @@ func progressBarStyled(pct, width int, filledColor, emptyColor string) string {
 	}
 	cells := make([]string, 0, width)
 	for i := 0; i < filled; i++ {
-		cell := "■"
-		if strings.TrimSpace(filledColor) != "" {
-			cell = applyProjectColor(cell, filledColor)
-		}
-		cells = append(cells, cell)
+		cells = append(cells, "■")
 	}
 	for i := filled; i < width; i++ {
-		cell := "□"
-		if strings.TrimSpace(emptyColor) != "" {
-			cell = applyProjectColor(cell, emptyColor)
-		}
-		cells = append(cells, cell)
+		cells = append(cells, "□")
 	}
 	return strings.Join(cells, "")
 }
 
 func renderProjectCard(card projectCard) string {
-	sectionHeader := lipgloss.NewStyle().Bold(true).Foreground(theme.Current.TextPrimary)
-
 	sections := []string{
-		sectionHeader.Render("[ OVERVIEW ]"),
+		applyProjectStyle("[ OVERVIEW ]", "252", true),
 	}
 	sections = append(sections, card.Overview...)
-	sections = append(sections, "", sectionHeader.Render("[\U0001F680 MILESTONE ]"))
+	if summary := strings.TrimSpace(card.Status.Summary); summary != "" {
+		sections = append(sections, "  git: "+summary)
+	}
+	sections = append(sections, "", applyProjectStyle("[🚀 MILESTONE ]", "252", true))
 	sections = append(sections, renderMilestoneLines(card.Milestones)...)
-	sections = append(sections, "", sectionHeader.Render("[ TASKS ]"))
+	sections = append(sections, "", applyProjectStyle("[ TASKS ]", "252", true))
 	sections = append(sections, renderTaskLines(card.Tasks)...)
-	sections = append(sections, "", sectionHeader.Render("[ SUPPORT ]"))
+	sections = append(sections, "", applyProjectStyle("[ SUPPORT ]", "252", true))
 	sections = append(sections, renderSupportLines(card.Support)...)
 
 	return strings.Join(sections, "\n")
@@ -858,7 +845,6 @@ func renderMilestoneLines(milestones []projectTask) []string {
 	if len(milestones) == 0 {
 		return []string{"  (none)"}
 	}
-	magenta := lipgloss.NewStyle().Foreground(lipgloss.Color("201")) // milestone accent, not in semantic palette
 	tagsWidth := 0
 	for _, m := range milestones {
 		if l := len(m.Tags); l > tagsWidth {
@@ -869,7 +855,6 @@ func renderMilestoneLines(milestones []projectTask) []string {
 		tagsWidth = 20
 	}
 
-	// Fixed part: "  [bar] pct%  tags  " → 2+12+1+4 + padding
 	fixedWidth := 2 + 12 + 1 + 4
 	if tagsWidth > 0 {
 		fixedWidth += 2 + tagsWidth
@@ -886,13 +871,11 @@ func renderMilestoneLines(milestones []projectTask) []string {
 		tags := truncateStr(m.Tags, tagsWidth)
 		var line string
 		if tagsWidth > 0 {
-			line = fmt.Sprintf("  [%s] %3d%%  %-*s  %s",
-				bar, m.Progress, tagsWidth, tags, title)
+			line = fmt.Sprintf("  [%s] %3d%%  %-*s  %s", bar, m.Progress, tagsWidth, tags, title)
 		} else {
-			line = fmt.Sprintf("  [%s] %3d%%  %s",
-				bar, m.Progress, title)
+			line = fmt.Sprintf("  [%s] %3d%%  %s", bar, m.Progress, title)
 		}
-		lines = append(lines, magenta.Render(line))
+		lines = append(lines, applyProjectColor(line, "magenta"))
 	}
 	return lines
 }
@@ -905,9 +888,6 @@ func renderTaskLines(tasks []projectTask) []string {
 	sort.SliceStable(tasks, func(i, j int) bool {
 		return tasks[i].Progress < tasks[j].Progress
 	})
-	yellow := lipgloss.NewStyle().Foreground(theme.Current.Warning)
-	green := lipgloss.NewStyle().Foreground(theme.Current.Success)
-
 	ownerWidth := 0
 	tagsWidth := 0
 	for _, t := range tasks {
@@ -925,7 +905,6 @@ func renderTaskLines(tasks []projectTask) []string {
 		tagsWidth = 20
 	}
 
-	// Fixed columns: "  #ID  marker  [bar] pct%  owner  tags  "
 	fixedWidth := 2 + 5 + 1 + 1 + 12 + 1 + 4 + 3 + ownerWidth
 	if tagsWidth > 0 {
 		fixedWidth += 2 + tagsWidth
@@ -934,32 +913,47 @@ func renderTaskLines(tasks []projectTask) []string {
 	if titleWidth < 12 {
 		titleWidth = 12
 	}
+	prefixWidth := fixedWidth + 2
 
 	lines := make([]string, 0, len(tasks))
 	for _, task := range tasks {
 		marker := taskStatusMarker(task.Status, task.Progress)
 		bar := progressBar(task.Progress, 10)
-		title := truncateStr(task.Title, titleWidth)
 		tags := truncateStr(task.Tags, tagsWidth)
-
 		owner := fmt.Sprintf("%-*s", ownerWidth, task.Owner)
 		var tagsCol string
 		if tagsWidth > 0 {
 			tagsCol = fmt.Sprintf("  %-*s", tagsWidth, tags)
 		}
 
-		coloredPart := fmt.Sprintf("#%-3s %s [%s] %3d%%",
-			task.ID, marker, bar, task.Progress)
-		dimPart := "  " + owner + tagsCol + "  " + title
-
+		coloredPart := fmt.Sprintf("#%-3s %s [%s] %3d%%", task.ID, marker, bar, task.Progress)
+		titleLines := wrapProjectText(task.Title, titleWidth)
+		if len(titleLines) == 0 {
+			titleLines = []string{""}
+		}
+		dimPrefix := "  " + owner + tagsCol + "  "
+		firstLine := "  " + coloredPart + dimPrefix + titleLines[0]
 		switch {
 		case task.Progress >= 100 || normalizeTaskStatus(task.Status) == "done":
-			lines = append(lines, "  "+green.Render(coloredPart)+dimPart)
+			firstLine = "  " + applyProjectColor(coloredPart, "green") + dimPrefix + titleLines[0]
 		case task.Progress > 0:
-			lines = append(lines, "  "+yellow.Render(coloredPart)+dimPart)
-		default:
-			lines = append(lines, "  "+coloredPart+dimPart)
+			firstLine = "  " + applyProjectColor(coloredPart, "yellow") + dimPrefix + titleLines[0]
 		}
+		lines = append(lines, firstLine)
+		for _, continuation := range titleLines[1:] {
+			lines = append(lines, strings.Repeat(" ", prefixWidth)+continuation)
+		}
+	}
+	return lines
+}
+
+func renderSupportLines(items []string) []string {
+	if len(items) == 0 {
+		return []string{"  (none)"}
+	}
+	lines := make([]string, 0, len(items))
+	for _, item := range items {
+		lines = append(lines, "  ✓ "+item)
 	}
 	return lines
 }
@@ -980,15 +974,79 @@ func truncateStr(s string, maxWidth int) string {
 	return string(runes[:maxWidth-3]) + "..."
 }
 
-func renderSupportLines(items []string) []string {
-	if len(items) == 0 {
-		return []string{"  (none)"}
+func wrapProjectText(s string, width int) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
 	}
-	lines := make([]string, 0, len(items))
-	for _, item := range items {
-		lines = append(lines, "  ✓ "+item)
+	if width <= 0 {
+		return []string{s}
 	}
+
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return []string{s}
+	}
+
+	lines := make([]string, 0, len(words))
+	current := words[0]
+	for _, word := range words[1:] {
+		candidate := current + " " + word
+		if len([]rune(candidate)) <= width {
+			current = candidate
+			continue
+		}
+		lines = append(lines, current)
+		current = word
+	}
+	lines = append(lines, current)
 	return lines
+}
+
+func applyProjectColor(text, color string) string {
+	return applyProjectStyle(text, color, false)
+}
+
+func applyProjectStyle(text, color string, bold bool) string {
+	code, ok := projectColorCode(color)
+	if !ok && !bold {
+		return text
+	}
+	switch {
+	case ok && bold:
+		return "\x1b[1;38;5;" + code + "m" + text + "\x1b[0m"
+	case ok:
+		return "\x1b[38;5;" + code + "m" + text + "\x1b[0m"
+	case bold:
+		return "\x1b[1m" + text + "\x1b[0m"
+	default:
+		return text
+	}
+}
+
+func projectColorCode(color string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(color)) {
+	case "green":
+		return "34", true
+	case "yellow":
+		return "220", true
+	case "magenta":
+		return "201", true
+	case "white":
+		return "252", true
+	case "gray", "grey":
+		return "244", true
+	}
+	color = strings.TrimSpace(color)
+	for _, r := range color {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+	if color == "" {
+		return "", false
+	}
+	return color, true
 }
 
 const (
@@ -1025,68 +1083,6 @@ func taskStatusMarker(status string, progress int) string {
 		return "○"
 	}
 	return "▶"
-}
-
-func applyProjectColor(text, color string) string {
-	return applyProjectStyle(text, color, false)
-}
-
-func applyProjectStyle(text, color string, bold bool) string {
-	code, ok := projectColorCode(color)
-	if !ok && !bold {
-		return text
-	}
-	switch {
-	case ok && bold:
-		return "\x1b[1;38;5;" + code + "m" + text + "\x1b[0m"
-	case ok:
-		return "\x1b[38;5;" + code + "m" + text + "\x1b[0m"
-	case bold:
-		return "\x1b[1m" + text + "\x1b[0m"
-	default:
-		return text
-	}
-}
-
-func projectColorCode(color string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(color)) {
-	case "dark_green", "green_4", "green4":
-		return "28", true
-	case "green":
-		return "34", true
-	case "yellow":
-		return "220", true
-	case "orange":
-		return "208", true
-	case "red":
-		return "196", true
-	case "blue":
-		return "39", true
-	case "cyan":
-		return "51", true
-	case "teal":
-		return "37", true
-	case "magenta":
-		return "201", true
-	case "pink":
-		return "213", true
-	case "purple":
-		return "99", true
-	case "white":
-		return "15", true
-	case "gray", "grey":
-		return "244", true
-	}
-	color = strings.TrimSpace(color)
-	for _, r := range color {
-		if r < '0' || r > '9' {
-			return "", false
-		}
-	}
-	if color == "" {
-		return "", false
-	}
-	return color, true
 }
 
 func stateLine(status model.ProjectStatusView) string {

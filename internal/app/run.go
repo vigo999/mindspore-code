@@ -27,6 +27,7 @@ import (
 const provideAPIKeyFirstMsg = "LLM unavailable: provide api key first, or /login and switch to free model."
 const interruptActiveTaskToken = "__interrupt_active_task__"
 const internalPermissionsActionPrefix = "\x00permissions:"
+const historyReplayReadyToken = "__history_replay_ready__"
 
 var waitReplayDelay = func(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
@@ -101,8 +102,10 @@ func (a *Application) runReal() error {
 		a.EventCh <- model.Event{Type: model.IssueUserUpdate, Message: a.issueUser}
 	}
 
-	go a.replayHistory()
 	go a.inputLoop(userCh)
+	if !a.deferHistoryReplay {
+		a.startReplayHistory()
+	}
 	if a.permissionSettingsIssue != nil && !a.replayOnly {
 		a.emitPermissionSettingsPrompt("")
 	}
@@ -142,6 +145,12 @@ func (a *Application) processInput(input string) {
 			return
 		}
 		a.startDeferredStartup()
+		return
+	}
+	if trimmed == historyReplayReadyToken {
+		if a.deferHistoryReplay {
+			a.startReplayHistory()
+		}
 		return
 	}
 
@@ -331,6 +340,16 @@ func (a *Application) replayHistory() {
 		return
 	}
 	a.emitTokenUsageSnapshot()
+}
+
+func (a *Application) startReplayHistory() {
+	if a == nil {
+		return
+	}
+	if !a.historyReplayStarted.CompareAndSwap(false, true) {
+		return
+	}
+	go a.replayHistory()
 }
 
 func (a *Application) replayHistoryTimeline() {

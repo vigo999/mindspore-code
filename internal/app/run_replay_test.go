@@ -328,3 +328,47 @@ func TestShouldSkipReplayDelay(t *testing.T) {
 		t.Fatal("did not expect tool replay to next user input to skip delay")
 	}
 }
+
+func TestProcessInputHistoryReplayReadyStartsDeferredReplayOnce(t *testing.T) {
+	eventCh := make(chan model.Event, 2)
+	app := &Application{
+		EventCh:            eventCh,
+		replayBacklog:      []model.Event{{Type: model.UserInput, Message: "hello"}},
+		deferHistoryReplay: true,
+	}
+
+	app.processInput(historyReplayReadyToken)
+
+	select {
+	case ev := <-eventCh:
+		if ev.Type != model.UserInput || ev.Message != "hello" {
+			t.Fatalf("replayed event = %#v, want user input hello", ev)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("expected deferred replay to start")
+	}
+
+	app.processInput(historyReplayReadyToken)
+
+	select {
+	case ev := <-eventCh:
+		t.Fatalf("unexpected second replay event: %#v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestProcessInputHistoryReplayReadyIgnoredWhenReplayNotDeferred(t *testing.T) {
+	eventCh := make(chan model.Event, 1)
+	app := &Application{
+		EventCh:       eventCh,
+		replayBacklog: []model.Event{{Type: model.UserInput, Message: "hello"}},
+	}
+
+	app.processInput(historyReplayReadyToken)
+
+	select {
+	case ev := <-eventCh:
+		t.Fatalf("unexpected replay event without deferred replay: %#v", ev)
+	case <-time.After(50 * time.Millisecond):
+	}
+}

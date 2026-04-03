@@ -58,6 +58,8 @@ type Application struct {
 	session                 *session.Session
 	replayBacklog           []model.Event
 	replayTimeline          []session.ReplayFrame
+	deferHistoryReplay      bool
+	historyReplayStarted    atomic.Bool
 	replayOnly              bool
 	replaySpeed             float64
 	sessionLLMActivity      atomic.Bool
@@ -328,6 +330,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		session:                 runtimeSession,
 		replayBacklog:           replayBacklog,
 		replayTimeline:          replayTimeline,
+		deferHistoryReplay:      cfg.Resume && !cfg.Replay,
 		replayOnly:              cfg.Replay,
 		replaySpeed:             replaySpeedOrDefault(cfg.ReplaySpeed),
 		llmReady:                llmReady,

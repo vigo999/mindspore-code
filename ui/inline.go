@@ -16,10 +16,10 @@ import (
 
 var (
 	bannerBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color("252")).
-				Align(lipgloss.Left).
-				Padding(1, 2)
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("252")).
+			Align(lipgloss.Left).
+			Padding(1, 2)
 
 	bannerTitleStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("39")).
@@ -32,10 +32,10 @@ var (
 				Foreground(lipgloss.Color("252"))
 
 	cmdOutputStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("245"))
+			Foreground(lipgloss.Color("245"))
 
 	cmdStderrStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("203"))
+			Foreground(lipgloss.Color("203"))
 
 	metaStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("244")).
@@ -49,7 +49,10 @@ func (a *App) maybePrintBanner() tea.Cmd {
 		return nil
 	}
 	a.bannerPrinted = true
-	return tea.Println(RenderBanner(a.state.Version, a.state.WorkDir, a.state.RepoURL, a.state.Model.Name, a.state.Model.CtxMax))
+	return tea.Sequence(
+		tea.Println(RenderBanner(a.state.Version, a.state.WorkDir, a.state.RepoURL, a.state.Model.Name, a.state.Model.CtxMax)),
+		a.signalHistoryReplayReady(),
+	)
 }
 
 // RenderBanner renders the one-shot banner shown after boot in inline mode.
@@ -75,6 +78,16 @@ func RenderBanner(version, workDir, repoURL, modelName string, ctxMax int) strin
 
 func bannerRow(label, value string) string {
 	return bannerLabelStyle.Render(label+":") + " " + bannerValueStyle.Render(value)
+}
+
+func (a *App) signalHistoryReplayReady() tea.Cmd {
+	if a == nil || a.userCh == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		a.userCh <- historyReplayReadyToken
+		return nil
+	}
 }
 
 func formatContext(ctxMax int) string {

@@ -340,6 +340,17 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		needsSetupPopup:         needsSetupPopup,
 		savedModelToken:         savedModelToken,
 	}
+	permissionUI.SetYOLOCallbacks(
+		func() bool {
+			if svc, ok := app.permService.(*permission.DefaultPermissionService); ok {
+				return svc.Check("shell", "") == permission.PermissionAllowAlways
+			}
+			return false
+		},
+		func() {
+			app.cmdYolo()
+		},
+	)
 
 	// Auto-login from saved credentials.
 	if cred, err := loadCredentials(); err == nil {

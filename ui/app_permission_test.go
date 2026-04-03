@@ -81,6 +81,48 @@ func TestPermissionPrompt_EscCancels(t *testing.T) {
 	}
 }
 
+func TestPermissionPrompt_YOLOOptionArrowSelectAndEnter(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.handleEvent(model.Event{
+		Type: model.PermissionPrompt,
+		Permission: &model.PermissionPromptData{
+			Title:   "Permission required",
+			Message: "allow shell?",
+			Options: []model.PermissionOption{
+				{Input: "1", Label: "1. Yes"},
+				{Input: "2", Label: "2. Yes, don't ask again for this session"},
+				{Input: "3", Label: "3. No"},
+				{Input: "4", Label: "4. Enable YOLO mode and allow all operations"},
+			},
+			DefaultIndex: 0,
+		},
+	})
+	app = next.(App)
+
+	for i := 0; i < 3; i++ {
+		nextModel, _ := app.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+		app = nextModel.(App)
+	}
+	nextModel, _ := app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = nextModel.(App)
+
+	select {
+	case got := <-userCh:
+		if got != "4" {
+			t.Fatalf("submitted input = %q, want %q", got, "4")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for yolo selection result")
+	}
+
+	if app.permissionPrompt != nil {
+		t.Fatal("permissionPrompt should be cleared after enter")
+	}
+}
+
 func TestPermissionsView_EnterAddRuleOpensDialogAndSubmits(t *testing.T) {
 	userCh := make(chan string, 1)
 	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)

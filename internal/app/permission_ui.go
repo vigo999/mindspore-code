@@ -15,9 +15,11 @@ type permissionDecision struct {
 
 // PermissionPromptUI bridges permission prompts into the TUI input/event flow.
 type PermissionPromptUI struct {
-	mu      sync.Mutex
-	pending *pendingPermissionRequest
-	eventCh chan<- model.Event
+	mu            sync.Mutex
+	pending       *pendingPermissionRequest
+	eventCh       chan<- model.Event
+	yoloEnabledFn func() bool
+	enableYOLOFn  func()
 }
 
 type pendingPermissionRequest struct {
@@ -30,6 +32,14 @@ func NewPermissionPromptUI(eventCh chan<- model.Event) *PermissionPromptUI {
 	return &PermissionPromptUI{
 		eventCh: eventCh,
 	}
+}
+
+// SetYOLOCallbacks configures the optional YOLO-mode action for permission prompts.
+func (p *PermissionPromptUI) SetYOLOCallbacks(isEnabled func() bool, enable func()) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.yoloEnabledFn = isEnabled
+	p.enableYOLOFn = enable
 }
 
 // RequestPermission asks the user and blocks until a decision is provided.
@@ -84,30 +94,58 @@ func (p *PermissionPromptUI) HandleInput(input string) bool {
 		return true
 	}
 
+	showYOLOOption := p.shouldShowYOLOOption()
+
 	switch input {
 	case "1", "y", "yes":
 		return resolve(permissionDecision{granted: true, remember: false})
 	case "2", "a", "allow", "allow_session", "session":
 		return resolve(permissionDecision{granted: true, remember: true})
+	case "4", "yolo":
+		if showYOLOOption {
+			if enable := p.enableYOLO(); enable != nil {
+				enable()
+			}
+			return resolve(permissionDecision{granted: true, remember: false})
+		}
 	case "3", "n", "no", "esc", "escape":
 		return resolve(permissionDecision{granted: false, remember: false})
 	default:
 		p.eventCh <- model.Event{
 			Type:       model.PermissionPrompt,
-			Message:    "Please choose 1, 2, or 3.",
+			Message:    p.invalidChoiceMessage(showYOLOOption),
 			Permission: p.promptData(req.tool, "", req.path),
 		}
 		return true
 	}
+
+	p.eventCh <- model.Event{
+		Type:       model.PermissionPrompt,
+		Message:    p.invalidChoiceMessage(showYOLOOption),
+		Permission: p.promptData(req.tool, "", req.path),
+	}
+	return true
+}
+
+func (p *PermissionPromptUI) invalidChoiceMessage(showYOLOOption bool) string {
+	if showYOLOOption {
+		return "Please choose 1, 2, 3, or 4."
+	}
+	return "Please choose 1, 2, or 3."
 }
 
 func (p *PermissionPromptUI) promptMessage(tool, action, path string) string {
 	tool = strings.TrimSpace(tool)
 	action = strings.TrimSpace(action)
 	path = strings.TrimSpace(path)
+	showYOLOOption := p.shouldShowYOLOOption()
 
 	if isEditTool(tool) && path != "" {
-		return fmt.Sprintf("Do you want to make this edit to %s?\n  1. Yes\n  2. Yes, allow all edits during this session (shift+tab)\n  3. No\n\nEsc to cancel", path)
+		msg := fmt.Sprintf("Do you want to make this edit to %s?\n  1. Yes\n  2. Yes, allow all edits during this session (shift+tab)\n  3. No", path)
+		if showYOLOOption {
+			msg += "\n  4. Enable YOLO mode and allow all operations"
+		}
+		return msg + "\n\nEsc to cancel"
 	}
 
 	msg := fmt.Sprintf("Do you want to allow tool `%s`?", tool)
@@ -117,7 +155,11 @@ func (p *PermissionPromptUI) promptMessage(tool, action, path string) string {
 	if path != "" {
 		msg += fmt.Sprintf("\npath: %s", path)
 	}
-	msg += "\n  1. Yes\n  2. Yes, don't ask again for this session\n  3. No\n\nEsc to cancel"
+	msg += "\n  1. Yes\n  2. Yes, don't ask again for this session\n  3. No"
+	if showYOLOOption {
+		msg += "\n  4. Enable YOLO mode and allow all operations"
+	}
+	msg += "\n\nEsc to cancel"
 	return msg
 }
 
@@ -134,16 +176,21 @@ func (p *PermissionPromptUI) promptData(tool, action, path string) *model.Permis
 	tool = strings.TrimSpace(tool)
 	action = strings.TrimSpace(action)
 	path = strings.TrimSpace(path)
+	showYOLOOption := p.shouldShowYOLOOption()
 
 	if isEditTool(tool) && path != "" {
+		options := []model.PermissionOption{
+			{Input: "1", Label: "1. Yes"},
+			{Input: "2", Label: "2. Yes, allow all edits during this session"},
+			{Input: "3", Label: "3. No"},
+		}
+		if showYOLOOption {
+			options = append(options, model.PermissionOption{Input: "4", Label: "4. Enable YOLO mode and allow all operations"})
+		}
 		return &model.PermissionPromptData{
-			Title:   "Confirm Edit",
-			Message: fmt.Sprintf("Do you want to make this edit to %s?", path),
-			Options: []model.PermissionOption{
-				{Input: "1", Label: "1. Yes"},
-				{Input: "2", Label: "2. Yes, allow all edits during this session"},
-				{Input: "3", Label: "3. No"},
-			},
+			Title:        "Confirm Edit",
+			Message:      fmt.Sprintf("Do you want to make this edit to %s?", path),
+			Options:      options,
 			DefaultIndex: 0,
 		}
 	}
@@ -155,14 +202,35 @@ func (p *PermissionPromptUI) promptData(tool, action, path string) *model.Permis
 	if path != "" {
 		msg += fmt.Sprintf("\npath: %s", path)
 	}
+	options := []model.PermissionOption{
+		{Input: "1", Label: "1. Yes"},
+		{Input: "2", Label: "2. Yes, don't ask again for this session"},
+		{Input: "3", Label: "3. No"},
+	}
+	if showYOLOOption {
+		options = append(options, model.PermissionOption{Input: "4", Label: "4. Enable YOLO mode and allow all operations"})
+	}
 	return &model.PermissionPromptData{
-		Title:   "Permission required",
-		Message: msg,
-		Options: []model.PermissionOption{
-			{Input: "1", Label: "1. Yes"},
-			{Input: "2", Label: "2. Yes, don't ask again for this session"},
-			{Input: "3", Label: "3. No"},
-		},
+		Title:        "Permission required",
+		Message:      msg,
+		Options:      options,
 		DefaultIndex: 0,
 	}
+}
+
+func (p *PermissionPromptUI) shouldShowYOLOOption() bool {
+	p.mu.Lock()
+	isEnabled := p.yoloEnabledFn
+	enable := p.enableYOLOFn
+	p.mu.Unlock()
+	if isEnabled == nil || enable == nil {
+		return false
+	}
+	return !isEnabled()
+}
+
+func (p *PermissionPromptUI) enableYOLO() func() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.enableYOLOFn
 }

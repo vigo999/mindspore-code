@@ -215,10 +215,6 @@ func (a *Application) runTask(description string) {
 			a.emitToolError("session", "Failed to persist session snapshot: %v", err)
 		}
 	}
-	if err := a.activateSessionPersistence(); err != nil {
-		a.emitToolError("session", "Failed to start session persistence: %v", err)
-		return
-	}
 
 	if !a.llmReady {
 		if err := a.recordUnavailableTurn(description, provideAPIKeyFirstMsg); err != nil {
@@ -475,15 +471,26 @@ func (a *Application) persistSessionSnapshot() error {
 	return a.session.SaveSnapshot(a.currentSystemPrompt(), a.ctxManager.GetNonSystemMessages())
 }
 
-func (a *Application) activateSessionPersistence() error {
+func (a *Application) noteLiveLLMActivity() error {
 	if a == nil || a.session == nil {
 		return nil
 	}
-	return a.session.Activate()
+	if a.sessionLLMActivity.Load() {
+		return nil
+	}
+	if err := a.session.Activate(); err != nil {
+		return err
+	}
+	a.ensureSessionPermissionStore()
+	a.sessionLLMActivity.Store(true)
+	return nil
 }
 
 func (a *Application) exitResumeHint() string {
 	if a == nil || a.replayOnly || a.session == nil {
+		return ""
+	}
+	if !a.sessionLLMActivity.Load() {
 		return ""
 	}
 

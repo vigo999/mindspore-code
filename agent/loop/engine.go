@@ -191,6 +191,7 @@ func (ex *executor) run(ctx context.Context) ([]Event, error) {
 		}
 
 		ex.trackUsage(resp.Usage)
+		ex.syncContextPromptUsage(resp.Usage)
 
 		continueLoop, err := ex.handleResponse(ctx, resp)
 		if err != nil {
@@ -581,6 +582,27 @@ func (ex *executor) trackUsage(u llm.Usage) {
 	ex.totalUsage.PromptTokens += u.PromptTokens
 	ex.totalUsage.CompletionTokens += u.CompletionTokens
 	ex.totalUsage.TotalTokens += u.TotalTokens
+}
+
+func (ex *executor) syncContextPromptUsage(u llm.Usage) {
+	if ex.engine == nil || ex.engine.ctxManager == nil {
+		return
+	}
+
+	promptTokens := u.PromptTokens
+	if promptTokens <= 0 && u.TotalTokens > 0 && u.CompletionTokens >= 0 {
+		promptTokens = u.TotalTokens - u.CompletionTokens
+	}
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
+
+	providerName := ""
+	if ex.engine.provider != nil {
+		providerName = ex.engine.provider.Name()
+	}
+
+	ex.engine.ctxManager.SetPromptTokenUsage(providerName, promptTokens)
 }
 
 func (ex *executor) persistSnapshot() error {

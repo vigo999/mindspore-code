@@ -176,6 +176,66 @@ func TestSetContextWindowLimits(t *testing.T) {
 	}
 }
 
+func TestSetPromptTokenUsageUsesProviderTokensAndFallsBackToEstimate(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 1000
+	cfg.ReserveTokens = 100
+	mgr := NewManager(cfg)
+	mgr.SetSystemPrompt("system prompt")
+	if err := mgr.AddMessage(llm.NewUserMessage("hello world")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	estimated := mgr.TokenUsage().Current
+	mgr.SetPromptTokenUsage("openai-responses", 123)
+	if got := mgr.TokenUsage().Current; got != 123 {
+		t.Fatalf("TokenUsage().Current with provider tokens = %d, want 123", got)
+	}
+	details := mgr.TokenUsageDetails()
+	if got, want := details.Source, TokenUsageSourceProvider; got != want {
+		t.Fatalf("TokenUsageDetails().Source = %q, want %q", got, want)
+	}
+	if got, want := details.Provider, "openai-responses"; got != want {
+		t.Fatalf("TokenUsageDetails().Provider = %q, want %q", got, want)
+	}
+	if got, want := details.ProviderPromptTokens, 123; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderPromptTokens = %d, want %d", got, want)
+	}
+
+	mgr.SetPromptTokenUsage("", 0)
+	if got := mgr.TokenUsage().Current; got != estimated {
+		t.Fatalf("TokenUsage().Current after clearing provider tokens = %d, want %d", got, estimated)
+	}
+	if got, want := mgr.TokenUsageDetails().Source, TokenUsageSourceLocalEstimate; got != want {
+		t.Fatalf("TokenUsageDetails().Source after clearing = %q, want %q", got, want)
+	}
+}
+
+func TestSetPromptTokenUsageTracksAppendedMessages(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 1000
+	cfg.ReserveTokens = 100
+	mgr := NewManager(cfg)
+	if err := mgr.AddMessage(llm.NewUserMessage("hello")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	mgr.SetPromptTokenUsage("anthropic", 120)
+	next := llm.NewAssistantMessage("ok")
+	delta := mgr.tokenizer.EstimateMessage(next)
+	if err := mgr.AddMessage(next); err != nil {
+		t.Fatalf("AddMessage assistant failed: %v", err)
+	}
+
+	if got, want := mgr.TokenUsage().Current, 120+delta; got != want {
+		t.Fatalf("TokenUsage().Current after append = %d, want %d", got, want)
+	}
+	details := mgr.TokenUsageDetails()
+	if got, want := details.LocalDelta, delta; got != want {
+		t.Fatalf("TokenUsageDetails().LocalDelta = %d, want %d", got, want)
+	}
+}
+
 func TestIsWithinBudget(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.ContextWindow = 100

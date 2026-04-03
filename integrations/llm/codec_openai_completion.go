@@ -29,15 +29,21 @@ func (c *openAICodec) encodeRequest(req *CompletionRequest, stream bool) (openAI
 		model = "gpt-4o-mini"
 	}
 
+	var streamOptions *openAIStreamOptions
+	if stream {
+		streamOptions = &openAIStreamOptions{IncludeUsage: true}
+	}
+
 	return openAIChatCompletionRequest{
-		Model:       model,
-		Messages:    c.encodeMessages(req.Messages),
-		Temperature: req.Temperature,
-		MaxTokens:   req.MaxTokens,
-		TopP:        req.TopP,
-		Stop:        req.Stop,
-		Tools:       c.encodeTools(req.Tools),
-		Stream:      stream,
+		Model:         model,
+		Messages:      c.encodeMessages(req.Messages),
+		Temperature:   req.Temperature,
+		MaxTokens:     req.MaxTokens,
+		TopP:          req.TopP,
+		Stop:          req.Stop,
+		Tools:         c.encodeTools(req.Tools),
+		Stream:        stream,
+		StreamOptions: streamOptions,
 	}, nil
 }
 
@@ -174,14 +180,19 @@ type openAIToolCallFunction struct {
 }
 
 type openAIChatCompletionRequest struct {
-	Model       string          `json:"model"`
-	Messages    []openAIMessage `json:"messages"`
-	Temperature *float32        `json:"temperature,omitempty"`
-	MaxTokens   *int            `json:"max_tokens,omitempty"`
-	TopP        float32         `json:"top_p,omitempty"`
-	Stop        []string        `json:"stop,omitempty"`
-	Tools       []openAITool    `json:"tools,omitempty"`
-	Stream      bool            `json:"stream"`
+	Model         string               `json:"model"`
+	Messages      []openAIMessage      `json:"messages"`
+	Temperature   *float32             `json:"temperature,omitempty"`
+	MaxTokens     *int                 `json:"max_tokens,omitempty"`
+	TopP          float32              `json:"top_p,omitempty"`
+	Stop          []string             `json:"stop,omitempty"`
+	Tools         []openAITool         `json:"tools,omitempty"`
+	Stream        bool                 `json:"stream"`
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage,omitempty"`
 }
 
 type openAIChatCompletionResponse struct {
@@ -257,12 +268,7 @@ func (it *openAIStreamIterator) Next() (*StreamChunk, error) {
 		if err != nil {
 			if err == io.EOF {
 				it.done = true
-				if it.accumulated.Content != "" || len(it.accumulated.ToolCalls) > 0 {
-					return &StreamChunk{
-						Content:   it.accumulated.Content,
-						ToolCalls: it.accumulated.ToolCalls,
-					}, io.EOF
-				}
+				return nil, io.EOF
 			}
 			return nil, err
 		}
@@ -273,12 +279,6 @@ func (it *openAIStreamIterator) Next() (*StreamChunk, error) {
 		}
 		if line == "data: [DONE]" {
 			it.done = true
-			if it.accumulated.Content != "" || len(it.accumulated.ToolCalls) > 0 {
-				return &StreamChunk{
-					Content:   it.accumulated.Content,
-					ToolCalls: it.accumulated.ToolCalls,
-				}, nil
-			}
 			return nil, io.EOF
 		}
 		if !strings.HasPrefix(line, "data: ") {
@@ -288,6 +288,15 @@ func (it *openAIStreamIterator) Next() (*StreamChunk, error) {
 		var resp openAIStreamResponse
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &resp); err != nil {
 			continue
+		}
+		if resp.Usage != nil && len(resp.Choices) == 0 {
+			return &StreamChunk{
+				Usage: &Usage{
+					PromptTokens:     resp.Usage.PromptTokens,
+					CompletionTokens: resp.Usage.CompletionTokens,
+					TotalTokens:      resp.Usage.TotalTokens,
+				},
+			}, nil
 		}
 		if len(resp.Choices) == 0 {
 			continue
@@ -307,7 +316,6 @@ func (it *openAIStreamIterator) Next() (*StreamChunk, error) {
 		}
 		if choice.FinishReason != nil {
 			chunk.FinishReason = FinishReason(*choice.FinishReason)
-			it.done = true
 		}
 		if resp.Usage != nil {
 			chunk.Usage = &Usage{

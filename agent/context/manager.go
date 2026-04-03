@@ -2,6 +2,7 @@ package context
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +43,11 @@ type Manager struct {
 	system   *llm.Message
 	usage    TokenUsage
 
+	exactPromptTokens    int
+	exactPromptEstimate  int
+	exactPromptProvider  string
+	hasExactPromptTokens bool
+
 	// 增强组件
 	tokenizer *Tokenizer
 	compactor *Compactor
@@ -57,6 +63,22 @@ type TokenUsage struct {
 	ContextWindow int
 	Reserved      int
 	Available     int
+}
+
+type TokenUsageSource string
+
+const (
+	TokenUsageSourceLocalEstimate TokenUsageSource = "local_estimate"
+	TokenUsageSourceProvider      TokenUsageSource = "provider_prompt_tokens"
+)
+
+type TokenUsageDetails struct {
+	TokenUsage
+	Source               TokenUsageSource
+	Provider             string
+	ProviderPromptTokens int
+	LocalEstimatedTotal  int
+	LocalDelta           int
 }
 
 // Stats 上下文统计
@@ -108,6 +130,7 @@ func (m *Manager) SetSystemPrompt(content string) {
 
 	msg := llm.NewSystemMessage(content)
 	m.system = &msg
+	m.clearPromptTokenUsageLocked()
 
 	m.recalculateUsage()
 }
@@ -190,6 +213,7 @@ func (m *Manager) SetNonSystemMessages(msgs []llm.Message) {
 
 	m.messages = make([]llm.Message, len(msgs))
 	copy(m.messages, msgs)
+	m.clearPromptTokenUsageLocked()
 
 	m.stats.MessageCount = len(m.messages)
 	m.stats.ToolCallCount = 0
@@ -208,6 +232,7 @@ func (m *Manager) Clear() {
 	defer m.mu.Unlock()
 
 	m.messages = make([]llm.Message, 0)
+	m.clearPromptTokenUsageLocked()
 	m.recalculateUsage()
 }
 
@@ -216,7 +241,7 @@ func (m *Manager) Compact() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	currentTokens := m.totalTokensLocked()
+	currentTokens := m.currentTokensLocked()
 	if currentTokens == 0 {
 		return nil
 	}
@@ -261,6 +286,50 @@ func (m *Manager) SetContextWindowLimits(contextWindow, reserveTokens int) error
 	return nil
 }
 
+// SetPromptTokenUsage records provider-reported prompt tokens for the current context.
+// Values <= 0 clear the provider usage and fall back to local estimation.
+func (m *Manager) SetPromptTokenUsage(provider string, promptTokens int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if promptTokens <= 0 {
+		m.clearPromptTokenUsageLocked()
+	} else {
+		m.exactPromptTokens = promptTokens
+		m.exactPromptEstimate = m.totalTokensLocked()
+		m.exactPromptProvider = strings.TrimSpace(provider)
+		m.hasExactPromptTokens = true
+	}
+
+	m.recalculateUsage()
+}
+
+// TokenUsageDetails returns current token usage together with its source metadata.
+func (m *Manager) TokenUsageDetails() TokenUsageDetails {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	localEstimatedTotal := m.totalTokensLocked()
+	details := TokenUsageDetails{
+		TokenUsage:          m.usage,
+		Source:              TokenUsageSourceLocalEstimate,
+		LocalEstimatedTotal: localEstimatedTotal,
+	}
+	if !m.hasExactPromptTokens {
+		return details
+	}
+
+	localDelta := localEstimatedTotal - m.exactPromptEstimate
+	if localDelta < 0 {
+		localDelta = 0
+	}
+	details.Source = TokenUsageSourceProvider
+	details.Provider = m.exactPromptProvider
+	details.ProviderPromptTokens = m.exactPromptTokens
+	details.LocalDelta = localDelta
+	return details
+}
+
 // EstimateTokens estimates token count for messages.
 func (m *Manager) EstimateTokens(msgs []llm.Message) int {
 	return m.tokenizer.EstimateMessages(msgs)
@@ -271,7 +340,7 @@ func (m *Manager) IsWithinBudget(msg llm.Message) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	estimated := m.totalTokensLocked() + m.tokenizer.EstimateMessage(msg)
+	estimated := m.currentTokensLocked() + m.tokenizer.EstimateMessage(msg)
 	return estimated <= m.maxUsableTokensLocked()
 }
 
@@ -318,13 +387,13 @@ func (m *Manager) GetDetailedStats() map[string]any {
 // shouldCompactLocked checks if compaction is needed (must hold lock).
 func (m *Manager) shouldCompactLocked(additionalTokens int) bool {
 	threshold := m.compactionThresholdPercentLocked()
-	estimatedTokens := m.totalTokensLocked() + additionalTokens
+	estimatedTokens := m.currentTokensLocked() + additionalTokens
 	return float64(estimatedTokens) >= float64(m.config.ContextWindow)*(threshold/100.0)
 }
 
 // compactLocked compacts the context (must hold lock).
 func (m *Manager) compactLocked() error {
-	currentTokens := m.totalTokensLocked()
+	currentTokens := m.currentTokensLocked()
 	if currentTokens == 0 || !m.shouldCompactLocked(0) {
 		return nil
 	}
@@ -332,7 +401,7 @@ func (m *Manager) compactLocked() error {
 }
 
 func (m *Manager) compactToTargetLocked(targetTokens int) error {
-	currentTokens := m.totalTokensLocked()
+	currentTokens := m.currentTokensLocked()
 	if currentTokens == 0 {
 		return nil
 	}
@@ -364,6 +433,7 @@ func (m *Manager) compactToTargetLocked(targetTokens int) error {
 	}
 
 	m.messages = compacted
+	m.clearPromptTokenUsageLocked()
 	m.stats.CompactCount++
 	now := time.Now()
 	m.stats.LastCompactAt = &now
@@ -401,7 +471,7 @@ func (m *Manager) compactionTargetTokensLocked() int {
 
 // recalculateUsage recalculates token usage (must hold lock).
 func (m *Manager) recalculateUsage() {
-	total := m.totalTokensLocked()
+	total := m.currentTokensLocked()
 
 	m.usage = TokenUsage{
 		Current:       total,
@@ -419,6 +489,26 @@ func (m *Manager) totalTokensLocked() int {
 		total += m.tokenizer.EstimateMessage(*m.system)
 	}
 	return total
+}
+
+func (m *Manager) currentTokensLocked() int {
+	total := m.totalTokensLocked()
+	if !m.hasExactPromptTokens {
+		return total
+	}
+
+	delta := total - m.exactPromptEstimate
+	if delta < 0 {
+		return total
+	}
+	return m.exactPromptTokens + delta
+}
+
+func (m *Manager) clearPromptTokenUsageLocked() {
+	m.exactPromptTokens = 0
+	m.exactPromptEstimate = 0
+	m.exactPromptProvider = ""
+	m.hasExactPromptTokens = false
 }
 
 func (m *Manager) maxUsableTokensLocked() int {
@@ -472,6 +562,7 @@ func (m *Manager) TruncateTo(count int) {
 	}
 
 	m.messages = keepRecentMessages(m.messages, count)
+	m.clearPromptTokenUsageLocked()
 	m.recalculateUsage()
 }
 

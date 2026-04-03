@@ -166,6 +166,12 @@ func (r *Registry) registerDefaults() {
 	})
 
 	r.Register(Command{
+		Name:        "/ctx",
+		Description: "Show current context token usage and source",
+		Usage:       "/ctx",
+	})
+
+	r.Register(Command{
 		Name:        "/clear",
 		Description: "Clear the chat history",
 		Usage:       "/clear",

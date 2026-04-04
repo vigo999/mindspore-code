@@ -92,9 +92,6 @@ mscli
 | `/permissions` | Manage tool access |
 | `/diagnose` | Investigate issues |
 | `/fix` | Apply fixes |
-| `/bugs` | Manage bugs |
-| `/issues` | Manage issues |
-| `/report` | Submit feedback |
 | `/help` | Show all commands |
 
 ## Documentation

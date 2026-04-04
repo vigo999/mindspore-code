@@ -6,15 +6,6 @@ An open-source terminal agent that helps ML engineers train models, diagnose fai
 
 <!-- TODO: Add demo GIF/screenshot here -->
 
-## Why MindSpore CLI?
-
-- **Domain-aware** — Built-in skills for accuracy diagnosis, model migration, operator development, performance analysis, and training readiness
-- **Works with any LLM** — OpenAI, Anthropic, DeepSeek, Kimi, OpenRouter, or local models
-- **Zero config start** — Free model included, or bring your own API key
-- **Full tool access** — Bash, file read/write/edit, grep, glob — all from the chat
-- **Permission control** — Safe commands auto-allowed, dangerous ones require approval
-- **Session persistence** — Resume where you left off with `mscli --resume`
-
 ## Install
 
 ```bash

@@ -57,18 +57,6 @@ export MSCLI_PROVIDER=openai-completion MSCLI_API_KEY=sk-or-... MSCLI_BASE_URL=h
 mscli
 ```
 
-## Features
-
-| | Feature | Description |
-|---|---|---|
-| | Streaming TUI | Live agent output, tool results, and thinking indicators |
-| | `@file` references | `explain @go.mod` — inline workspace files in chat |
-| | Tool output viewer | Ctrl+O to expand collapsed results in a scrollable view |
-| | Smart permissions | `ls`, `cat`, `git` auto-allowed; `rm -rf` always asks |
-| | Context management | `/compact` to free space, auto-compaction when needed |
-| | Session resume | `mscli --resume` to continue the last conversation |
-| | Multi-line input | Ctrl+J or `\`+Enter for newlines without submitting |
-
 ## Built-in Skills
 
 | Skill | What it does |

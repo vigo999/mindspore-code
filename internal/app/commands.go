@@ -26,6 +26,8 @@ func (a *Application) handleCommand(input string) {
 	args := strings.Fields(cmd.Remainder)
 
 	switch cmd.Name {
+	case "/connect":
+		a.cmdConnect(args)
 	case "/model":
 		a.cmdModel(args)
 	case "/exit":
@@ -170,34 +172,82 @@ func (a *Application) handleSkillAliasCommand(commandName, rawRemainder string) 
 
 func (a *Application) cmdModel(args []string) {
 	if len(args) == 0 {
-		a.emitModelSetupPopup(true)
+		a.emitModelPicker()
 		return
 	}
 
 	modelArg := strings.TrimSpace(strings.Join(args, " "))
+	if strings.Contains(modelArg, ":") {
+		parts := strings.SplitN(modelArg, ":", 2)
+		providerName := llm.NormalizeProvider(parts[0])
+		modelName := strings.TrimSpace(parts[1])
+		if llm.IsSupportedProvider(providerName) {
+			a.restoreModelConfigFromPreset()
+			a.switchModel(providerName, modelName)
+			return
+		}
+		if result, err := a.activateLogicalModelSelection(parts[0], parts[1]); err == nil {
+			a.EventCh <- model.Event{
+				Type:     model.ModelUpdate,
+				Message:  a.Config.Model.Model,
+				Provider: result.ProviderLabel,
+				CtxMax:   a.Config.Context.Window,
+			}
+			a.EventCh <- model.Event{
+				Type:    model.AgentReply,
+				Message: fmt.Sprintf("Model switched to: %s", a.Config.Model.Model),
+			}
+			return
+		} else {
+			if strings.Contains(err.Error(), fmt.Sprintf("unknown provider %q", strings.TrimSpace(parts[0]))) {
+				a.EventCh <- model.Event{
+					Type:    model.AgentReply,
+					Message: fmt.Sprintf("Unsupported provider prefix: %s (supported: openai-completion, openai-responses, anthropic)", providerName),
+				}
+				return
+			}
+			a.EventCh <- model.Event{
+				Type:    model.AgentReply,
+				Message: fmt.Sprintf("Failed to switch model: %v", err),
+			}
+			return
+		}
+	}
+
 	if preset, ok := resolveBuiltinModelPreset(modelArg); ok {
 		a.switchToBuiltinModelPreset(preset)
 		return
 	}
 
 	a.restoreModelConfigFromPreset()
-	modelArg = args[0]
-	if strings.Contains(modelArg, ":") {
-		parts := strings.SplitN(modelArg, ":", 2)
-		providerName := llm.NormalizeProvider(parts[0])
-		modelName := strings.TrimSpace(parts[1])
-		if !llm.IsSupportedProvider(providerName) {
-			a.EventCh <- model.Event{
-				Type:    model.AgentReply,
-				Message: fmt.Sprintf("Unsupported provider prefix: %s (supported: openai-completion, openai-responses, anthropic)", providerName),
-			}
-			return
-		}
-		a.switchModel(providerName, modelName)
+	a.switchModel("", modelArg)
+}
+
+func (a *Application) cmdConnect(args []string) {
+	if len(args) == 0 {
+		a.emitConnectPopup(true)
 		return
 	}
 
-	a.switchModel("", modelArg)
+	providerID := strings.TrimSpace(args[0])
+	apiKey := ""
+	if len(args) > 1 {
+		apiKey = strings.TrimSpace(strings.Join(args[1:], " "))
+	}
+
+	a.EventCh <- model.Event{Type: model.AgentThinking}
+	if err := a.connectProvider(providerID, apiKey); err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "connect",
+			Message:  fmt.Sprintf("Failed to connect provider: %v", err),
+		}
+		return
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("Provider connected: %s", providerID),
+	}
 }
 
 // applyPreset applies a preset with the given API key. It saves the current
@@ -243,9 +293,10 @@ func (a *Application) switchToBuiltinModelPreset(preset builtinModelPreset) {
 	}
 
 	a.EventCh <- model.Event{
-		Type:    model.ModelUpdate,
-		Message: a.Config.Model.Model,
-		CtxMax:  a.Config.Context.Window,
+		Type:     model.ModelUpdate,
+		Message:  a.Config.Model.Model,
+		Provider: runtimeProviderDisplayLabel(a.Config.Model.Provider),
+		CtxMax:   a.Config.Context.Window,
 	}
 
 	a.EventCh <- model.Event{
@@ -277,9 +328,10 @@ func (a *Application) switchModel(providerName, modelName string) {
 	}
 
 	a.EventCh <- model.Event{
-		Type:    model.ModelUpdate,
-		Message: a.Config.Model.Model,
-		CtxMax:  a.Config.Context.Window,
+		Type:     model.ModelUpdate,
+		Message:  a.Config.Model.Model,
+		Provider: runtimeProviderDisplayLabel(a.Config.Model.Provider),
+		CtxMax:   a.Config.Context.Window,
 	}
 
 	a.EventCh <- model.Event{
@@ -386,9 +438,10 @@ func (a *Application) cmdModelSetup(args []string) {
 	// Step 6: Emit UI updates.
 	a.EventCh <- model.Event{Type: model.IssueUserUpdate, Message: userName}
 	a.EventCh <- model.Event{
-		Type:    model.ModelUpdate,
-		Message: a.Config.Model.Model,
-		CtxMax:  a.Config.Context.Window,
+		Type:     model.ModelUpdate,
+		Message:  a.Config.Model.Model,
+		Provider: runtimeProviderDisplayLabel(a.Config.Model.Provider),
+		CtxMax:   a.Config.Context.Window,
 	}
 	a.EventCh <- model.Event{Type: model.ModelSetupClose}
 	a.EventCh <- model.Event{
@@ -880,4 +933,3 @@ func defaultSkillRequest(skillName string) string {
 		skillName,
 	)
 }
-

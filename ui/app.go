@@ -44,6 +44,7 @@ const (
 	interruptActiveTaskToken        = "__interrupt_active_task__"
 	internalPermissionsActionPrefix = "\x00permissions:"
 	modelSetupToken                 = "__model_setup"
+	connectProviderInputToken       = "__connect_provider__"
 )
 
 // Style vars are populated by InitStyles() below.
@@ -72,6 +73,27 @@ func agentMsg(source, msg string, done bool) string {
 		return fmt.Sprintf("%s %-12s: %s", marker, source, msg)
 	}
 	return fmt.Sprintf("%s %s", marker, msg)
+}
+
+func moveSelectionIndex(current, delta int, options []model.SelectionOption) int {
+	n := len(options)
+	if n == 0 {
+		return 0
+	}
+	if delta == 0 {
+		return current
+	}
+	if current < 0 || current >= n {
+		current = 0
+	}
+	next := current
+	for range n {
+		next = (next + delta%n + n) % n
+		if !options[next].Disabled {
+			return next
+		}
+	}
+	return current
 }
 
 var (
@@ -222,9 +244,9 @@ type toolOutputViewState struct {
 
 // New creates a new App driven by the given event channel.
 // userCh may be nil — user input won't be forwarded.
-func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
+func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int, providerName ...string) App {
 	return App{
-		state:            model.NewState(version, workDir, repoURL, modelName, ctxMax),
+		state:            model.NewState(version, workDir, repoURL, modelName, ctxMax, providerName...),
 		input:            components.NewTextInput().WithFileSuggestions(workDir),
 		thinking:         components.NewThinkingSpinner(),
 		eventCh:          ch,
@@ -242,8 +264,8 @@ func New(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL,
 }
 
 // NewReplay creates a TUI instance that starts directly in chat view for playback.
-func NewReplay(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int) App {
-	app := New(ch, userCh, version, workDir, repoURL, modelName, ctxMax)
+func NewReplay(ch <-chan model.Event, userCh chan<- string, version, workDir, repoURL, modelName string, ctxMax int, providerName ...string) App {
+	app := New(ch, userCh, version, workDir, repoURL, modelName, ctxMax, providerName...)
 	app.bootActive = false
 	return app
 }
@@ -807,19 +829,58 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				opt := a.setupPopup.PresetOptions[a.setupPopup.PresetSelected]
 				if !opt.Disabled {
 					a.setupPopup.SelectedPreset = opt
-					a.setupPopup.Screen = model.SetupScreenTokenInput
-					a.setupPopup.TokenError = ""
+					if opt.RequiresInput {
+						a.setupPopup.Screen = model.SetupScreenTokenInput
+						a.setupPopup.TokenError = ""
+					} else if a.userCh != nil {
+						select {
+						case a.userCh <- connectProviderInputToken + " " + a.setupPopup.SelectedPreset.ID:
+						default:
+						}
+					}
 				}
 				return a, nil
 			case "esc":
+				if a.setupPopup.BackCloses {
+					a.setupPopup = nil
+					return a, a.syncModalAltScreen()
+				}
 				a.setupPopup.Screen = model.SetupScreenModeSelect
 				return a, nil
+			case "backspace":
+				runes := []rune(a.setupPopup.SearchQuery)
+				if len(runes) > 0 {
+					a.setupPopup.SearchQuery = string(runes[:len(runes)-1])
+					if strings.TrimSpace(a.setupPopup.SearchQuery) == "" {
+						a.setupPopup.RestoreSearchBaseIfNeeded()
+					} else {
+						a.setupPopup.EnsureSelectablePreset()
+					}
+				}
+				return a, nil
+			default:
+				if msg.Type == tea.KeyRunes {
+					a.setupPopup.BeginSearchIfNeeded()
+					a.setupPopup.SearchQuery += string(msg.Runes)
+					a.setupPopup.EnsureSelectablePreset()
+					return a, nil
+				}
+				if msg.Type == tea.KeySpace {
+					a.setupPopup.BeginSearchIfNeeded()
+					a.setupPopup.SearchQuery += " "
+					a.setupPopup.EnsureSelectablePreset()
+					return a, nil
+				}
 			}
 		case model.SetupScreenTokenInput:
 			switch msg.String() {
 			case "enter":
 				if a.userCh != nil && strings.TrimSpace(a.setupPopup.TokenValue) != "" {
-					cmd := fmt.Sprintf("%s %s %s", modelSetupToken,
+					token := modelSetupToken
+					if a.setupPopup.InputLabel == "API key" {
+						token = connectProviderInputToken
+					}
+					cmd := fmt.Sprintf("%s %s %s", token,
 						a.setupPopup.SelectedPreset.ID,
 						strings.TrimSpace(a.setupPopup.TokenValue))
 					select {
@@ -866,16 +927,16 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "up", "left":
-			p.Selected--
-			if p.Selected < 0 {
-				p.Selected = len(p.Options) - 1
-			}
+			p.MoveSelection(-1)
 			return a, nil
 		case "down", "right":
-			p.Selected = (p.Selected + 1) % len(p.Options)
+			p.MoveSelection(1)
 			return a, nil
 		case "enter":
 			selected := p.Options[p.Selected]
+			if !selected.Selectable() {
+				return a, nil
+			}
 			a.trainView.SelectionPopup = nil
 			a.modelPicker = nil
 			var input string
@@ -886,6 +947,10 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				input = "/train add perf-feature " + selected.ID
 			case "model_picker":
 				input = "/model " + selected.ID
+			default:
+				if strings.HasPrefix(p.ActionID, "connect_provider_model_picker:") {
+					input = "/model " + selected.ID
+				}
 			}
 			if input != "" && a.userCh != nil {
 				select {
@@ -903,6 +968,43 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return a, tea.Sequence(exitAlt, banner)
 			}
 			return a, combineCmds(exitAlt, banner)
+		case "ctrl+a":
+			if p.ActionID != "model_picker" {
+				return a, nil
+			}
+			a.trainView.SelectionPopup = nil
+			a.modelPicker = nil
+			if a.userCh != nil {
+				select {
+				case a.userCh <- "/connect":
+				default:
+				}
+			}
+			return a, a.syncModalAltScreen()
+		case "backspace":
+			runes := []rune(p.SearchQuery)
+			if len(runes) > 0 {
+				p.SearchQuery = string(runes[:len(runes)-1])
+				if strings.TrimSpace(p.SearchQuery) == "" {
+					p.RestoreSearchBaseIfNeeded()
+				} else {
+					p.EnsureSelectableSelection()
+				}
+			}
+			return a, nil
+		default:
+			if msg.Type == tea.KeyRunes {
+				p.BeginSearchIfNeeded()
+				p.SearchQuery += string(msg.Runes)
+				p.EnsureSelectableSelection()
+				return a, nil
+			}
+			if msg.Type == tea.KeySpace {
+				p.BeginSearchIfNeeded()
+				p.SearchQuery += " "
+				p.EnsureSelectableSelection()
+				return a, nil
+			}
 		}
 		return a, nil
 	}
@@ -1280,6 +1382,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	case model.ModelUpdate:
 		mi := a.state.Model
 		mi.Name = ev.Message
+		mi.Provider = ev.Provider
 		if ev.CtxMax > 0 {
 			mi.CtxMax = ev.CtxMax
 		}

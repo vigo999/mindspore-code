@@ -17,6 +17,7 @@ type TaskInfo struct {
 // ModelInfo holds LLM model metadata for the top bar.
 type ModelInfo struct {
 	Name       string
+	Provider   string
 	CtxUsed    int
 	CtxMax     int
 	TokensUsed int
@@ -69,40 +70,40 @@ type Message struct {
 type EventType string
 
 const (
-	TaskUpdated      EventType = "TaskUpdated"
-	ToolCallStart    EventType = "ToolCallStart"
-	CmdStarted       EventType = "CmdStarted"
-	CmdOutput        EventType = "CmdOutput"
-	CmdFinished      EventType = "CmdFinished"
-	AnalysisReady    EventType = "AnalysisReady"
-	AgentReply       EventType = "AgentReply"
-	AgentReplyDelta  EventType = "AgentReplyDelta"
-	PermissionPrompt EventType = "PermissionPrompt"
-	PermissionsView  EventType = "PermissionsView"
-	AgentThinking    EventType = "AgentThinking"
-	ContextNotice    EventType = "ContextNotice"
-	UserInput        EventType = "UserInput"
-	ToolReplay       EventType = "ToolReplay"
-	TokenUpdate      EventType = "TokenUpdate"
-	ToolRead         EventType = "ToolRead"
-	ToolGrep         EventType = "ToolGrep"
-	ToolGlob         EventType = "ToolGlob"
-	ToolEdit         EventType = "ToolEdit"
-	ToolWrite        EventType = "ToolWrite"
-	ToolSkill        EventType = "ToolSkill"
-	ToolWarning      EventType = "ToolWarning"
-	ToolError        EventType = "ToolError"
-	ClearScreen      EventType = "ClearScreen"
-	ModelUpdate      EventType = "ModelUpdate"
+	TaskUpdated          EventType = "TaskUpdated"
+	ToolCallStart        EventType = "ToolCallStart"
+	CmdStarted           EventType = "CmdStarted"
+	CmdOutput            EventType = "CmdOutput"
+	CmdFinished          EventType = "CmdFinished"
+	AnalysisReady        EventType = "AnalysisReady"
+	AgentReply           EventType = "AgentReply"
+	AgentReplyDelta      EventType = "AgentReplyDelta"
+	PermissionPrompt     EventType = "PermissionPrompt"
+	PermissionsView      EventType = "PermissionsView"
+	AgentThinking        EventType = "AgentThinking"
+	ContextNotice        EventType = "ContextNotice"
+	UserInput            EventType = "UserInput"
+	ToolReplay           EventType = "ToolReplay"
+	TokenUpdate          EventType = "TokenUpdate"
+	ToolRead             EventType = "ToolRead"
+	ToolGrep             EventType = "ToolGrep"
+	ToolGlob             EventType = "ToolGlob"
+	ToolEdit             EventType = "ToolEdit"
+	ToolWrite            EventType = "ToolWrite"
+	ToolSkill            EventType = "ToolSkill"
+	ToolWarning          EventType = "ToolWarning"
+	ToolError            EventType = "ToolError"
+	ClearScreen          EventType = "ClearScreen"
+	ModelUpdate          EventType = "ModelUpdate"
 	ModelPickerOpen      EventType = "ModelPickerOpen"
 	ModelSetupOpen       EventType = "ModelSetupOpen"
 	ModelSetupClose      EventType = "ModelSetupClose"
 	ModelSetupTokenError EventType = "ModelSetupTokenError"
-	MouseModeToggle  EventType = "MouseModeToggle"
-	IssueUserUpdate  EventType = "IssueUserUpdate"
-	SkillsNoteUpdate EventType = "SkillsNoteUpdate"
-	TaskDone         EventType = "TaskDone"
-	Done             EventType = "Done"
+	MouseModeToggle      EventType = "MouseModeToggle"
+	IssueUserUpdate      EventType = "IssueUserUpdate"
+	SkillsNoteUpdate     EventType = "SkillsNoteUpdate"
+	TaskDone             EventType = "TaskDone"
+	Done                 EventType = "Done"
 )
 
 // Event is sent from the agent loop to the TUI.
@@ -111,6 +112,7 @@ type Event struct {
 	Type        EventType
 	Task        string
 	Message     string
+	Provider    string
 	RawANSI     bool
 	ToolName    string
 	ToolCallID  string
@@ -123,8 +125,8 @@ type Event struct {
 	Project     *ProjectStatusView
 	Permission  *PermissionPromptData
 	Permissions *PermissionsViewData
-	Popup      *SelectionPopup // non-nil for popup events only
-	SetupPopup *SetupPopup    // non-nil for model setup popup events
+	Popup       *SelectionPopup // non-nil for popup events only
+	SetupPopup  *SetupPopup     // non-nil for model setup popup events
 	BugView     *BugEventData   // non-nil for bug view events only
 	IssueView   *IssueEventData // non-nil for issue view events only
 	Bug         *bugs.Bug       // reserved for lightweight bug payloads
@@ -189,19 +191,24 @@ type State struct {
 }
 
 // NewState returns an initial empty state.
-func NewState(version, workDir, repoURL, modelName string, ctxMax int) State {
+func NewState(version, workDir, repoURL, modelName string, ctxMax int, providerName ...string) State {
 	if modelName == "" {
-		modelName = "No model (/model to configure)"
+		modelName = "No model (/connect to config)"
 	}
 	if ctxMax == 0 {
 		ctxMax = 128000 // Default for models like gpt-4o
+	}
+	currentProvider := ""
+	if len(providerName) > 0 {
+		currentProvider = providerName[0]
 	}
 	return State{
 		Version: version,
 		Tasks:   []TaskInfo{},
 		Model: ModelInfo{
-			Name:   modelName,
-			CtxMax: ctxMax,
+			Name:     modelName,
+			Provider: currentProvider,
+			CtxMax:   ctxMax,
 		},
 		WorkDir:      workDir,
 		RepoURL:      repoURL,

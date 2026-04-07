@@ -148,9 +148,15 @@ func Parse(input string) (string, []string) {
 
 func (r *Registry) registerDefaults() {
 	r.Register(Command{
+		Name:        "/connect",
+		Description: "Connect a model provider",
+		Usage:       "/connect [provider-id] [api-key]",
+	})
+
+	r.Register(Command{
 		Name:        "/model",
-		Description: "Open model setup or switch model",
-		Usage:       "/model [preset-id|provider:model|model]",
+		Description: "Open model picker or switch model",
+		Usage:       "/model [provider:model|model]",
 	})
 
 	r.Register(Command{
@@ -225,7 +231,6 @@ func (r *Registry) registerDefaults() {
 		Description: "List issues",
 		Usage:       "/issues [status]",
 	})
-
 
 	r.Register(Command{
 		Name:        "/diagnose",

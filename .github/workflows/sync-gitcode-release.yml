@@ -44,7 +44,7 @@ jobs:
       GITCODE_OWNER: ${{ secrets.GITCODE_OWNER }}
       GITCODE_REPO: ${{ secrets.GITCODE_REPO }}
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
-      GITCODE_API_BASE: ${{ secrets.GITCODE_API_BASE || 'https://api.gitcode.com/api/v5' }}
+      GITCODE_API_BASE: ${{ secrets.GITCODE_API_BASE || 'https://gitcode.com/api/v5' }}
       GH_TAG: ${{ github.event.release.tag_name || inputs.tag_name }}
       GH_NAME: ${{ github.event.release.name || inputs.release_name }}
       GH_BODY: ${{ github.event.release.body || inputs.body }}
@@ -69,7 +69,6 @@ jobs:
           set -euo pipefail
 
           api="${GITCODE_API_BASE}/repos/${GITCODE_OWNER}/${GITCODE_REPO}"
-          auth_q="access_token=${GITCODE_TOKEN}"
           release_name="${GH_NAME:-$GH_TAG}"
           release_body="${GH_BODY:-}"
 
@@ -95,7 +94,8 @@ jobs:
 
           echo "Checking GitCode release for tag ${GH_TAG}..."
           http_code="$(curl -sS -o release.json -w "%{http_code}" \
-            "${api}/releases/tags/${GH_TAG}?${auth_q}")"
+            -H "Private-Token: ${GITCODE_TOKEN}" \
+            "${api}/releases/tags/${GH_TAG}")"
           api_error_code="$(jq -r '.error_code // empty' release.json 2>/dev/null || true)"
 
           if [ "${http_code}" = "200" ]; then
@@ -117,7 +117,8 @@ jobs:
           echo "Creating GitCode release for tag ${GH_TAG}..."
           curl -sS --fail \
             -X POST \
-            "${api}/releases?${auth_q}" \
+            "${api}/releases" \
+            -H "Private-Token: ${GITCODE_TOKEN}" \
             -H "Content-Type: application/json" \
             -d "${payload}" \
             > result.json

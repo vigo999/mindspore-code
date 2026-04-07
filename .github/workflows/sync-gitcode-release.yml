@@ -96,12 +96,23 @@ jobs:
           http_code="$(curl -sS -o release.json -w "%{http_code}" \
             -H "Private-Token: ${GITCODE_TOKEN}" \
             "${api}/releases/tags/${GH_TAG}")"
+          echo "Lookup HTTP ${http_code}"
+          echo "Lookup body:"
+          cat release.json || true
+          echo ""
           api_error_code="$(jq -r '.error_code // empty' release.json 2>/dev/null || true)"
+          api_error_message="$(jq -r '.error_message // empty' release.json 2>/dev/null || true)"
 
           if [ "${http_code}" = "200" ]; then
             echo "GitCode release ${GH_TAG} already exists."
             jq '{tag_name, name}' release.json
             exit 0
+          fi
+
+          # Detect bad token early — GitCode returns 404 with "token not found" for invalid tokens.
+          if echo "${api_error_message}" | grep -qi "token not found"; then
+            echo "ERROR: GITCODE_TOKEN is invalid or expired."
+            exit 1
           fi
 
           if [ "${http_code}" = "400" ] && [ "${api_error_code}" = "404" ]; then
@@ -110,18 +121,24 @@ jobs:
 
           if [ "${http_code}" != "404" ]; then
             echo "Unexpected GitCode release lookup response: ${http_code}"
-            cat release.json || true
             exit 1
           fi
 
           echo "Creating GitCode release for tag ${GH_TAG}..."
-          curl -sS --fail \
+          create_code="$(curl -sS -o result.json -w "%{http_code}" \
             -X POST \
             "${api}/releases" \
             -H "Private-Token: ${GITCODE_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "${payload}" \
-            > result.json
+            -d "${payload}")"
+          echo "Create HTTP ${create_code}"
+          echo "Create body:"
+          cat result.json || true
+          echo ""
+          if [ "${create_code}" != "200" ] && [ "${create_code}" != "201" ]; then
+            echo "ERROR: failed to create GitCode release"
+            exit 1
+          fi
           jq '{tag_name, name}' result.json
 
       - name: Summary

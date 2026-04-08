@@ -227,6 +227,135 @@ func TestLoadReplayPathAcceptsTrajectoryJSONFilename(t *testing.T) {
 	}
 }
 
+func TestListForWorkDirReturnsRecentDialogueSummaries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	workDir := t.TempDir()
+
+	empty, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create empty session: %v", err)
+	}
+	if err := empty.Activate(); err != nil {
+		t.Fatalf("activate empty session: %v", err)
+	}
+	if err := empty.Close(); err != nil {
+		t.Fatalf("close empty session: %v", err)
+	}
+
+	first, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	if err := first.AppendUserInput("first prompt line\nextra detail"); err != nil {
+		t.Fatalf("append first user input: %v", err)
+	}
+	if err := first.AppendAssistant("first reply"); err != nil {
+		t.Fatalf("append first assistant reply: %v", err)
+	}
+	if err := first.Activate(); err != nil {
+		t.Fatalf("activate first session: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first session: %v", err)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	second, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	if err := second.AppendUserInput("second prompt"); err != nil {
+		t.Fatalf("append second user input: %v", err)
+	}
+	if err := second.AppendAssistant("second reply"); err != nil {
+		t.Fatalf("append second assistant reply: %v", err)
+	}
+	if err := second.Activate(); err != nil {
+		t.Fatalf("activate second session: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("close second session: %v", err)
+	}
+
+	summaries, err := ListForWorkDir(workDir)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if got, want := len(summaries), 2; got != want {
+		t.Fatalf("summary count = %d, want %d", got, want)
+	}
+	if got, want := summaries[0].SessionID, second.ID(); got != want {
+		t.Fatalf("latest session id = %q, want %q", got, want)
+	}
+	if got, want := summaries[0].FirstUserInput, "second prompt"; got != want {
+		t.Fatalf("latest first user input = %q, want %q", got, want)
+	}
+	if got, want := summaries[1].SessionID, first.ID(); got != want {
+		t.Fatalf("older session id = %q, want %q", got, want)
+	}
+	if got, want := summaries[1].FirstUserInput, "first prompt line"; got != want {
+		t.Fatalf("older first user input = %q, want %q", got, want)
+	}
+}
+
+func TestCleanupExpiredRemovesOnlyStaleSessions(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	workDir := t.TempDir()
+
+	stale, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create stale session: %v", err)
+	}
+	if err := stale.AppendUserInput("stale prompt"); err != nil {
+		t.Fatalf("append stale user input: %v", err)
+	}
+	if err := stale.Activate(); err != nil {
+		t.Fatalf("activate stale session: %v", err)
+	}
+	if err := stale.Close(); err != nil {
+		t.Fatalf("close stale session: %v", err)
+	}
+
+	staleDir := filepath.Dir(stale.Path())
+	staleTime := time.Now().Add(-45 * 24 * time.Hour)
+	for _, path := range []string{staleDir, stale.Path(), snapshotPath(stale.Path())} {
+		if err := os.Chtimes(path, staleTime, staleTime); err != nil {
+			t.Fatalf("chtimes stale path %s: %v", path, err)
+		}
+	}
+
+	fresh, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create fresh session: %v", err)
+	}
+	if err := fresh.AppendUserInput("fresh prompt"); err != nil {
+		t.Fatalf("append fresh user input: %v", err)
+	}
+	if err := fresh.Activate(); err != nil {
+		t.Fatalf("activate fresh session: %v", err)
+	}
+	if err := fresh.Close(); err != nil {
+		t.Fatalf("close fresh session: %v", err)
+	}
+
+	removed, err := CleanupExpired(30 * 24 * time.Hour)
+	if err != nil {
+		t.Fatalf("CleanupExpired() error = %v", err)
+	}
+	if got, want := removed, 1; got != want {
+		t.Fatalf("removed session count = %d, want %d", got, want)
+	}
+	if _, err := os.Stat(staleDir); !os.IsNotExist(err) {
+		t.Fatalf("expected stale session dir removed, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(fresh.Path())); err != nil {
+		t.Fatalf("expected fresh session dir kept: %v", err)
+	}
+}
+
 func TestPlaybackTimelineInsertsThinkingBetweenUserAndLLMResponse(t *testing.T) {
 	t0 := time.Date(2026, time.March, 27, 10, 0, 0, 0, time.UTC)
 	t1 := t0.Add(2 * time.Second)

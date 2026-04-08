@@ -47,7 +47,7 @@ const liveShellPreviewOutputLines = 8
 // maybePrintBanner prints the startup banner once, deferred until
 // no modal popup is blocking the normal buffer.
 func (a *App) maybePrintBanner() tea.Cmd {
-	if a.bannerPrinted || a.bootActive || a.setupPopup != nil || a.modelPicker != nil {
+	if a.bannerPrinted || a.bootActive || a.startupBannerSuppressed || a.setupPopup != nil || a.modelPicker != nil || a.sessionPicker != nil {
 		return nil
 	}
 	a.bannerPrinted = true
@@ -477,14 +477,15 @@ func (a App) fallbackPrint(prevLen int) tea.Cmd {
 	return combineCmds(cmds...)
 }
 
-func (a App) eventPrintCmd(ev model.Event, prevMessages []model.Message) tea.Cmd {
+func (a App) eventPrintCmd(ev model.Event, prevMessages []model.Message, suppressUserPrint bool) tea.Cmd {
 	prevLen := len(prevMessages)
 
 	switch ev.Type {
 	case model.UserInput:
-		// User input is already printed by handleKey on Enter.
-		// Don't print again when the engine echoes it back.
-		return nil
+		if suppressUserPrint {
+			return nil
+		}
+		return a.printUserInput(ev.Message)
 	case model.AgentReply:
 		// If deltas were already streamed, flush remaining buffer only.
 		for i := len(prevMessages) - 1; i >= 0; i-- {
@@ -517,7 +518,7 @@ func (a App) eventPrintCmd(ev model.Event, prevMessages []model.Message) tea.Cmd
 	case model.ToolRead, model.ToolGrep, model.ToolGlob, model.ToolEdit, model.ToolWrite, model.ToolSkill, model.ToolInterrupted, model.ToolWarning, model.ToolError, model.ToolReplay:
 		return a.printResolvedTool(ev)
 	case model.ClearScreen:
-		return clearMessage()
+		return a.clearMessage(ev.Summary)
 	default:
 		return a.fallbackPrint(prevLen)
 	}
@@ -638,8 +639,25 @@ func combineCmds(cmds ...tea.Cmd) tea.Cmd {
 	}
 }
 
-func clearMessage() tea.Cmd {
-	return tea.Println(metaStyle.Render("conversation cleared"))
+func (a App) clearHeadingLines(resumeHint string) []string {
+	lines := []string{
+		RenderBanner(a.state.Version, a.state.WorkDir, a.state.RepoURL, a.state.Model.Name, a.state.Model.CtxMax),
+	}
+	if hint := strings.TrimSpace(resumeHint); hint != "" {
+		lines = append(lines, metaStyle.Render(hint))
+	}
+	return lines
+}
+
+func (a App) clearMessage(resumeHint string) tea.Cmd {
+	cmds := []tea.Cmd{
+		tea.ClearScreen,
+		tea.Printf("\x1b[3J"),
+	}
+	for _, line := range a.clearHeadingLines(resumeHint) {
+		cmds = append(cmds, tea.Println(line))
+	}
+	return tea.Sequence(cmds...)
 }
 
 func timestampLabel(now time.Time) string {

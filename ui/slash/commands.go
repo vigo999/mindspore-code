@@ -173,8 +173,20 @@ func (r *Registry) registerDefaults() {
 
 	r.Register(Command{
 		Name:        "/clear",
-		Description: "Clear the chat history",
+		Description: "Start a fresh conversation",
 		Usage:       "/clear",
+	})
+
+	r.Register(Command{
+		Name:        "/resume",
+		Description: "Resume a saved session",
+		Usage:       "/resume [sess_xxx]",
+	})
+
+	r.Register(Command{
+		Name:        "/replay",
+		Description: "Replay a saved session, then keep chatting",
+		Usage:       "/replay [sess_xxx] [speed]",
 	})
 
 	r.Register(Command{
@@ -231,7 +243,6 @@ func (r *Registry) registerDefaults() {
 		Description: "List issues",
 		Usage:       "/issues [status]",
 	})
-
 
 	r.Register(Command{
 		Name:        "/diagnose",

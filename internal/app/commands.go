@@ -37,6 +37,10 @@ func (a *Application) handleCommand(input string) {
 		a.cmdCtx()
 	case "/clear":
 		a.cmdClear()
+	case "/resume":
+		a.cmdResume(args)
+	case "/replay":
+		a.cmdReplay(args)
 	case "/permissions":
 		a.cmdPermissions(nil)
 	case "/yolo":
@@ -378,12 +382,17 @@ func (a *Application) cmdModelSetup(args []string) {
 	}
 
 	// Step 5: Save model mode to config.json (token is in credentials.json).
-	if err := saveAppConfig(&appConfig{
-		ModelMode:     modelModeMSCLIProvided,
-		ModelPresetID: preset.ID,
-		ModelToken:    token,
-	}); err != nil {
+	appCfg, loadErr := loadAppConfig()
+	if loadErr != nil {
+		appCfg = &appConfig{}
+	}
+	appCfg.ModelMode = modelModeMSCLIProvided
+	appCfg.ModelPresetID = preset.ID
+	appCfg.ModelToken = token
+	if err := saveAppConfig(appCfg); err != nil {
 		a.emitToolError("config", "model applied but failed to save config: %v", err)
+	} else if loadErr != nil {
+		a.emitToolError("config", "model applied but failed to preserve existing config: %v", loadErr)
 	}
 
 	// Step 6: Emit UI updates.
@@ -535,7 +544,52 @@ func formatContextUsageMessage(details agentctx.TokenUsageDetails) string {
 }
 
 func (a *Application) cmdClear() {
-	a.EventCh <- model.Event{Type: model.ClearScreen, Message: "Chat history cleared."}
+	previousSessionID := ""
+	if a.session != nil {
+		previousSessionID = strings.TrimSpace(a.session.ID())
+		if err := a.session.Activate(); err != nil {
+			a.EventCh <- model.Event{
+				Type:     model.ToolError,
+				ToolName: "session",
+				Message:  fmt.Sprintf("Failed to preserve the current conversation: %v", err),
+			}
+			return
+		}
+		if err := a.persistSessionSnapshot(); err != nil {
+			a.EventCh <- model.Event{
+				Type:     model.ToolError,
+				ToolName: "session",
+				Message:  fmt.Sprintf("Failed to preserve the current conversation: %v", err),
+			}
+			return
+		}
+	}
+	a.interruptReplay()
+	a.interruptActiveTasks()
+	if err := a.rotateSession(); err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "session",
+			Message:  fmt.Sprintf("Failed to start a fresh conversation: %v", err),
+		}
+		return
+	}
+	if a.ctxManager != nil {
+		a.ctxManager.Clear()
+	}
+	if err := a.persistSessionSnapshot(); err != nil {
+		a.EventCh <- model.Event{
+			Type:     model.ToolError,
+			ToolName: "session",
+			Message:  fmt.Sprintf("Failed to persist session snapshot: %v", err),
+		}
+	}
+	a.emitTokenUsageSnapshot()
+	a.EventCh <- model.Event{
+		Type:    model.ClearScreen,
+		Message: "Chat history cleared.",
+		Summary: inlineResumeHintForSession(previousSessionID),
+	}
 }
 
 func (a *Application) cmdPermissions(args []string) {

@@ -100,6 +100,7 @@ const (
 	ModelPickerOpen      EventType = "ModelPickerOpen"
 	ModelSetupOpen       EventType = "ModelSetupOpen"
 	ModelSetupClose      EventType = "ModelSetupClose"
+	SessionPickerOpen    EventType = "SessionPickerOpen"
 	ModelSetupTokenError EventType = "ModelSetupTokenError"
 	MouseModeToggle      EventType = "MouseModeToggle"
 	IssueUserUpdate      EventType = "IssueUserUpdate"
@@ -111,28 +112,29 @@ const (
 // Event is sent from the agent loop to the TUI.
 // Implements tea.Msg so Bubble Tea can route it.
 type Event struct {
-	Type        EventType
-	Task        string
-	Message     string
-	RawANSI     bool
-	ToolName    string
-	ToolCallID  string
-	Summary     string
+	Type          EventType
+	Task          string
+	Message       string
+	RawANSI       bool
+	ToolName      string
+	ToolCallID    string
+	Summary       string
 	Meta        map[string]any
-	ReplayWait  *ReplayWaitData
-	CtxUsed     int
-	CtxMax      int
-	TokensUsed  int
-	Train       *TrainEventData // non-nil for train events only
-	Project     *ProjectStatusView
-	Permission  *PermissionPromptData
-	Permissions *PermissionsViewData
-	Popup       *SelectionPopup // non-nil for popup events only
-	SetupPopup  *SetupPopup     // non-nil for model setup popup events
-	BugView     *BugEventData   // non-nil for bug view events only
-	IssueView   *IssueEventData // non-nil for issue view events only
-	Bug         *bugs.Bug       // reserved for lightweight bug payloads
-	Issue       *issuepkg.Issue // reserved for lightweight issue payloads
+	ReplayWait    *ReplayWaitData
+	CtxUsed       int
+	CtxMax        int
+	TokensUsed    int
+	Train         *TrainEventData // non-nil for train events only
+	Project       *ProjectStatusView
+	Permission    *PermissionPromptData
+	Permissions   *PermissionsViewData
+	Popup         *SelectionPopup // non-nil for popup events only
+	SetupPopup    *SetupPopup     // non-nil for model setup popup events
+	SessionPicker *SessionPicker
+	BugView       *BugEventData   // non-nil for bug view events only
+	IssueView     *IssueEventData // non-nil for issue view events only
+	Bug           *bugs.Bug       // reserved for lightweight bug payloads
+	Issue         *issuepkg.Issue // reserved for lightweight issue payloads
 }
 
 // ReplayWaitData lets replay fast-forward the UI timer while using shorter real delays.

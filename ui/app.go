@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -172,44 +173,47 @@ const (
 
 // App is the TUI root model.
 type App struct {
-	state               model.State
-	viewport            components.Viewport
-	input               components.TextInput
-	thinking            components.ThinkingSpinner
-	width               int
-	height              int
-	eventCh             <-chan model.Event
-	userCh              chan<- string // sends user input to the engine bridge
-	lastInterrupt       time.Time     // track last ctrl+c for double-press exit
-	mouseEnabled        bool
-	replayWait          *model.ReplayWaitData
-	modalAltScreen      bool
-	deltaMu             *sync.Mutex
-	deltaBuf            *strings.Builder // buffers agent deltas until a full line is ready
-	deltaStarted        *bool            // true after the first agent delta line is printed
-	eventListening      *int32           // atomic flag: 1 = waitForEvent goroutine is active
-	cmdOutputStarted    *bool            // true after first shell output line is printed
-	cmdOutputLines      *int             // lines printed so far for current shell command
-	followBottom        bool
-	unreadCount         int
-	lastMsgCount        int
+	state                   model.State
+	viewport                components.Viewport
+	input                   components.TextInput
+	thinking                components.ThinkingSpinner
+	width                   int
+	height                  int
+	eventCh                 <-chan model.Event
+	userCh                  chan<- string // sends user input to the engine bridge
+	lastInterrupt           time.Time     // track last ctrl+c for double-press exit
+	mouseEnabled            bool
+	replayWait              *model.ReplayWaitData
+	modalAltScreen          bool
+	deltaMu                 *sync.Mutex
+	deltaBuf                *strings.Builder // buffers agent deltas until a full line is ready
+	deltaStarted            *bool            // true after the first agent delta line is printed
+	eventListening          *int32           // atomic flag: 1 = waitForEvent goroutine is active
+	cmdOutputStarted        *bool            // true after first shell output line is printed
+	cmdOutputLines          *int             // lines printed so far for current shell command
+	followBottom            bool
+	unreadCount             int
+	lastMsgCount            int
+	suppressUserEventPrints int
 	backgroundModelWork bool
 
 	// Train mode
-	trainView     model.TrainViewState
-	trainFocus    model.TrainPanelID
-	bugView       model.BugViewState
-	issueView     model.IssueViewState
-	bootActive    bool
-	bootHighlight int
-	bannerPrinted bool
-	queuedInputs  []string
+	trainView               model.TrainViewState
+	trainFocus              model.TrainPanelID
+	bugView                 model.BugViewState
+	issueView               model.IssueViewState
+	bootActive              bool
+	startupBannerSuppressed bool
+	bootHighlight           int
+	bannerPrinted           bool
+	queuedInputs            []string
 
 	permissionPrompt *permissionPromptState
 	permissionsView  *permissionsViewState
 	toolsExpanded    *bool
 	modelPicker      *model.SelectionPopup
 	setupPopup       *model.SetupPopup
+	sessionPicker    *model.SessionPicker
 	appendHistoryFn  func(string)
 
 	// Tool output viewer (alt-screen overlay, toggled via Ctrl+O)
@@ -254,6 +258,12 @@ func NewReplay(ch <-chan model.Event, userCh chan<- string, version, workDir, re
 // SeedInputHistory preloads persisted prompt history into the current composer.
 func (a App) SeedInputHistory(values []string) App {
 	a.input = a.input.SeedHistory(values)
+	return a
+}
+
+// WithStartupBannerSuppressed defers the inline startup banner until the caller re-enables it.
+func (a App) WithStartupBannerSuppressed() App {
+	a.startupBannerSuppressed = true
 	return a
 }
 
@@ -303,6 +313,13 @@ func (a App) Init() tea.Cmd {
 		}),
 		a.waitForEvent,
 	)
+}
+
+func replayPickerCommandSpeed(speed float64) string {
+	if speed <= 0 || speed == 1 {
+		return ""
+	}
+	return strconv.FormatFloat(speed, 'f', -1, 64) + "x"
 }
 
 func (a App) chatHeight() int {
@@ -450,7 +467,7 @@ func (a *App) wantsModalAltScreen() bool {
 	if a == nil {
 		return false
 	}
-	return a.modelPicker != nil || a.setupPopup != nil || a.toolOutputView != nil
+	return a.modelPicker != nil || a.setupPopup != nil || a.sessionPicker != nil || a.toolOutputView != nil
 }
 
 func (a *App) syncModalAltScreen() tea.Cmd {
@@ -775,6 +792,63 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Multi-step model setup popup navigation
+	if a.sessionPicker != nil {
+		switch msg.String() {
+		case "up", "left":
+			a.sessionPicker.MoveSelection(-1)
+			return a, nil
+		case "down", "right":
+			a.sessionPicker.MoveSelection(1)
+			return a, nil
+		case "enter":
+			if len(a.sessionPicker.Items) == 0 {
+				a.sessionPicker = nil
+				a.startupBannerSuppressed = false
+				exitAlt := a.syncModalAltScreen()
+				banner := a.maybePrintBanner()
+				if exitAlt != nil && banner != nil {
+					return a, tea.Sequence(exitAlt, banner)
+				}
+				return a, combineCmds(exitAlt, banner)
+			}
+			item := a.sessionPicker.Items[a.sessionPicker.Selected]
+			mode := a.sessionPicker.Mode
+			speed := a.sessionPicker.ReplaySpeed
+			a.sessionPicker = nil
+			a.startupBannerSuppressed = false
+			if a.userCh != nil {
+				command := "/resume " + item.ID
+				if mode == model.SessionPickerReplay {
+					command = "/replay " + item.ID
+					if speedLabel := replayPickerCommandSpeed(speed); speedLabel != "" {
+						command += " " + speedLabel
+					}
+				}
+				select {
+				case a.userCh <- command:
+				default:
+				}
+			}
+			exitAlt := a.syncModalAltScreen()
+			banner := a.maybePrintBanner()
+			if exitAlt != nil && banner != nil {
+				return a, tea.Sequence(exitAlt, banner)
+			}
+			return a, combineCmds(exitAlt, banner)
+		case "esc":
+			a.sessionPicker = nil
+			a.startupBannerSuppressed = false
+			exitAlt := a.syncModalAltScreen()
+			banner := a.maybePrintBanner()
+			if exitAlt != nil && banner != nil {
+				return a, tea.Sequence(exitAlt, banner)
+			}
+			return a, combineCmds(exitAlt, banner)
+		}
+		return a, nil
+	}
+
+	// Multi-step model setup popup navigation
 	if a.setupPopup != nil {
 		switch a.setupPopup.Screen {
 		case model.SetupScreenModeSelect:
@@ -972,6 +1046,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		if a.shouldQueueInput(val) {
+			if !strings.HasPrefix(val, "/") {
+				a.suppressUserEventPrints++
+			}
 			a.queuedInputs = append(a.queuedInputs, val)
 			a = a.rememberInput(val)
 			a.input = a.input.Reset()
@@ -985,6 +1062,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !strings.HasPrefix(val, "/") && !shouldDeferUserEcho(val) {
 			a.state = a.state.WithMessage(model.Message{Kind: model.MsgUser, Content: val})
 			a.state = a.startWait(model.WaitModel)
+		}
+		if !strings.HasPrefix(val, "/") {
+			a.suppressUserEventPrints++
 		}
 		a = a.rememberInput(val)
 		a.input = a.input.Reset()
@@ -1076,9 +1156,14 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	prevMessages := append([]model.Message(nil), a.state.Messages...)
 
 	var eventCmd tea.Cmd
+	suppressUserPrint := false
 
 	switch ev.Type {
 	case model.UserInput:
+		if a.suppressUserEventPrints > 0 {
+			a.suppressUserEventPrints--
+			suppressUserPrint = true
+		}
 		if last := len(a.state.Messages) - 1; last >= 0 && a.state.Messages[last].Kind == model.MsgUser {
 			msgs := append([]model.Message{}, a.state.Messages...)
 			msgs[last].Content = ev.Message
@@ -1309,9 +1394,32 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 
 	case model.ClearScreen:
 		a.replayWait = nil
-		a.state = a.state.ClearWait()
-		a.state.Messages = []model.Message{
-			{Kind: model.MsgAgent, Content: ev.Message},
+		a.state = a.clearThinking()
+		a.startupBannerSuppressed = false
+		a.bannerPrinted = true
+		a.state.Messages = nil
+		a.input = a.input.ClearSlashMode()
+		a.viewport = a.viewport.Clear()
+		a.followBottom = true
+		a.unreadCount = 0
+		if a.deltaBuf != nil {
+			a.deltaBuf.Reset()
+		}
+		if a.deltaStarted != nil {
+			*a.deltaStarted = false
+		}
+		if a.cmdOutputStarted != nil {
+			*a.cmdOutputStarted = false
+		}
+		if a.cmdOutputLines != nil {
+			*a.cmdOutputLines = 0
+		}
+		if strings.TrimSpace(ev.Summary) != "" {
+			a.state = a.state.WithMessage(model.Message{
+				Kind:    model.MsgAgent,
+				Content: ev.Summary,
+				Display: model.DisplayNotice,
+			})
 		}
 
 	case model.ModelUpdate:
@@ -1346,6 +1454,14 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 			eventCmd = combineCmds(eventCmd, tea.Sequence(exitAlt, banner))
 		} else {
 			eventCmd = combineCmds(eventCmd, exitAlt, banner)
+		}
+
+	case model.SessionPickerOpen:
+		if ev.SessionPicker != nil {
+			cp := *ev.SessionPicker
+			cp.Items = append([]model.SessionPickerItem(nil), ev.SessionPicker.Items...)
+			a.sessionPicker = &cp
+			eventCmd = combineCmds(eventCmd, a.syncModalAltScreen())
 		}
 
 	case model.ModelSetupTokenError:
@@ -1689,7 +1805,7 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 	}
 
 	a = a.maybeDispatchQueuedInput()
-	printCmd := a.eventPrintCmd(ev, prevMessages)
+	printCmd := a.eventPrintCmd(ev, prevMessages, suppressUserPrint)
 	eventCmd = combineCmds(eventCmd, printCmd, a.maybePrintBanner())
 	if eventCmd != nil {
 		// Sequence ensures tea.Println output is processed before
@@ -3279,7 +3395,14 @@ func (a App) View() string {
 	}
 
 	// Temporary alt screen for modal popups — render only the popup on a blank backdrop.
-	blank := strings.Repeat("\n", a.height-1)
+	blankLines := a.height - 1
+	if blankLines < 0 {
+		blankLines = 0
+	}
+	blank := strings.Repeat("\n", blankLines)
+	if a.sessionPicker != nil {
+		return panels.RenderSessionPicker(a.sessionPicker, a.width, a.height)
+	}
 	if a.trainView.Active && a.trainView.SelectionPopup != nil {
 		return overlayPopup(blank, panels.RenderSelectionPopup(a.trainView.SelectionPopup), a.width, a.height)
 	}

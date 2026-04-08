@@ -379,12 +379,17 @@ func (a *Application) cmdModelSetup(args []string) {
 	}
 
 	// Step 5: Save model mode to config.json (token is in credentials.json).
-	if err := saveAppConfig(&appConfig{
-		ModelMode:     modelModeMSCLIProvided,
-		ModelPresetID: preset.ID,
-		ModelToken:    token,
-	}); err != nil {
+	appCfg, loadErr := loadAppConfig()
+	if loadErr != nil {
+		appCfg = &appConfig{}
+	}
+	appCfg.ModelMode = modelModeMSCLIProvided
+	appCfg.ModelPresetID = preset.ID
+	appCfg.ModelToken = token
+	if err := saveAppConfig(appCfg); err != nil {
 		a.emitToolError("config", "model applied but failed to save config: %v", err)
+	} else if loadErr != nil {
+		a.emitToolError("config", "model applied but failed to preserve existing config: %v", loadErr)
 	}
 
 	// Step 6: Emit UI updates.

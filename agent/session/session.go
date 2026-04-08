@@ -224,6 +224,42 @@ func ListForWorkDir(workDir string) ([]Summary, error) {
 	return summaries, nil
 }
 
+// CleanupExpired removes persisted sessions whose latest on-disk update is older than maxAge.
+func CleanupExpired(maxAge time.Duration) (int, error) {
+	if maxAge <= 0 {
+		return 0, fmt.Errorf("max age must be positive")
+	}
+
+	root, err := sessionRootDir()
+	if err != nil {
+		return 0, err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read session root: %w", err)
+	}
+
+	cutoff := time.Now().Add(-maxAge)
+	removed := 0
+	for _, bucket := range entries {
+		if !bucket.IsDir() {
+			continue
+		}
+		bucketPath := filepath.Join(root, bucket.Name())
+		bucketRemoved, err := cleanupExpiredBucket(bucketPath, cutoff)
+		removed += bucketRemoved
+		if err != nil {
+			return removed, err
+		}
+		_ = os.Remove(bucketPath)
+	}
+
+	return removed, nil
+}
+
 // LoadByID loads a specific session for the given workdir.
 func LoadByID(workDir, sessionID string) (*Session, error) {
 	absWorkDir, err := normalizeWorkDir(workDir)
@@ -1031,6 +1067,57 @@ func normalizeWorkDir(workDir string) (string, error) {
 		return "", fmt.Errorf("resolve workdir: %w", err)
 	}
 	return filepath.Clean(absWorkDir), nil
+}
+
+func cleanupExpiredBucket(bucketPath string, cutoff time.Time) (int, error) {
+	entries, err := os.ReadDir(bucketPath)
+	if err != nil {
+		return 0, fmt.Errorf("read session bucket: %w", err)
+	}
+
+	removed := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		sessionDir := filepath.Join(bucketPath, entry.Name())
+		updatedAt, err := sessionDirUpdatedAt(sessionDir)
+		if err != nil {
+			return removed, err
+		}
+		if !updatedAt.Before(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(sessionDir); err != nil {
+			return removed, fmt.Errorf("remove expired session %s: %w", entry.Name(), err)
+		}
+		removed++
+	}
+
+	return removed, nil
+}
+
+func sessionDirUpdatedAt(sessionDir string) (time.Time, error) {
+	info, err := os.Stat(sessionDir)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("stat session dir: %w", err)
+	}
+
+	updatedAt := info.ModTime()
+	entries, err := os.ReadDir(sessionDir)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read session dir: %w", err)
+	}
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			return time.Time{}, fmt.Errorf("stat session entry: %w", err)
+		}
+		if info.ModTime().After(updatedAt) {
+			updatedAt = info.ModTime()
+		}
+	}
+	return updatedAt, nil
 }
 
 func workDirKey(absWorkDir string) string {

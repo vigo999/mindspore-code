@@ -131,6 +131,14 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	eventCh := make(chan model.Event, 64)
 
+	sessionRetentionDays := defaultSessionRetentionDays
+	if appCfg, err := loadAppConfig(); err == nil {
+		sessionRetentionDays = appCfg.sessionRetentionDays()
+	}
+	if _, err := session.CleanupExpired(time.Duration(sessionRetentionDays) * 24 * time.Hour); err != nil {
+		// Session cleanup is best-effort and should not block startup.
+	}
+
 	config, err := configs.LoadWithEnv()
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)

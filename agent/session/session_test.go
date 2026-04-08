@@ -227,6 +227,79 @@ func TestLoadReplayPathAcceptsTrajectoryJSONFilename(t *testing.T) {
 	}
 }
 
+func TestListForWorkDirReturnsRecentDialogueSummaries(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	workDir := t.TempDir()
+
+	empty, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create empty session: %v", err)
+	}
+	if err := empty.Activate(); err != nil {
+		t.Fatalf("activate empty session: %v", err)
+	}
+	if err := empty.Close(); err != nil {
+		t.Fatalf("close empty session: %v", err)
+	}
+
+	first, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create first session: %v", err)
+	}
+	if err := first.AppendUserInput("first prompt line\nextra detail"); err != nil {
+		t.Fatalf("append first user input: %v", err)
+	}
+	if err := first.AppendAssistant("first reply"); err != nil {
+		t.Fatalf("append first assistant reply: %v", err)
+	}
+	if err := first.Activate(); err != nil {
+		t.Fatalf("activate first session: %v", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first session: %v", err)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+
+	second, err := Create(workDir, "system prompt")
+	if err != nil {
+		t.Fatalf("create second session: %v", err)
+	}
+	if err := second.AppendUserInput("second prompt"); err != nil {
+		t.Fatalf("append second user input: %v", err)
+	}
+	if err := second.AppendAssistant("second reply"); err != nil {
+		t.Fatalf("append second assistant reply: %v", err)
+	}
+	if err := second.Activate(); err != nil {
+		t.Fatalf("activate second session: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatalf("close second session: %v", err)
+	}
+
+	summaries, err := ListForWorkDir(workDir)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if got, want := len(summaries), 2; got != want {
+		t.Fatalf("summary count = %d, want %d", got, want)
+	}
+	if got, want := summaries[0].SessionID, second.ID(); got != want {
+		t.Fatalf("latest session id = %q, want %q", got, want)
+	}
+	if got, want := summaries[0].FirstUserInput, "second prompt"; got != want {
+		t.Fatalf("latest first user input = %q, want %q", got, want)
+	}
+	if got, want := summaries[1].SessionID, first.ID(); got != want {
+		t.Fatalf("older session id = %q, want %q", got, want)
+	}
+	if got, want := summaries[1].FirstUserInput, "first prompt line"; got != want {
+		t.Fatalf("older first user input = %q, want %q", got, want)
+	}
+}
+
 func TestPlaybackTimelineInsertsThinkingBetweenUserAndLLMResponse(t *testing.T) {
 	t0 := time.Date(2026, time.March, 27, 10, 0, 0, 0, time.UTC)
 	t1 := t0.Add(2 * time.Second)

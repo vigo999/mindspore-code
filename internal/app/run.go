@@ -92,16 +92,15 @@ func (a *Application) runReal() error {
 
 	userCh := make(chan string, 8)
 	tui := ui.New(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.Window)
-	if a.replayOnly {
+	if a.replayOnly || a.startupSessionPicker != nil {
 		tui = ui.NewReplay(a.EventCh, userCh, Version, a.WorkDir, a.RepoURL, a.Config.Model.Model, a.Config.Context.Window)
-	} else {
-		if history, err := loadInputHistoryForWorkdir(a.WorkDir); err == nil {
-			tui = tui.SeedInputHistory(history)
-		}
-		tui = tui.WithInputHistoryAppender(func(text string) {
-			_ = appendInputHistory(a.WorkDir, text)
-		})
 	}
+	if history, err := loadInputHistoryForWorkdir(a.WorkDir); err == nil {
+		tui = tui.SeedInputHistory(history)
+	}
+	tui = tui.WithInputHistoryAppender(func(text string) {
+		_ = appendInputHistory(a.WorkDir, text)
+	})
 	p := tea.NewProgram(tui, tuiProgramOptions()...)
 
 	// Emit saved login so the topbar shows the user immediately.
@@ -116,8 +115,12 @@ func (a *Application) runReal() error {
 	if a.permissionSettingsIssue != nil && !a.replayOnly {
 		a.emitPermissionSettingsPrompt("")
 	}
-	if a.needsSetupPopup {
+	if a.needsSetupPopup && a.startupSessionPicker == nil && !a.deferHistoryReplay && !a.replayOnly {
 		a.emitModelSetupPopup(false) // canEscape=false on first boot
+	}
+	if a.startupSessionPicker != nil && a.permissionSettingsIssue == nil {
+		a.openSessionPicker(a.startupSessionPicker.Mode, a.startupSessionPicker.ReplaySpeed)
+		a.startupSessionPicker = nil
 	}
 
 	_, err := p.Run()
@@ -225,6 +228,10 @@ func (a *Application) handlePermissionSettingsPromptInput(input string) {
 				Type:    model.AgentReply,
 				Message: "Continuing without the invalid permission settings file.",
 			}
+		}
+		if a.startupSessionPicker != nil {
+			a.openSessionPicker(a.startupSessionPicker.Mode, a.startupSessionPicker.ReplaySpeed)
+			a.startupSessionPicker = nil
 		}
 	default:
 		a.emitPermissionSettingsPrompt("Please choose 1 or 2.")
@@ -343,6 +350,9 @@ func (a *Application) interruptActiveTasks() bool {
 }
 
 func (a *Application) replayHistory() {
+	if a.replayOnly {
+		defer a.finishReplayMode()
+	}
 	if len(a.replayTimeline) > 0 {
 		a.replayHistoryTimeline()
 		return
@@ -354,6 +364,15 @@ func (a *Application) replayHistory() {
 		return
 	}
 	a.emitTokenUsageSnapshot()
+}
+
+func (a *Application) finishReplayMode() {
+	if a == nil {
+		return
+	}
+	a.replayOnly = false
+	a.replayTimeline = nil
+	a.replayBacklog = nil
 }
 
 func (a *Application) startReplayHistory() {
@@ -526,15 +545,23 @@ func (a *Application) exitResumeHint() string {
 	if !a.sessionLLMActivity.Load() {
 		return ""
 	}
-	return resumeHintForSession(a.session.ID())
+	return cliResumeHintForSession(a.session.ID())
 }
 
-func resumeHintForSession(sessionID string) string {
+func cliResumeHintForSession(sessionID string) string {
 	sessionID = strings.TrimSpace(sessionID)
 	if sessionID == "" {
 		return ""
 	}
 	return fmt.Sprintf("Resume the previous conversation with: mscli resume %s", sessionID)
+}
+
+func inlineResumeHintForSession(sessionID string) string {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return ""
+	}
+	return fmt.Sprintf("Resume the previous conversation with: /resume %s", sessionID)
 }
 
 func (a *Application) recordUnavailableTurn(userInput, assistantReply string) error {

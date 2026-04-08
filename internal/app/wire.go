@@ -86,10 +86,11 @@ type Application struct {
 	taskMu       sync.Mutex
 
 	// Model preset runtime override state.
-	activeModelPresetID string
-	modelBeforePreset   *configs.ModelConfig
-	needsSetupPopup     bool
-	savedModelToken     string
+	activeModelPresetID  string
+	modelBeforePreset    *configs.ModelConfig
+	needsSetupPopup      bool
+	savedModelToken      string
+	startupSessionPicker *sessionPickerRequest
 
 	// Train mode state
 	trainMode       bool
@@ -231,44 +232,77 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	systemPrompt := buildSystemPrompt(skillLoader.List())
 
 	var (
-		runtimeSession *session.Session
-		replayBacklog  []model.Event
-		replayTimeline []session.ReplayFrame
+		runtimeSession       *session.Session
+		replayBacklog        []model.Event
+		replayTimeline       []session.ReplayFrame
+		startupSessionPicker *sessionPickerRequest
 	)
+	if cfg.Resume && strings.TrimSpace(cfg.ResumeSessionID) == "" {
+		startupSessionPicker = &sessionPickerRequest{Mode: model.SessionPickerResume}
+	}
+	if cfg.Replay && strings.TrimSpace(cfg.ReplaySessionID) == "" {
+		startupSessionPicker = &sessionPickerRequest{
+			Mode:        model.SessionPickerReplay,
+			ReplaySpeed: cfg.ReplaySpeed,
+		}
+	}
 	if cfg.Resume || cfg.Replay {
-		sessionID := cfg.ResumeSessionID
-		if cfg.Replay {
-			sessionID = cfg.ReplaySessionID
-		}
-		if strings.TrimSpace(sessionID) != "" {
-			targetLabel := "session"
-			if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
-				targetLabel = "trajectory"
+		if startupSessionPicker == nil {
+			sessionID := cfg.ResumeSessionID
+			if cfg.Replay {
+				sessionID = cfg.ReplaySessionID
 			}
-			if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
-				runtimeSession, err = session.LoadReplayPath(sessionID)
+			if strings.TrimSpace(sessionID) != "" {
+				targetLabel := "session"
+				if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
+					targetLabel = "trajectory"
+				}
+				if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
+					sourceSession, loadErr := session.LoadReplayPath(sessionID)
+					if loadErr != nil {
+						return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, loadErr)
+					}
+					systemPrompt, restoredMessages := sourceSession.RestoreContext()
+					ctxManager.SetSystemPrompt(systemPrompt)
+					ctxManager.SetNonSystemMessages(restoredMessages)
+					replayTimeline = sourceSession.PlaybackTimeline()
+					if metaWorkDir := strings.TrimSpace(sourceSession.Meta().WorkDir); metaWorkDir != "" {
+						workDir = metaWorkDir
+					}
+					runtimeSession, err = session.Create(workDir, systemPrompt)
+					if err != nil {
+						return nil, fmt.Errorf("create replay session: %w", err)
+					}
+				} else {
+					runtimeSession, err = session.LoadByID(workDir, sessionID)
+					if err != nil {
+						return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, err)
+					}
+					systemPrompt, restoredMessages := runtimeSession.RestoreContext()
+					ctxManager.SetSystemPrompt(systemPrompt)
+					ctxManager.SetNonSystemMessages(restoredMessages)
+					if cfg.Replay {
+						replayTimeline = runtimeSession.PlaybackTimeline()
+					} else {
+						replayBacklog = runtimeSession.ReplayEvents()
+					}
+				}
 			} else {
-				runtimeSession, err = session.LoadByID(workDir, sessionID)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, err)
-			}
-		} else {
-			runtimeSession, err = session.LoadLatest(workDir)
-			if err != nil {
-				return nil, fmt.Errorf("load latest session: %w", err)
-			}
-		}
-		systemPrompt, restoredMessages := runtimeSession.RestoreContext()
-		ctxManager.SetSystemPrompt(systemPrompt)
-		ctxManager.SetNonSystemMessages(restoredMessages)
-		if cfg.Replay {
-			replayTimeline = runtimeSession.PlaybackTimeline()
-			if metaWorkDir := strings.TrimSpace(runtimeSession.Meta().WorkDir); metaWorkDir != "" {
-				workDir = metaWorkDir
+				runtimeSession, err = session.LoadLatest(workDir)
+				if err != nil {
+					return nil, fmt.Errorf("load latest session: %w", err)
+				}
+				systemPrompt, restoredMessages := runtimeSession.RestoreContext()
+				ctxManager.SetSystemPrompt(systemPrompt)
+				ctxManager.SetNonSystemMessages(restoredMessages)
+				replayBacklog = runtimeSession.ReplayEvents()
 			}
 		} else {
-			replayBacklog = runtimeSession.ReplayEvents()
+			runtimeSession, err = session.Create(workDir, systemPrompt)
+			if err != nil {
+				return nil, fmt.Errorf("create session: %w", err)
+			}
+			ctxManager.SetSystemPrompt(systemPrompt)
 		}
 	} else {
 		runtimeSession, err = session.Create(workDir, systemPrompt)
@@ -297,7 +331,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	if issue := preloadScopedPermissionRules(permService, workDir); issue != nil {
 		permSettingsIssue = issue
 	}
-	if cfg.Resume {
+	if cfg.Resume && startupSessionPicker == nil {
 		storeCfg := sessionPermissionStoreConfig(runtimeSession)
 		if store, err := permission.NewPermissionStore(storeCfg); err == nil {
 			permService.SetStore(store)
@@ -330,8 +364,8 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		session:                 runtimeSession,
 		replayBacklog:           replayBacklog,
 		replayTimeline:          replayTimeline,
-		deferHistoryReplay:      cfg.Resume && !cfg.Replay,
-		replayOnly:              cfg.Replay,
+		deferHistoryReplay:      cfg.Resume && !cfg.Replay && startupSessionPicker == nil,
+		replayOnly:              cfg.Replay && startupSessionPicker == nil,
 		replaySpeed:             replaySpeedOrDefault(cfg.ReplaySpeed),
 		llmReady:                llmReady,
 		skillLoader:             skillLoader,
@@ -339,6 +373,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		activeModelPresetID:     activePresetID,
 		needsSetupPopup:         needsSetupPopup,
 		savedModelToken:         savedModelToken,
+		startupSessionPicker:    startupSessionPicker,
 	}
 	permissionUI.SetYOLOCallbacks(
 		func() bool {

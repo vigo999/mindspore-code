@@ -47,7 +47,7 @@ const liveShellPreviewOutputLines = 8
 // maybePrintBanner prints the startup banner once, deferred until
 // no modal popup is blocking the normal buffer.
 func (a *App) maybePrintBanner() tea.Cmd {
-	if a.bannerPrinted || a.bootActive || a.setupPopup != nil || a.modelPicker != nil {
+	if a.bannerPrinted || a.bootActive || a.setupPopup != nil || a.modelPicker != nil || a.sessionPicker != nil {
 		return nil
 	}
 	a.bannerPrinted = true
@@ -469,14 +469,15 @@ func (a App) fallbackPrint(prevLen int) tea.Cmd {
 	return combineCmds(cmds...)
 }
 
-func (a App) eventPrintCmd(ev model.Event, prevMessages []model.Message) tea.Cmd {
+func (a App) eventPrintCmd(ev model.Event, prevMessages []model.Message, suppressUserPrint bool) tea.Cmd {
 	prevLen := len(prevMessages)
 
 	switch ev.Type {
 	case model.UserInput:
-		// User input is already printed by handleKey on Enter.
-		// Don't print again when the engine echoes it back.
-		return nil
+		if suppressUserPrint {
+			return nil
+		}
+		return a.printUserInput(ev.Message)
 	case model.AgentReply:
 		// If deltas were already streamed, flush remaining buffer only.
 		for i := len(prevMessages) - 1; i >= 0; i-- {

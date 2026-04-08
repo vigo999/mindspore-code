@@ -72,7 +72,7 @@ func TestCmdClearRotatesSessionAndLeavesPreviousSnapshotUntouched(t *testing.T) 
 	if got, want := ev.Message, "Chat history cleared."; got != want {
 		t.Fatalf("ClearScreen message = %q, want %q", got, want)
 	}
-	if got, want := ev.Summary, "Resume the previous conversation with: mscli resume "+oldSessionID; got != want {
+	if got, want := ev.Summary, "Resume the previous conversation with: /resume "+oldSessionID; got != want {
 		t.Fatalf("ClearScreen summary = %q, want %q", got, want)
 	}
 

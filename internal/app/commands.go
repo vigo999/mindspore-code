@@ -34,6 +34,10 @@ func (a *Application) handleCommand(input string) {
 		a.cmdCompact()
 	case "/clear":
 		a.cmdClear()
+	case "/resume":
+		a.cmdResume(args)
+	case "/replay":
+		a.cmdReplay(args)
 	case "/permissions":
 		a.cmdPermissions(nil)
 	case "/yolo":
@@ -516,7 +520,7 @@ func (a *Application) cmdClear() {
 	a.EventCh <- model.Event{
 		Type:    model.ClearScreen,
 		Message: "Chat history cleared.",
-		Summary: resumeHintForSession(previousSessionID),
+		Summary: inlineResumeHintForSession(previousSessionID),
 	}
 }
 

@@ -68,6 +68,15 @@ type ReplayFrame struct {
 	Event     model.Event
 }
 
+// Summary is a lightweight description of one persisted session for UI pickers.
+type Summary struct {
+	SessionID      string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	FirstUserInput string
+	HasDialogue    bool
+}
+
 // Session owns trajectory persistence for one workspace conversation.
 type Session struct {
 	mu           sync.RWMutex
@@ -167,6 +176,52 @@ func LoadLatest(workDir string) (*Session, error) {
 	})
 
 	return LoadByID(absWorkDir, candidates[0].id)
+}
+
+// ListForWorkDir returns persisted session summaries for the given workdir.
+func ListForWorkDir(workDir string) ([]Summary, error) {
+	absWorkDir, err := normalizeWorkDir(workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	key := workDirKey(absWorkDir)
+	bucket := sessionBucketDir(key)
+	entries, err := os.ReadDir(bucket)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read session bucket: %w", err)
+	}
+
+	summaries := make([]Summary, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		path := filepath.Join(bucket, entry.Name(), trajectoryFilename)
+		loaded, err := loadFromPath(path, false)
+		if err != nil {
+			continue
+		}
+
+		summary := loaded.summary()
+		if !summary.HasDialogue {
+			continue
+		}
+		summaries = append(summaries, summary)
+	}
+
+	sort.Slice(summaries, func(i, j int) bool {
+		if summaries[i].UpdatedAt.Equal(summaries[j].UpdatedAt) {
+			return summaries[i].SessionID > summaries[j].SessionID
+		}
+		return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt)
+	})
+
+	return summaries, nil
 }
 
 // LoadByID loads a specific session for the given workdir.
@@ -691,6 +746,68 @@ func (s *Session) Meta() Meta {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.meta
+}
+
+func (s *Session) summary() Summary {
+	if s == nil {
+		return Summary{}
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	updatedAt := s.meta.UpdatedAt
+	if s.snapshot.UpdatedAt.After(updatedAt) {
+		updatedAt = s.snapshot.UpdatedAt
+	}
+	if info, err := os.Stat(s.path); err == nil && info.ModTime().After(updatedAt) {
+		updatedAt = info.ModTime()
+	}
+	if info, err := os.Stat(s.snapshotPath); err == nil && info.ModTime().After(updatedAt) {
+		updatedAt = info.ModTime()
+	}
+
+	firstUserInput := ""
+	hasDialogue := false
+	for _, record := range s.records {
+		switch record.Type {
+		case recordTypeUser:
+			hasDialogue = true
+			if firstUserInput == "" {
+				firstUserInput = sessionPreview(record.Content)
+			}
+		case recordTypeAssistant:
+			hasDialogue = true
+		}
+	}
+	if firstUserInput == "" {
+		firstUserInput = "(no user input recorded)"
+	}
+
+	return Summary{
+		SessionID:      s.meta.SessionID,
+		CreatedAt:      s.meta.CreatedAt,
+		UpdatedAt:      updatedAt,
+		FirstUserInput: firstUserInput,
+		HasDialogue:    hasDialogue,
+	}
+}
+
+func sessionPreview(content string) string {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(strings.TrimSpace(line)), " ")
+		if line == "" {
+			continue
+		}
+		const maxPreviewRunes = 96
+		runes := []rune(line)
+		if len(runes) <= maxPreviewRunes {
+			return line
+		}
+		return string(runes[:maxPreviewRunes-3]) + "..."
+	}
+	return ""
 }
 
 // Close closes the underlying file.

@@ -172,6 +172,18 @@ func (r *Registry) registerDefaults() {
 	})
 
 	r.Register(Command{
+		Name:        "/resume",
+		Description: "Resume a saved session",
+		Usage:       "/resume [sess_xxx]",
+	})
+
+	r.Register(Command{
+		Name:        "/replay",
+		Description: "Replay a saved session, then keep chatting",
+		Usage:       "/replay [sess_xxx] [speed]",
+	})
+
+	r.Register(Command{
 		Name:        "/permissions",
 		Description: "Open permissions view",
 		Usage:       "/permissions",

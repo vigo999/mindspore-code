@@ -68,7 +68,7 @@ func TestCmdModel_NoArgsShowsModelBrowser(t *testing.T) {
 	}
 }
 
-func TestCmdModel_NoArgsDoesNotAutoImportClaudeCodeProvider(t *testing.T) {
+func TestCmdModel_NoArgsShowsClaudeCodeImportCandidateAtTop(t *testing.T) {
 	app := newModelCommandTestApp()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -102,13 +102,98 @@ func TestCmdModel_NoArgsDoesNotAutoImportClaudeCodeProvider(t *testing.T) {
 	if ev.ModelBrowser == nil {
 		t.Fatal("ModelBrowserOpen popup = nil, want ModelBrowserPopup")
 	}
-	if got := len(ev.ModelBrowser.ImportSuggestions); got != 0 {
-		t.Fatalf("len(ev.ModelBrowser.ImportSuggestions) = %d, want 0", got)
+	if got, want := ev.ModelBrowser.Focus, model.ModelBrowserFocusProvider; got != want {
+		t.Fatalf("focus = %v, want %v", got, want)
 	}
-	for _, opt := range ev.ModelBrowser.Models.Options {
-		if opt.ID == "__provider__kimi-for-coding" || opt.ID == "kimi-for-coding:k2p5" {
-			t.Fatalf("unexpected auto-imported option %q", opt.ID)
+	if got, want := len(ev.ModelBrowser.Models.Options), 0; got != want {
+		t.Fatalf("len(ev.ModelBrowser.Models.Options) = %d, want %d", got, want)
+	}
+	if len(ev.ModelBrowser.Providers.Options) < 2 {
+		t.Fatalf("len(ev.ModelBrowser.Providers.Options) = %d, want at least 5", len(ev.ModelBrowser.Providers.Options))
+	}
+	if got, want := ev.ModelBrowser.Providers.Options[0].ID, "__header__detected"; got != want {
+		t.Fatalf("providers[0].ID = %q, want %q", got, want)
+	}
+	if got, want := ev.ModelBrowser.Providers.Options[0].Label, "Import"; got != want {
+		t.Fatalf("providers[0].Label = %q, want %q", got, want)
+	}
+	candidate := ev.ModelBrowser.Providers.Options[1]
+	if got, want := candidate.ID, "__import_provider__:kimi-for-coding"; got != want {
+		t.Fatalf("candidate.ID = %q, want %q", got, want)
+	}
+	if got, want := candidate.Label, "Kimi For Coding"; got != want {
+		t.Fatalf("candidate.Label = %q, want %q", got, want)
+	}
+	if candidate.RequiresInput {
+		t.Fatal("expected candidate with env api key to connect without input")
+	}
+	if got := candidate.Desc; got != "" {
+		t.Fatalf("candidate.Desc = %q, want empty", got)
+	}
+	if got, want := ev.ModelBrowser.Providers.Options[2].Label, "from Claude Code environment detected:"; got != want {
+		t.Fatalf("providers[2].Label = %q, want %q", got, want)
+	}
+	if !ev.ModelBrowser.Providers.Options[2].DetailRow {
+		t.Fatal("expected providers[2] to be a detail row")
+	}
+	if got, want := ev.ModelBrowser.Providers.Options[3].Label, "- ANTHROPIC_BASE_URL=https://api.kimi.com/coding/"; got != want {
+		t.Fatalf("providers[3].Label = %q, want %q", got, want)
+	}
+	if got, want := ev.ModelBrowser.Providers.Options[4].Label, "- ANTHROPIC_API_KEY=sk-kimi-****test"; got != want {
+		t.Fatalf("providers[4].Label = %q, want %q", got, want)
+	}
+	foundCatalogProvider := false
+	for _, opt := range ev.ModelBrowser.Providers.Options {
+		if opt.ID == "kimi-for-coding" && opt.Label == "Kimi For Coding" {
+			foundCatalogProvider = true
+			break
 		}
+	}
+	if !foundCatalogProvider {
+		t.Fatal("expected original kimi-for-coding provider option to remain in popular/other list")
+	}
+}
+
+func TestCmdModel_NoArgsShowsClaudeCodeImportCandidateWithoutAPIKey(t *testing.T) {
+	app := newModelCommandTestApp()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_BASE_URL", "https://api.kimi.com/coding/")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+
+	origCache := modelsDevCachePathOverride
+	modelsDevCachePathOverride = filepath.Join(home, ".mscli", "cached", "models-dev-api.json")
+	t.Cleanup(func() { modelsDevCachePathOverride = origCache })
+	origURL := modelsDevAPIURL
+	server := newModelsDevTestServer(`{
+		"kimi-for-coding": {
+			"id": "kimi-for-coding",
+			"name": "Kimi For Coding",
+			"api": "https://api.kimi.com/coding/v1",
+			"npm": "@ai-sdk/anthropic",
+			"models": {
+				"k2p5": {"id": "k2p5", "name": "Kimi K2.5"}
+			}
+		}
+	}`)
+	defer server.Close()
+	modelsDevAPIURL = server.URL
+	t.Cleanup(func() { modelsDevAPIURL = origURL })
+	resetModelsDevProviderCacheForTest()
+	t.Cleanup(resetModelsDevProviderCacheForTest)
+
+	app.cmdModel(nil)
+
+	ev := drainUntilEventType(t, app, model.ModelBrowserOpen)
+	if ev.ModelBrowser == nil || len(ev.ModelBrowser.Providers.Options) < 2 {
+		t.Fatal("expected provider import candidate")
+	}
+	candidate := ev.ModelBrowser.Providers.Options[1]
+	if !candidate.RequiresInput {
+		t.Fatal("expected candidate without env api key to require input")
+	}
+	if got, want := ev.ModelBrowser.Providers.Options[4].Label, "- ANTHROPIC_API_KEY is not set; you'll enter it next"; got != want {
+		t.Fatalf("providers[4].Label = %q, want %q", got, want)
 	}
 }
 
@@ -249,6 +334,101 @@ func TestCmdConnect_WithAPIKeyPersistsAuthAndRefreshesModelBrowser(t *testing.T)
 	}
 	if got, want := entry.APIKey, "sk-openrouter"; got != want {
 		t.Fatalf("entry.APIKey = %q, want %q", got, want)
+	}
+}
+
+func TestCmdConnect_ClaudeCodeImportCandidateUsesEnvAPIKey(t *testing.T) {
+	app := newModelCommandTestApp()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_BASE_URL", "https://api.kimi.com/coding/")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-kimi-env")
+	origAuthPath := authStatePathOverride
+	authStatePathOverride = filepath.Join(home, ".mscli", "auth.json")
+	t.Cleanup(func() { authStatePathOverride = origAuthPath })
+	origCache := modelsDevCachePathOverride
+	modelsDevCachePathOverride = filepath.Join(home, ".mscli", "cached", "models-dev-api.json")
+	t.Cleanup(func() { modelsDevCachePathOverride = origCache })
+	origURL := modelsDevAPIURL
+	server := newModelsDevTestServer(`{
+		"kimi-for-coding": {
+			"id": "kimi-for-coding",
+			"name": "Kimi For Coding",
+			"api": "https://api.kimi.com/coding/v1",
+			"npm": "@ai-sdk/anthropic",
+			"models": {"k2p5": {"id": "k2p5", "name": "Kimi K2.5"}}
+		}
+	}`)
+	defer server.Close()
+	modelsDevAPIURL = server.URL
+	t.Cleanup(func() { modelsDevAPIURL = origURL })
+	resetModelsDevProviderCacheForTest()
+	t.Cleanup(resetModelsDevProviderCacheForTest)
+
+	app.cmdConnect([]string{"__import_provider__:kimi-for-coding"})
+
+	drainUntilEventType(t, app, model.AgentThinking)
+	ev := drainUntilEventType(t, app, model.ModelBrowserOpen)
+	if ev.ModelBrowser == nil {
+		t.Fatal("expected refreshed model browser")
+	}
+	if got, want := ev.ModelBrowser.Focus, model.ModelBrowserFocusModel; got != want {
+		t.Fatalf("focus = %v, want %v", got, want)
+	}
+	authState, err := loadProviderAuthState()
+	if err != nil {
+		t.Fatalf("loadProviderAuthState() error = %v", err)
+	}
+	entry, ok := authState.Providers["kimi-for-coding"]
+	if !ok {
+		t.Fatalf("authState.Providers = %#v, want kimi-for-coding entry", authState.Providers)
+	}
+	if got, want := entry.APIKey, "sk-kimi-env"; got != want {
+		t.Fatalf("entry.APIKey = %q, want %q", got, want)
+	}
+}
+
+func TestCmdConnect_NormalProviderStillRequiresManualAPIKeyEvenWhenEnvDetected(t *testing.T) {
+	app := newModelCommandTestApp()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTHROPIC_BASE_URL", "https://api.kimi.com/coding/")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-kimi-env")
+	origAuthPath := authStatePathOverride
+	authStatePathOverride = filepath.Join(home, ".mscli", "auth.json")
+	t.Cleanup(func() { authStatePathOverride = origAuthPath })
+	origCache := modelsDevCachePathOverride
+	modelsDevCachePathOverride = filepath.Join(home, ".mscli", "cached", "models-dev-api.json")
+	t.Cleanup(func() { modelsDevCachePathOverride = origCache })
+	origURL := modelsDevAPIURL
+	server := newModelsDevTestServer(`{
+		"kimi-for-coding": {
+			"id": "kimi-for-coding",
+			"name": "Kimi For Coding",
+			"api": "https://api.kimi.com/coding/v1",
+			"npm": "@ai-sdk/anthropic",
+			"models": {"k2p5": {"id": "k2p5", "name": "Kimi K2.5"}}
+		}
+	}`)
+	defer server.Close()
+	modelsDevAPIURL = server.URL
+	t.Cleanup(func() { modelsDevAPIURL = origURL })
+	resetModelsDevProviderCacheForTest()
+	t.Cleanup(resetModelsDevProviderCacheForTest)
+
+	app.cmdConnect([]string{"kimi-for-coding"})
+
+	drainUntilEventType(t, app, model.AgentThinking)
+	ev := drainUntilEventType(t, app, model.ToolError)
+	if got := ev.Message; !strings.Contains(got, "requires api key") {
+		t.Fatalf("tool error = %q, want requires api key", got)
+	}
+	authState, err := loadProviderAuthState()
+	if err != nil {
+		t.Fatalf("loadProviderAuthState() error = %v", err)
+	}
+	if _, ok := authState.Providers["kimi-for-coding"]; ok {
+		t.Fatalf("authState.Providers = %#v, want no persisted kimi-for-coding entry", authState.Providers)
 	}
 }
 

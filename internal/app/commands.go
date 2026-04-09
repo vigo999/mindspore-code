@@ -203,7 +203,7 @@ func (a *Application) cmdConnect(args []string) {
 		}
 		return
 	}
-	a.emitModelBrowserWithState(state, providerID)
+	a.emitModelBrowserWithState(state, parseConnectProviderSelection(providerID).ProviderID)
 }
 
 // applyPreset applies a preset with the given API key. It saves the current

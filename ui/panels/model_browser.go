@@ -100,6 +100,10 @@ func renderBrowserSelectionCard(focus model.ModelBrowserFocus, popup *model.Sele
 				style = selectedStyle
 			}
 		}
+		if opt.DetailRow {
+			lines = append(lines, renderWrappedPopupOption(opt.Label, "  ", setupHintStyle, maxW))
+			continue
+		}
 		label := opt.Label
 		if opt.Desc != "" {
 			label += " " + modelPickerDescStyle.Render(opt.Desc)

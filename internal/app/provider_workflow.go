@@ -26,7 +26,13 @@ type providerCatalogLoadMode int
 const (
 	providerCatalogLoadCacheFirst providerCatalogLoadMode = iota
 	providerCatalogLoadBlocking
+	importProviderOptionPrefix = "__import_provider__:"
 )
+
+type connectProviderSelection struct {
+	ProviderID          string
+	AllowDetectedAPIKey bool
+}
 
 func (a *Application) loadProviderWorkflowState(mode providerCatalogLoadMode) (*providerWorkflowState, error) {
 	appCfg, err := loadAppConfig()
@@ -58,6 +64,13 @@ func (a *Application) loadProviderWorkflowState(mode providerCatalogLoadMode) (*
 		loggedIn:   isLoggedIn(),
 	}
 	state.refreshDerivedProviderState()
+	if mode == providerCatalogLoadCacheFirst && len(state.importSuggestions) == 0 && hasProviderEnvCandidates() {
+		blockingCatalog, blockingErr := loadProviderCatalogBlocking(appCfg.ExtraProviders)
+		if blockingErr == nil {
+			state.catalog = blockingCatalog
+			state.refreshDerivedProviderState()
+		}
+	}
 	return state, nil
 }
 
@@ -79,7 +92,7 @@ func (a *Application) emitConnectPopup(canEscape bool) {
 		return
 	}
 
-	options := buildConnectProviderOptions(state.catalog, state.loggedIn)
+	options := buildConnectProviderOptions(state.catalog, state.loggedIn, state.importSuggestions)
 
 	a.EventCh <- model.Event{
 		Type: model.ModelSetupOpen,
@@ -171,7 +184,7 @@ func (a *Application) emitModelPickerWithState(state *providerWorkflowState) {
 }
 
 func buildModelBrowserPopup(state *providerWorkflowState, preferredProviderID string) *model.ModelBrowserPopup {
-	providerOptions := buildConnectProviderOptions(state.catalog, state.loggedIn)
+	providerOptions := buildConnectProviderOptions(state.catalog, state.loggedIn, state.importSuggestions)
 	modelOptions := buildModelPickerOptions(state.catalog, state.effectiveAuthState, state.modelState, state.loggedIn, state.importSuggestions)
 
 	providerSelected := firstSelectableOptionIndex(providerOptions)
@@ -222,12 +235,27 @@ func buildModelBrowserPopup(state *providerWorkflowState, preferredProviderID st
 	return popup
 }
 
-func buildConnectProviderOptions(catalog *providerCatalog, loggedIn bool) []model.SelectionOption {
+func buildConnectProviderOptions(catalog *providerCatalog, loggedIn bool, importSuggestions []providerImportSuggestion) []model.SelectionOption {
 	if catalog == nil {
 		return nil
 	}
 	popularProviders, otherProviders := partitionConnectProviders(catalog.Providers, loggedIn)
-	options := make([]model.SelectionOption, 0, len(catalog.Providers)+4)
+	options := make([]model.SelectionOption, 0, len(catalog.Providers)+6)
+	if len(importSuggestions) > 0 {
+		options = append(options, model.SelectionOption{
+			ID:       "__header__detected",
+			Label:    "Import",
+			Header:   true,
+			Disabled: true,
+		})
+		for _, suggestion := range importSuggestions {
+			options = append(options, connectImportedProviderOption(suggestion))
+			options = append(options, connectImportedProviderDetailOptions(suggestion)...)
+		}
+		if len(popularProviders) > 0 || len(otherProviders) > 0 {
+			options = append(options, model.SelectionOption{ID: "__separator__detected", Separator: true, Disabled: true})
+		}
+	}
 	if len(popularProviders) > 0 {
 		options = append(options, model.SelectionOption{ID: "__header__popular", Label: "Popular", Header: true, Disabled: true})
 	}
@@ -244,6 +272,41 @@ func buildConnectProviderOptions(catalog *providerCatalog, loggedIn bool) []mode
 		options = append(options, connectProviderOption(provider, loggedIn))
 	}
 	return options
+}
+
+func connectImportedProviderOption(suggestion providerImportSuggestion) model.SelectionOption {
+	label := strings.TrimSpace(suggestion.ProviderLabel)
+	if label == "" {
+		label = strings.TrimSpace(suggestion.ProviderID)
+	}
+	return model.SelectionOption{
+		ID:            importProviderOptionID(suggestion.ProviderID),
+		Label:         label,
+		RequiresInput: strings.TrimSpace(suggestion.APIKey) == "",
+	}
+}
+
+func connectImportedProviderDetailOptions(suggestion providerImportSuggestion) []model.SelectionOption {
+	return []model.SelectionOption{
+		{
+			ID:        "__detail__" + suggestion.ProviderID + "__source",
+			Label:     "from Claude Code environment detected:",
+			Disabled:  true,
+			DetailRow: true,
+		},
+		{
+			ID:        "__detail__" + suggestion.ProviderID + "__base_url",
+			Label:     providerImportBaseURLLine(suggestion),
+			Disabled:  true,
+			DetailRow: true,
+		},
+		{
+			ID:        "__detail__" + suggestion.ProviderID + "__api_key",
+			Label:     providerImportAPIKeyLine(suggestion),
+			Disabled:  true,
+			DetailRow: true,
+		},
+	}
 }
 
 func connectProviderOption(provider providerCatalogEntry, loggedIn bool) model.SelectionOption {
@@ -615,6 +678,8 @@ func runtimeProviderDisplayLabel(providerID string) string {
 }
 
 func (a *Application) connectProvider(providerID, apiKey string) (*providerWorkflowState, error) {
+	selection := parseConnectProviderSelection(providerID)
+	providerID = selection.ProviderID
 	state, err := a.loadProviderWorkflowState(providerCatalogLoadCacheFirst)
 	if err != nil {
 		return nil, err
@@ -639,6 +704,11 @@ func (a *Application) connectProvider(providerID, apiKey string) (*providerWorkf
 	}
 
 	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" && selection.AllowDetectedAPIKey {
+		if suggestion, ok := findProviderImportSuggestion(state.importSuggestions, provider.ID); ok && strings.TrimSpace(suggestion.APIKey) != "" {
+			apiKey = strings.TrimSpace(suggestion.APIKey)
+		}
+	}
 	if apiKey == "" {
 		return nil, fmt.Errorf("provider %s requires api key", provider.Label)
 	}
@@ -651,6 +721,31 @@ func (a *Application) connectProvider(providerID, apiKey string) (*providerWorkf
 	}
 	state.refreshDerivedProviderState()
 	return state, nil
+}
+
+func findProviderImportSuggestion(suggestions []providerImportSuggestion, providerID string) (providerImportSuggestion, bool) {
+	needle := normalizedProviderID(providerID)
+	for _, suggestion := range suggestions {
+		if normalizedProviderID(suggestion.ProviderID) == needle {
+			return suggestion, true
+		}
+	}
+	return providerImportSuggestion{}, false
+}
+
+func importProviderOptionID(providerID string) string {
+	return importProviderOptionPrefix + normalizedProviderID(providerID)
+}
+
+func parseConnectProviderSelection(optionID string) connectProviderSelection {
+	trimmed := strings.TrimSpace(optionID)
+	if strings.HasPrefix(trimmed, importProviderOptionPrefix) {
+		return connectProviderSelection{
+			ProviderID:          normalizedProviderID(strings.TrimPrefix(trimmed, importProviderOptionPrefix)),
+			AllowDetectedAPIKey: true,
+		}
+	}
+	return connectProviderSelection{ProviderID: normalizedProviderID(trimmed)}
 }
 
 func (a *Application) activateLogicalModelSelection(providerID, modelID string) (logicalModelSelectionResult, error) {

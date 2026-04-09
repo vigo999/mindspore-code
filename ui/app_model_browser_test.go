@@ -122,6 +122,49 @@ func TestModelBrowserProviderInputAndModelSelectionSendInternalTokens(t *testing
 	}
 }
 
+func TestModelBrowserProviderSelectionWithoutInputSendsConnectToken(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	app = next.(App)
+
+	next, _ = app.handleEvent(model.Event{
+		Type: model.ModelBrowserOpen,
+		ModelBrowser: &model.ModelBrowserPopup{
+			Providers: model.SelectionPopup{
+				Title: "Providers",
+				Options: []model.SelectionOption{
+					{ID: "__header__detected", Label: "Import", Header: true, Disabled: true},
+					{ID: "__import_provider__:kimi-for-coding", Label: "Kimi For Coding"},
+					{ID: "__detail__kimi-for-coding__source", Label: "from Claude Code environment detected:", Disabled: true, DetailRow: true},
+				},
+				Selected: 1,
+			},
+			Models: model.SelectionPopup{
+				Title:    "Models",
+				Options:  []model.SelectionOption{},
+				Selected: 0,
+			},
+			Focus:            model.ModelBrowserFocusProvider,
+			ProvidersVisible: true,
+		},
+	})
+	app = next.(App)
+
+	next, _ = app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = next.(App)
+
+	select {
+	case got := <-userCh:
+		if got != connectProviderInputToken+" __import_provider__:kimi-for-coding" {
+			t.Fatalf("provider connect token = %q", got)
+		}
+	default:
+		t.Fatal("expected provider connect token")
+	}
+}
+
 func TestModelBrowserFocusSwitchStartsAndSettlesAnimation(t *testing.T) {
 	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false

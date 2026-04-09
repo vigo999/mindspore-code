@@ -181,9 +181,17 @@ func TestRenderModelBrowserPopupFocusProviderShowsOnlyProviderCardContent(t *tes
 		Providers: model.SelectionPopup{
 			Title: "Providers",
 			Options: []model.SelectionOption{
+				{ID: "__header__detected", Label: "Import", Header: true, Disabled: true},
+				{
+					ID:    "kimi-for-coding",
+					Label: "Kimi For Coding",
+				},
+				{ID: "__detail__kimi-for-coding__source", Label: "from Claude Code environment detected:", Disabled: true, DetailRow: true},
+				{ID: "__detail__kimi-for-coding__base_url", Label: "- ANTHROPIC_BASE_URL=https://api.kimi.com/coding/", Disabled: true, DetailRow: true},
+				{ID: "__detail__kimi-for-coding__api_key", Label: "- ANTHROPIC_API_KEY=sk-kimi-xxxx****xxxx", Disabled: true, DetailRow: true},
 				{ID: "openrouter", Label: "OpenRouter", RequiresInput: true},
 			},
-			Selected: 0,
+			Selected: 1,
 		},
 		Models: model.SelectionPopup{
 			Title: "Models",
@@ -199,6 +207,18 @@ func TestRenderModelBrowserPopupFocusProviderShowsOnlyProviderCardContent(t *tes
 	plain := selectionPopupANSIPattern.ReplaceAllString(result, "")
 	if !strings.Contains(plain, "Select Providers") {
 		t.Fatalf("expected provider header, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "Import") {
+		t.Fatalf("expected import section header in provider list, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "Kimi For Coding") {
+		t.Fatalf("expected import candidate in provider list, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "from Claude Code environment detected:") {
+		t.Fatalf("expected muted import hint in provider list, got:\n%s", plain)
+	}
+	if !strings.Contains(plain, "ANTHROPIC_BASE_URL=https://api.kimi.com/coding/") {
+		t.Fatalf("expected base url hint in provider list, got:\n%s", plain)
 	}
 	if !strings.Contains(plain, "Select Models") {
 		t.Fatalf("expected unified header to include models label, got:\n%s", plain)

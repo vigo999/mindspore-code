@@ -1,6 +1,7 @@
 package app
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"path"
@@ -95,7 +96,7 @@ func detectProviderImportSuggestions(catalog *providerCatalog, persistedAuth *pr
 func detectClaudeCodeEnvCandidates() []providerEnvCandidate {
 	baseURL := strings.TrimSpace(os.Getenv("ANTHROPIC_BASE_URL"))
 	apiKey := strings.TrimSpace(os.Getenv("ANTHROPIC_API_KEY"))
-	if baseURL == "" || apiKey == "" {
+	if baseURL == "" {
 		return nil
 	}
 	return []providerEnvCandidate{
@@ -113,6 +114,43 @@ func detectClaudeCodeEnvCandidates() []providerEnvCandidate {
 
 func hasProviderEnvCandidates() bool {
 	return len(detectClaudeCodeEnvCandidates()) > 0
+}
+
+func providerImportBaseURLLine(suggestion providerImportSuggestion) string {
+	return "- " + suggestion.BaseURLEnvVar + "=" + strings.TrimSpace(os.Getenv(suggestion.BaseURLEnvVar))
+}
+
+func providerImportAPIKeyLine(suggestion providerImportSuggestion) string {
+	if strings.TrimSpace(suggestion.APIKey) == "" {
+		return fmt.Sprintf("- %s is not set; you'll enter it next", suggestion.APIKeyEnvVar)
+	}
+	return "- " + suggestion.APIKeyEnvVar + "=" + maskImportedAPIKey(suggestion.APIKey)
+}
+
+func maskImportedAPIKey(raw string) string {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return ""
+	}
+	runes := []rune(token)
+	if len(runes) <= 8 {
+		prefix := 4
+		if len(runes) < prefix {
+			prefix = len(runes)
+		}
+		return string(runes[:prefix]) + "****"
+	}
+	if len(runes) <= 16 {
+		return string(runes[:8]) + "****" + string(runes[len(runes)-4:])
+	}
+	prefix := 12
+	if prefix > len(runes)-4 {
+		prefix = len(runes) - 4
+	}
+	if prefix < 4 {
+		prefix = 4
+	}
+	return string(runes[:prefix]) + "****" + string(runes[len(runes)-4:])
 }
 
 func matchProviderCatalogForEnvCandidate(catalog *providerCatalog, candidate providerEnvCandidate) (providerCatalogEntry, bool) {

@@ -279,6 +279,8 @@ type SelectionOption struct {
 	Separator        bool
 	Disabled         bool // grayed out, not selectable (e.g. coming soon)
 	RequiresInput    bool
+	Featured         bool
+	DetailRow        bool
 	ProviderRow      bool
 	DeleteProviderID string
 }

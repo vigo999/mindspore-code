@@ -771,6 +771,11 @@ func initTools(cfg *configs.Config, workDir string) *tools.Registry {
 		AllowedCmds:    cfg.Permissions.AllowedTools,
 		BlockedCmds:    cfg.Permissions.BlockedTools,
 		RequireConfirm: []string{"rm", "mv", "cp"},
+		// Python switches to block buffering when stdout is piped, which
+		// prevents line-oriented command output from streaming live in the UI.
+		Env: map[string]string{
+			"PYTHONUNBUFFERED": "1",
+		},
 	})
 	registry.MustRegister(shell.NewShellTool(shellRunner))
 

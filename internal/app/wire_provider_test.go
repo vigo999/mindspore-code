@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -113,6 +114,34 @@ func TestWireBootstrapKeyAndURLOverrideEnvDuringProviderInit(t *testing.T) {
 	}
 	if got, want := gotAuth, "Bearer cli-key"; got != want {
 		t.Fatalf("Authorization header = %q, want %q", got, want)
+	}
+}
+
+func TestInitToolsShellInjectsPythonUnbufferedEnv(t *testing.T) {
+	t.Setenv("PYTHONUNBUFFERED", "")
+
+	registry := initTools(configs.DefaultConfig(), t.TempDir())
+	tool, ok := registry.Get("shell")
+	if !ok {
+		t.Fatal("expected shell tool to be registered")
+	}
+
+	params, err := json.Marshal(map[string]any{
+		"command": `printf '%s' "$PYTHONUNBUFFERED"`,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	result, err := tool.Execute(context.Background(), params)
+	if err != nil {
+		t.Fatalf("shell.Execute() error = %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("unexpected shell result error: %v", result.Error)
+	}
+	if got, want := strings.TrimSpace(result.Content), "1"; got != want {
+		t.Fatalf("PYTHONUNBUFFERED = %q, want %q", got, want)
 	}
 }
 

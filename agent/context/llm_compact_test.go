@@ -93,8 +93,14 @@ func TestCompactUsesLLMSummaryAndTrajectoryReference(t *testing.T) {
 	if got := lastPrompt.Role; got != "user" {
 		t.Fatalf("compact request final prompt role = %q, want user", got)
 	}
-	if got := lastPrompt.Content; !strings.Contains(got, "Your <summary> section must include") {
+	if got := lastPrompt.Content; !strings.Contains(got, "Your summary should include the following sections:") {
 		t.Fatalf("compact prompt missing summary structure: %q", got)
+	}
+	if got := lastPrompt.Content; !strings.Contains(got, "Tool calls will be REJECTED and will waste your only turn") {
+		t.Fatalf("compact prompt missing tool rejection warning: %q", got)
+	}
+	if got := lastPrompt.Content; !strings.Contains(got, "REMINDER: Do NOT call any tools.") {
+		t.Fatalf("compact prompt missing final reminder: %q", got)
 	}
 	if strings.Contains(lastPrompt.Content, "Conversation to summarize") {
 		t.Fatalf("compact prompt should not embed rendered conversation: %q", lastPrompt.Content)

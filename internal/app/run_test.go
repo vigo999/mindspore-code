@@ -138,11 +138,8 @@ func TestProcessInputShowsAutoCompactNoticeAfterUserInput(t *testing.T) {
 		t.Fatalf("first event type = %q, want %q", got, want)
 	}
 	second := drainNextEvent(t, app)
-	if got, want := second.Type, model.ContextNotice; got != want {
+	if got, want := second.Type, model.ContextCompactStarted; got != want {
 		t.Fatalf("second event type = %q, want %q", got, want)
-	}
-	if got, want := second.Message, loop.ContextCompactStartMessage; got != want {
-		t.Fatalf("second event message = %q, want %q", got, want)
 	}
 }
 
@@ -317,21 +314,17 @@ func TestConvertLoopEvent_ContextCompactedUsesContextNotice(t *testing.T) {
 	}
 }
 
-func TestConvertLoopEvent_ContextCompactStartedUsesContextNotice(t *testing.T) {
+func TestConvertLoopEvent_ContextCompactStartedUsesCompactEvent(t *testing.T) {
 	ev := loop.Event{
-		Type:    loop.EventContextCompactStart,
-		Message: "compacting context...",
+		Type: loop.EventContextCompactStart,
 	}
 
 	got := convertLoopEvent(ev)
 	if got == nil {
 		t.Fatal("convertLoopEvent(ContextCompactStarted) = nil, want non-nil")
 	}
-	if got.Type != model.ContextNotice {
-		t.Fatalf("convertLoopEvent type = %v, want %v", got.Type, model.ContextNotice)
-	}
-	if got.Message != ev.Message {
-		t.Fatalf("convertLoopEvent message = %q, want %q", got.Message, ev.Message)
+	if got.Type != model.ContextCompactStarted {
+		t.Fatalf("convertLoopEvent type = %v, want %v", got.Type, model.ContextCompactStarted)
 	}
 }
 

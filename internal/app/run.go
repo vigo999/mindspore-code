@@ -306,8 +306,7 @@ func (a *Application) runTask(description string) {
 	}
 	if a.ctxManager != nil && a.ctxManager.ShouldCompactAfterAdding(llm.NewUserMessage(description)) {
 		emit(model.Event{
-			Type:    model.ContextNotice,
-			Message: loop.ContextCompactStartMessage,
+			Type: model.ContextCompactStarted,
 		})
 	}
 	ctx, runID := a.beginTaskRun()
@@ -897,7 +896,7 @@ var loopEventTypeMap = map[string]model.EventType{
 	"AgentReplyDelta":       model.AgentReplyDelta,
 	"AgentBackgroundWork":   model.AgentBackgroundWork,
 	"AgentThinking":         model.AgentThinking,
-	"ContextCompactStarted": model.ContextNotice,
+	"ContextCompactStarted": model.ContextCompactStarted,
 	"ContextCompacted":      model.ContextNotice,
 	"ToolRead":              model.ToolRead,
 	"ToolGrep":              model.ToolGrep,

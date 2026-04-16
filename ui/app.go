@@ -198,14 +198,14 @@ type App struct {
 	backgroundModelWork     bool
 
 	// Train mode
-	trainView     model.TrainViewState
-	trainFocus    model.TrainPanelID
-	issueView     model.IssueViewState
-	bootActive    bool
+	trainView               model.TrainViewState
+	trainFocus              model.TrainPanelID
+	issueView               model.IssueViewState
+	bootActive              bool
 	startupBannerSuppressed bool
-	bootHighlight int
-	bannerPrinted bool
-	queuedInputs  []string
+	bootHighlight           int
+	bannerPrinted           bool
+	queuedInputs            []string
 
 	permissionPrompt *permissionPromptState
 	permissionsView  *permissionsViewState
@@ -1183,6 +1183,11 @@ func (a App) handleEvent(ev model.Event) (tea.Model, tea.Cmd) {
 		a.replayWait = ev.ReplayWait
 		a.backgroundModelWork = false
 		a.state = a.startWait(model.WaitModel)
+
+	case model.ContextCompactStarted:
+		a.replayWait = nil
+		a.backgroundModelWork = false
+		a.state = a.startWait(model.WaitCompact)
 
 	case model.AgentReply:
 		a.replayWait = nil
@@ -2419,7 +2424,7 @@ func (a App) startWait(kind model.WaitKind) model.State {
 	if next.WaitKind != kind || next.WaitStartedAt.IsZero() {
 		next = next.WithWait(kind, time.Now())
 	}
-	return next.WithThinking(kind == model.WaitModel)
+	return next.WithThinking(kind == model.WaitModel || kind == model.WaitCompact)
 }
 
 func (a App) thinkingStatusText() string {

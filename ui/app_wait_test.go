@@ -64,6 +64,37 @@ func TestToolCallStartShowsPendingToolWait(t *testing.T) {
 	}
 }
 
+func TestContextCompactStartedShowsCompactingWait(t *testing.T) {
+	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	app = next.(App)
+
+	next, _ = app.handleEvent(model.Event{Type: model.AgentThinking})
+	app = next.(App)
+	if view := app.View(); !strings.Contains(view, "Working...") {
+		t.Fatalf("expected model wait to show Working..., got:\n%s", view)
+	}
+
+	next, _ = app.handleEvent(model.Event{Type: model.ContextCompactStarted})
+	app = next.(App)
+
+	if !app.state.IsThinking {
+		t.Fatal("expected compact wait to keep thinking state")
+	}
+	if got, want := app.state.WaitKind, model.WaitCompact; got != want {
+		t.Fatalf("wait kind = %v, want %v", got, want)
+	}
+	view := app.View()
+	if !strings.Contains(view, "Compacting...") {
+		t.Fatalf("expected compact wait to show Compacting..., got:\n%s", view)
+	}
+	if strings.Contains(view, "Working...") {
+		t.Fatalf("expected compact wait to replace Working..., got:\n%s", view)
+	}
+}
+
 func TestToolWarningClearsWaitState(t *testing.T) {
 	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false

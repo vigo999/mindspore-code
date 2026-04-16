@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	agentctx "github.com/mindspore-lab/mindspore-cli/agent/context"
-	"github.com/mindspore-lab/mindspore-cli/agent/loop"
 	"github.com/mindspore-lab/mindspore-cli/agent/session"
 	"github.com/mindspore-lab/mindspore-cli/integrations/llm"
 	"github.com/mindspore-lab/mindspore-cli/ui/model"
@@ -33,13 +32,10 @@ func TestCmdCompactCompactsContextAndEmitsTokenUpdate(t *testing.T) {
 	app.cmdCompact()
 
 	drainUntilEventType(t, app, model.AgentThinking)
-	notice := drainUntilEventType(t, app, model.ContextNotice)
+	drainUntilEventType(t, app, model.ContextCompactStarted)
 	ev := drainUntilEventType(t, app, model.TokenUpdate)
 	reply := drainUntilEventType(t, app, model.AgentReply)
 
-	if got, want := notice.Message, loop.ContextCompactStartMessage; got != want {
-		t.Fatalf("context notice = %q, want %q", got, want)
-	}
 	if got := ctxManager.TokenUsage().Current; got > before/2 {
 		t.Fatalf("context usage after cmdCompact = %d, want <= %d", got, before/2)
 	}
@@ -87,13 +83,9 @@ func TestCmdCompactDebugDumpsPreCompactSnapshot(t *testing.T) {
 	app.cmdCompact()
 
 	drainUntilEventType(t, app, model.AgentThinking)
-	notice := drainUntilEventType(t, app, model.ContextNotice)
+	drainUntilEventType(t, app, model.ContextCompactStarted)
 	drainUntilEventType(t, app, model.TokenUpdate)
 	drainUntilEventType(t, app, model.AgentReply)
-
-	if got, want := notice.Message, loop.ContextCompactStartMessage; got != want {
-		t.Fatalf("context notice = %q, want %q", got, want)
-	}
 
 	matches, err := filepath.Glob(filepath.Join(filepath.Dir(runtimeSession.Path()), "snapshot.compact-pre-manual-*.json"))
 	if err != nil {

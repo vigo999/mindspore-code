@@ -79,14 +79,22 @@ type ContextConfig struct {
 	CompactionThreshold float64 `yaml:"compaction_threshold"`
 }
 
-const DefaultContextWindow = 200000
+const (
+	DefaultContextWindow = 200000
+	// Match Claude Code's summary output reserve cap.
+	MaxDefaultReserveTokens = 20000
+)
 
 // DefaultReserveTokens returns the default reserved context budget for a window.
 func DefaultReserveTokens(contextWindow int) int {
 	if contextWindow <= 0 {
 		return 0
 	}
-	return contextWindow / 10
+	reserve := contextWindow / 10
+	if reserve > MaxDefaultReserveTokens {
+		return MaxDefaultReserveTokens
+	}
+	return reserve
 }
 
 // MemoryConfig holds the memory system configuration.
@@ -146,7 +154,7 @@ func DefaultConfig() *Config {
 		Context: ContextConfig{
 			Window:              DefaultContextWindow,
 			ReserveTokens:       DefaultReserveTokens(DefaultContextWindow),
-			CompactionThreshold: 0.9,
+			CompactionThreshold: 0,
 		},
 		Memory: MemoryConfig{
 			Enabled:   true,

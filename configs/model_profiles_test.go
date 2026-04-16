@@ -14,7 +14,7 @@ func TestLoadWithEnv_AutoTokenLimitsByModel(t *testing.T) {
 	if got, want := cfg.Context.Window, 400000; got != want {
 		t.Fatalf("context.window = %d, want %d", got, want)
 	}
-	if got, want := cfg.Context.ReserveTokens, 40000; got != want {
+	if got, want := cfg.Context.ReserveTokens, 20000; got != want {
 		t.Fatalf("context.reserve_tokens = %d, want %d", got, want)
 	}
 }
@@ -113,7 +113,7 @@ func TestRefreshModelTokenDefaults_UpdatesAutoValuesOnModelSwitch(t *testing.T) 
 	if got, want := cfg.Context.Window, 1050000; got != want {
 		t.Fatalf("context.window = %d, want %d", got, want)
 	}
-	if got, want := cfg.Context.ReserveTokens, 105000; got != want {
+	if got, want := cfg.Context.ReserveTokens, 20000; got != want {
 		t.Fatalf("context.reserve_tokens = %d, want %d", got, want)
 	}
 }

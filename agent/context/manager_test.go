@@ -383,6 +383,37 @@ func TestCompactionThresholdSupportsRatioAndPercent(t *testing.T) {
 	mgrPercent.mu.Unlock()
 }
 
+func TestAutoCompactThresholdUsesClaudeStyleBufferByDefault(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 200000
+	cfg.ReserveTokens = 20000
+	cfg.CompactionThreshold = 0
+	mgr := NewManager(cfg)
+
+	mgr.mu.Lock()
+	got := mgr.autoCompactThresholdTokensLocked()
+	mgr.mu.Unlock()
+
+	if want := 167000; got != want {
+		t.Fatalf("auto compact threshold = %d, want %d", got, want)
+	}
+}
+
+func TestCompactionTargetUsesFortyThousandTokenCap(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 200000
+	cfg.ReserveTokens = 20000
+	mgr := NewManager(cfg)
+
+	mgr.mu.Lock()
+	got := mgr.compactionTargetTokensLocked()
+	mgr.mu.Unlock()
+
+	if want := 40000; got != want {
+		t.Fatalf("compact target = %d, want %d", got, want)
+	}
+}
+
 func TestAddMessageRejectsSingleOversizedMessage(t *testing.T) {
 	cfg := DefaultManagerConfig()
 	cfg.ContextWindow = 100
@@ -469,15 +500,15 @@ func TestAddMessageCompactsToTargetAfterThresholdExceeded(t *testing.T) {
 	}
 
 	if got := mgr.TokenUsage().Current; got >= 90 {
-		t.Fatalf("token usage before threshold test = %d, want below 90", got)
+		t.Fatalf("token usage before threshold test = %d, want below max usable tokens", got)
 	}
 
 	if err := mgr.AddMessage(llm.NewUserMessage(strings.Repeat("x", 80))); err != nil {
 		t.Fatalf("AddMessage triggering compaction failed: %v", err)
 	}
 
-	if got := mgr.TokenUsage().Current; got > 50 {
-		t.Fatalf("token usage after compaction = %d, want <= 50", got)
+	if got, want := mgr.TokenUsage().Current, mgr.compactionTargetTokensLocked(); got > want {
+		t.Fatalf("token usage after compaction = %d, want <= %d", got, want)
 	}
 	if got := len(mgr.GetNonSystemMessages()); got >= 4 {
 		t.Fatalf("message count after compaction = %d, want fewer than 4", got)

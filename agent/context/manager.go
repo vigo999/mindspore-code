@@ -32,14 +32,20 @@ func DefaultManagerConfig() ManagerConfig {
 	return ManagerConfig{
 		ContextWindow:       configs.DefaultContextWindow,
 		ReserveTokens:       configs.DefaultReserveTokens(configs.DefaultContextWindow),
-		CompactionThreshold: 0.9,
+		CompactionThreshold: 0,
 		EnableSmartCompact:  true,
 		CompactStrategy:     CompactStrategyHybrid,
 		EnablePriority:      true,
 	}
 }
 
-const compactionTargetRatio = 0.5
+const (
+	// Match Claude Code's default autocompact headroom: effective window minus 13k.
+	autoCompactBufferTokens         = 13_000
+	compactTargetTokens             = 40_000 // Keep post-compact context around the client-side 40k target.
+	smallWindowAutoCompactRatio     = 0.9
+	smallWindowCompactTargetDivisor = 2
+)
 
 // Manager manages conversation context.
 type Manager struct {
@@ -139,9 +145,6 @@ func NewManager(cfg ManagerConfig) *Manager {
 	}
 	if cfg.ReserveTokens == 0 {
 		cfg.ReserveTokens = configs.DefaultReserveTokens(cfg.ContextWindow)
-	}
-	if cfg.CompactionThreshold == 0 {
-		cfg.CompactionThreshold = 0.9
 	}
 
 	// 创建压缩器
@@ -307,7 +310,11 @@ func (m *Manager) CompactWithContext(ctx stdctx.Context) error {
 	if currentTokens == 0 {
 		return nil
 	}
-	return m.compactToTargetLocked(ctx, currentTokens/2, CompactTriggerManual)
+	targetTokens := m.compactionTargetTokensLocked()
+	if targetTokens <= 0 || currentTokens <= targetTokens {
+		targetTokens = currentTokens / smallWindowCompactTargetDivisor
+	}
+	return m.compactToTargetLocked(ctx, targetTokens, CompactTriggerManual)
 }
 
 // TokenUsage returns current token usage.
@@ -530,9 +537,9 @@ func (m *Manager) GetDetailedStats() map[string]any {
 
 // shouldCompactLocked checks if compaction is needed (must hold lock).
 func (m *Manager) shouldCompactLocked(additionalTokens int) bool {
-	threshold := m.compactionThresholdPercentLocked()
+	threshold := m.autoCompactThresholdTokensLocked()
 	estimatedTokens := m.currentTokensLocked() + additionalTokens
-	return float64(estimatedTokens) >= float64(m.config.ContextWindow)*(threshold/100.0)
+	return estimatedTokens >= threshold
 }
 
 // compactLocked compacts the context (must hold lock).
@@ -649,7 +656,7 @@ func (m *Manager) compactionThresholdPercentLocked() float64 {
 	threshold := m.config.CompactionThreshold
 	switch {
 	case threshold <= 0:
-		return 90.0
+		return 0
 	case threshold <= 1:
 		return threshold * 100
 	default:
@@ -661,14 +668,40 @@ func (m *Manager) compactionThresholdPercentLocked() float64 {
 	}
 }
 
-func (m *Manager) compactionTargetTokensLocked() int {
-	targetTokens := int(float64(m.config.ContextWindow) * compactionTargetRatio)
-	maxUsableTokens := m.maxUsableTokensLocked()
-	if targetTokens <= 0 || targetTokens > maxUsableTokens {
-		targetTokens = maxUsableTokens
+func (m *Manager) autoCompactThresholdTokensLocked() int {
+	if m.config.CompactionThreshold > 0 {
+		threshold := int(float64(m.config.ContextWindow) * (m.compactionThresholdPercentLocked() / 100.0))
+		if threshold < 1 {
+			return 1
+		}
+		return threshold
 	}
-	if targetTokens < 0 {
+
+	effectiveWindow := m.maxUsableTokensLocked()
+	if effectiveWindow <= 0 {
+		return 1
+	}
+	threshold := effectiveWindow - autoCompactBufferTokens
+	if threshold <= 0 {
+		threshold = int(float64(effectiveWindow) * smallWindowAutoCompactRatio)
+	}
+	if threshold < 1 {
+		return 1
+	}
+	return threshold
+}
+
+func (m *Manager) compactionTargetTokensLocked() int {
+	maxUsableTokens := m.maxUsableTokensLocked()
+	if maxUsableTokens <= 0 {
 		return 0
+	}
+	targetTokens := compactTargetTokens
+	if targetTokens > maxUsableTokens {
+		targetTokens = maxUsableTokens / smallWindowCompactTargetDivisor
+		if targetTokens <= 0 {
+			targetTokens = maxUsableTokens
+		}
 	}
 	return targetTokens
 }

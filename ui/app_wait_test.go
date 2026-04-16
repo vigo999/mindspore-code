@@ -87,8 +87,8 @@ func TestContextCompactStartedShowsCompactingWait(t *testing.T) {
 		t.Fatalf("wait kind = %v, want %v", got, want)
 	}
 	view := app.View()
-	if !strings.Contains(view, "Compacting...") {
-		t.Fatalf("expected compact wait to show Compacting..., got:\n%s", view)
+	if !strings.Contains(view, "Compacting context...") {
+		t.Fatalf("expected compact wait to show Compacting context..., got:\n%s", view)
 	}
 	if strings.Contains(view, "Working...") {
 		t.Fatalf("expected compact wait to replace Working..., got:\n%s", view)

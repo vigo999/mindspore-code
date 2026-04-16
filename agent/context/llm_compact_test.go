@@ -170,6 +170,68 @@ func TestAddMessageAutoCompactUsesLLMSummary(t *testing.T) {
 	}
 }
 
+func TestAddUserMessageAutoCompactSummarizesExistingContextThenAppendsUser(t *testing.T) {
+	t.Setenv(envCompactMode, compactModeLLM)
+	provider := &compactTestProvider{
+		response: llm.CompletionResponse{Content: "<summary>Current Work:\n   summarized previous context.</summary>"},
+	}
+	mgr := NewManager(ManagerConfig{
+		ContextWindow:       200,
+		ReserveTokens:       20,
+		CompactionThreshold: 0.7,
+		CompactProvider:     provider,
+	})
+
+	oldUser := strings.Repeat("u", 200)
+	oldAssistant := strings.Repeat("a", 200)
+	activeUser := strings.Repeat("active", 24)
+	if err := mgr.AddMessage(llm.NewUserMessage(oldUser)); err != nil {
+		t.Fatalf("AddMessage old user failed: %v", err)
+	}
+	if err := mgr.AddMessage(llm.NewAssistantMessage(oldAssistant)); err != nil {
+		t.Fatalf("AddMessage old assistant failed: %v", err)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider calls before triggering user = %d, want 0", provider.calls)
+	}
+
+	if err := mgr.AddMessage(llm.NewUserMessage(activeUser)); err != nil {
+		t.Fatalf("AddMessage active user failed: %v", err)
+	}
+
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
+	}
+	if provider.lastReq == nil {
+		t.Fatal("provider request was not captured")
+	}
+	if got, want := len(provider.lastReq.Messages), 4; got != want {
+		t.Fatalf("compact request messages = %d, want %d", got, want)
+	}
+	if got := provider.lastReq.Messages[1].Content; got != oldUser {
+		t.Fatalf("compact request first history content = %q, want old user", got)
+	}
+	if got := provider.lastReq.Messages[2].Content; got != oldAssistant {
+		t.Fatalf("compact request second history content = %q, want old assistant", got)
+	}
+	for i, msg := range provider.lastReq.Messages {
+		if strings.Contains(msg.Content, activeUser) {
+			t.Fatalf("compact request message %d included active user content", i)
+		}
+	}
+
+	msgs := mgr.GetNonSystemMessages()
+	if got, want := len(msgs), 2; got != want {
+		t.Fatalf("messages after active user auto compact = %d, want %d", got, want)
+	}
+	if got := msgs[1].Content; got != activeUser {
+		t.Fatalf("last message after auto compact = %q, want active user", got)
+	}
+	if strings.Contains(msgs[0].Content, activeUser) {
+		t.Fatalf("summary message should not contain active user content: %q", msgs[0].Content)
+	}
+}
+
 type dumpingCompactProvider struct {
 	calls int
 }

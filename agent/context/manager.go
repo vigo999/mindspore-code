@@ -216,11 +216,20 @@ func (m *Manager) AddMessageWithContext(ctx stdctx.Context, msg llm.Message) err
 		return fmt.Errorf("single message too large for context budget: %d tokens > %d", msgTokens, maxUsable)
 	}
 
-	// 先追加，再按真实占用触发后置压缩
+	preCompactUserMessage := strings.TrimSpace(msg.Role) == "user" && m.shouldCompactLocked(msgTokens)
+	if preCompactUserMessage {
+		targetTokens := m.preAppendCompactionTargetTokensLocked(msgTokens)
+		if err := m.compactToTargetLocked(ctx, targetTokens, CompactTriggerAuto); err != nil {
+			return fmt.Errorf("compact context before user message: %w", err)
+		}
+	}
+
 	m.messages = append(m.messages, msg)
 
-	// 后置压缩：基于最新上下文做决策，避免仅靠预估触发
-	if m.shouldCompactLocked(0) {
+	// Non-user messages are compacted after append so the triggering assistant/tool
+	// content stays eligible for summarization. User messages are compacted before
+	// append so the active request remains outside the summary prompt.
+	if !preCompactUserMessage && m.shouldCompactLocked(0) {
 		if err := m.compactLocked(ctx); err != nil {
 			return fmt.Errorf("compact context: %w", err)
 		}
@@ -504,7 +513,13 @@ func (m *Manager) ShouldCompactAfterAdding(msg llm.Message) bool {
 	if msgTokens > m.maxUsableTokensLocked() {
 		return false
 	}
-	return m.shouldCompactLocked(msgTokens)
+	if !m.shouldCompactLocked(msgTokens) {
+		return false
+	}
+	if strings.TrimSpace(msg.Role) == "user" {
+		return m.currentTokensLocked() > m.preAppendCompactionTargetTokensLocked(msgTokens)
+	}
+	return true
 }
 
 // GetStats returns context statistics.
@@ -561,6 +576,37 @@ func (m *Manager) compactLocked(ctx stdctx.Context) error {
 		return nil
 	}
 	return m.compactToTargetLocked(ctx, m.compactionTargetTokensLocked(), CompactTriggerAuto)
+}
+
+func (m *Manager) preAppendCompactionTargetTokensLocked(additionalTokens int) int {
+	targetTokens := m.compactionTargetTokensLocked()
+	if targetTokens <= 0 {
+		targetTokens = 1
+	}
+
+	thresholdTarget := 1
+	if threshold := m.autoCompactThresholdTokensLocked(); threshold > additionalTokens {
+		thresholdTarget = threshold - additionalTokens - 1
+		if thresholdTarget < 1 {
+			thresholdTarget = 1
+		}
+	}
+	if thresholdTarget < targetTokens {
+		targetTokens = thresholdTarget
+	}
+
+	fitTarget := 1
+	if maxUsable := m.maxUsableTokensLocked(); maxUsable > additionalTokens {
+		fitTarget = maxUsable - additionalTokens
+		if fitTarget < 1 {
+			fitTarget = 1
+		}
+	}
+	if fitTarget < targetTokens {
+		targetTokens = fitTarget
+	}
+
+	return targetTokens
 }
 
 func (m *Manager) compactToTargetLocked(ctx stdctx.Context, targetTokens int, trigger CompactTrigger) error {

@@ -503,15 +503,23 @@ func TestAddMessageCompactsToTargetAfterThresholdExceeded(t *testing.T) {
 		t.Fatalf("token usage before threshold test = %d, want below max usable tokens", got)
 	}
 
-	if err := mgr.AddMessage(llm.NewUserMessage(strings.Repeat("x", 80))); err != nil {
+	triggeringUser := strings.Repeat("x", 80)
+	if err := mgr.AddMessage(llm.NewUserMessage(triggeringUser)); err != nil {
 		t.Fatalf("AddMessage triggering compaction failed: %v", err)
 	}
 
-	if got, want := mgr.TokenUsage().Current, mgr.compactionTargetTokensLocked(); got > want {
-		t.Fatalf("token usage after compaction = %d, want <= %d", got, want)
+	mgr.mu.Lock()
+	threshold := mgr.autoCompactThresholdTokensLocked()
+	mgr.mu.Unlock()
+	if got := mgr.TokenUsage().Current; got >= threshold {
+		t.Fatalf("token usage after compaction = %d, want below auto compact threshold %d", got, threshold)
 	}
 	if got := len(mgr.GetNonSystemMessages()); got >= 4 {
 		t.Fatalf("message count after compaction = %d, want fewer than 4", got)
+	}
+	msgs := mgr.GetNonSystemMessages()
+	if got := msgs[len(msgs)-1].Content; got != triggeringUser {
+		t.Fatalf("last message after compaction = %q, want triggering user message", got)
 	}
 }
 

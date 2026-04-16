@@ -151,7 +151,7 @@ func (a App) renderMainView() string {
 
 func (a App) activePreview(partsBeforeStatus []string, inputView, hintView string) string {
 	if a.state.WaitKind == model.WaitCompact {
-		a.thinking.SetText("Compacting...")
+		a.thinking.SetText("Compacting context...")
 		teal := lipgloss.Color("#2DD4BF")
 		a.thinking.SetStyle(
 			lipgloss.NewStyle().Foreground(teal),

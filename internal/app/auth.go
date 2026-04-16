@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mindspore-lab/mindspore-cli/internal/bugs"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	projectpkg "github.com/mindspore-lab/mindspore-cli/internal/project"
 	"github.com/mindspore-lab/mindspore-cli/ui/model"
@@ -110,7 +109,6 @@ func (a *Application) cmdLogin(args []string) {
 		return
 	}
 
-	a.bugService = bugs.NewService(bugs.NewRemoteStore(serverURL, token))
 	a.issueService = issuepkg.NewService(issuepkg.NewRemoteStore(serverURL, token))
 	a.projectService = projectpkg.NewService(projectpkg.NewRemoteStore(serverURL, token))
 	a.issueUser = me.User
@@ -121,25 +119,6 @@ func (a *Application) cmdLogin(args []string) {
 		Type:    model.AgentReply,
 		Message: fmt.Sprintf("logged in as %s (%s)", me.User, me.Role),
 	}
-}
-
-func (a *Application) ensureBugService() bool {
-	if a.bugService != nil {
-		return true
-	}
-	cred, err := loadCredentials()
-	if err != nil {
-		a.EventCh <- model.Event{
-			Type:    model.AgentReply,
-			Message: "not logged in. Run /login <token> first.",
-		}
-		return false
-	}
-	a.bugService = bugs.NewService(bugs.NewRemoteStore(cred.ServerURL, cred.Token))
-	a.issueUser = cred.User
-	a.issueRole = cred.Role
-	a.EventCh <- model.Event{Type: model.IssueUserUpdate, Message: cred.User}
-	return true
 }
 
 func (a *Application) ensureIssueService() bool {
@@ -178,7 +157,7 @@ func (a *Application) ensureProjectService() bool {
 
 func (a *Application) ensureAdmin() bool {
 	if a.issueRole == "" {
-		if !a.ensureBugService() {
+		if !a.ensureIssueService() {
 			return false
 		}
 	}

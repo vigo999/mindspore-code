@@ -18,7 +18,6 @@ import (
 	"github.com/mindspore-lab/mindspore-cli/configs"
 	"github.com/mindspore-lab/mindspore-cli/integrations/llm"
 	"github.com/mindspore-lab/mindspore-cli/integrations/skills"
-	"github.com/mindspore-lab/mindspore-cli/internal/bugs"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	projectpkg "github.com/mindspore-lab/mindspore-cli/internal/project"
 	itrain "github.com/mindspore-lab/mindspore-cli/internal/train"
@@ -71,8 +70,7 @@ type Application struct {
 	skillsHomeDir string
 	startupOnce   sync.Once
 
-	// Bug tracking
-	bugService   *bugs.Service
+	// Issue tracking
 	issueService *issuepkg.Service
 	issueUser    string
 	issueRole    string
@@ -402,7 +400,6 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 
 	// Auto-login from saved credentials.
 	if cred, err := loadCredentials(); err == nil {
-		app.bugService = bugs.NewService(bugs.NewRemoteStore(cred.ServerURL, cred.Token))
 		app.issueService = issuepkg.NewService(issuepkg.NewRemoteStore(cred.ServerURL, cred.Token))
 		app.projectService = projectpkg.NewService(projectpkg.NewRemoteStore(cred.ServerURL, cred.Token))
 		app.issueUser = cred.User

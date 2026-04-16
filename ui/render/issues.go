@@ -8,8 +8,56 @@ import (
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 )
 
-// issueRowSelectedStyle is populated by InitStyles() in styles.go.
-var issueRowSelectedStyle lipgloss.Style
+// issueRowSelectedStyle, issueHeaderStyle, statusClosedStyle are populated by InitStyles() in styles.go.
+var (
+	issueRowSelectedStyle lipgloss.Style
+	issueHeaderStyle      lipgloss.Style
+	statusClosedStyle     lipgloss.Style
+)
+
+func centerPad(s string, w int) string {
+	visible := lipgloss.Width(s)
+	if visible >= w {
+		return s
+	}
+	left := (w - visible) / 2
+	right := w - visible - left
+	return strings.Repeat(" ", left) + s + strings.Repeat(" ", right)
+}
+
+func issueWindowStart(total, cursor, maxRows int) int {
+	if total <= maxRows {
+		return 0
+	}
+	start := cursor - maxRows/2
+	if start < 0 {
+		start = 0
+	}
+	if start+maxRows > total {
+		start = total - maxRows
+	}
+	return start
+}
+
+func issueStatusStyle(status string) lipgloss.Style {
+	switch status {
+	case "ready":
+		return StatusOpenStyle
+	case "doing":
+		return StatusDoingStyle
+	case "closed":
+		return statusClosedStyle
+	default:
+		return LabelStyle
+	}
+}
+
+func trimIssueLines(lines []string, maxRows int) []string {
+	if maxRows <= 0 || len(lines) <= maxRows {
+		return lines
+	}
+	return lines[:maxRows]
+}
 
 func IssueIndex(items []issuepkg.Issue, cursor, width, rows int) string {
 	if rows < 1 {
@@ -37,7 +85,7 @@ func IssueIndex(items []issuepkg.Issue, cursor, width, rows int) string {
 		visPad("status", statusW) + " " +
 		visPad("lead", leadW)
 
-	lines := []string{bugHeaderStyle.Render(header)}
+	lines := []string{issueHeaderStyle.Render(header)}
 	if len(items) == 0 {
 		lines = append(lines, ValueStyle.Render("no issues found."))
 		return strings.Join(lines, "\n")
@@ -47,7 +95,7 @@ func IssueIndex(items []issuepkg.Issue, cursor, width, rows int) string {
 	if maxRows < 1 {
 		maxRows = 1
 	}
-	start := bugWindowStart(len(items), cursor, maxRows)
+	start := issueWindowStart(len(items), cursor, maxRows)
 	end := start + maxRows
 	if end > len(items) {
 		end = len(items)
@@ -66,7 +114,7 @@ func IssueIndex(items []issuepkg.Issue, cursor, width, rows int) string {
 			centerPad(it.Key, keyW) + " " +
 			title + " " +
 			visPad(string(it.Kind), kindW) + " " +
-			bugStatusStyle(it.Status).Render(visPad(it.Status, statusW)) + " " +
+			issueStatusStyle(it.Status).Render(visPad(it.Status, statusW)) + " " +
 			visPad(issueLeadValue(it), leadW)
 		lines = append(lines, line)
 	}
@@ -107,7 +155,7 @@ func IssueDetail(it issuepkg.Issue, notes []issuepkg.Note, activity []issuepkg.A
 		ValueStyle.Render("[d] diagnose   [f] fix   [l] take lead   [s] status"),
 	)
 
-	return strings.Join(trimBugLines(lines, rows), "\n")
+	return strings.Join(trimIssueLines(lines, rows), "\n")
 }
 
 func renderIssueSummary(summary string) string {

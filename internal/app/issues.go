@@ -7,9 +7,64 @@ import (
 
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	"github.com/mindspore-lab/mindspore-cli/ui/model"
+	"github.com/mindspore-lab/mindspore-cli/ui/render"
 )
 
-func (a *Application) cmdIssueReportInput(input string) {
+func (a *Application) cmdFeedback(input string) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		a.EventCh <- model.Event{
+			Type:    model.AgentReply,
+			Message: "Usage: /feedback [tags] <title> | /feedback acc|fail|perf <title>",
+		}
+		return
+	}
+	fields := strings.Fields(input)
+	if _, err := issuepkg.NormalizeKind(fields[0]); err == nil {
+		a.cmdFeedbackIssue(input)
+	} else {
+		a.cmdFeedbackBug(input)
+	}
+}
+
+func (a *Application) cmdFeedbackBug(input string) {
+	if !a.ensureIssueService() {
+		return
+	}
+
+	title := strings.TrimSpace(input)
+	if title == "" {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: "Usage: /feedback <title>"}
+		return
+	}
+	issue, err := a.issueService.CreateIssue(title, issuepkg.KindBug, a.issueUser)
+	if err != nil {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: fmt.Sprintf("report failed: %v", err)}
+		return
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		Message: fmt.Sprintf("created %s [bug]: %s", issue.Key, issue.Title),
+	}
+}
+
+func (a *Application) cmdNow() {
+	if !a.ensureIssueService() {
+		return
+	}
+	data, err := a.issueService.DockSummary()
+	if err != nil {
+		a.EventCh <- model.Event{Type: model.AgentReply, Message: fmt.Sprintf("dashboard failed: %v", err)}
+		return
+	}
+	a.EventCh <- model.Event{
+		Type:    model.AgentReply,
+		RawANSI: true,
+		Message: render.Dock(data),
+	}
+}
+
+func (a *Application) cmdFeedbackIssue(input string) {
 	if !a.ensureIssueService() {
 		return
 	}
@@ -157,6 +212,24 @@ func (a *Application) cmdMigrate(input string) {
 		"Load skill migrate-agent.\n\nUser request: %s",
 		strings.TrimSpace(input),
 	)
+	a.EventCh <- model.Event{Type: model.AgentThinking}
+	go a.runTask(task)
+}
+
+func (a *Application) cmdIntegrate(input string) {
+	task := fmt.Sprintf(
+		"Load the appropriate skill (algorithm-agent or operator-agent) based on the user request.\n\nUser request: %s",
+		strings.TrimSpace(input),
+	)
+	a.EventCh <- model.Event{Type: model.AgentThinking}
+	go a.runTask(task)
+}
+
+func (a *Application) cmdPreflight(input string) {
+	task := "Load skill readiness-agent."
+	if prompt := strings.TrimSpace(input); prompt != "" {
+		task += "\n\nUser request: " + prompt
+	}
 	a.EventCh <- model.Event{Type: model.AgentThinking}
 	go a.runTask(task)
 }

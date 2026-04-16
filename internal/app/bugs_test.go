@@ -5,58 +5,31 @@ import (
 	"testing"
 	"time"
 
-	bugpkg "github.com/mindspore-lab/mindspore-cli/internal/bugs"
+	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	"github.com/mindspore-lab/mindspore-cli/ui/model"
 )
 
-type fakeBugStore struct {
-	dock *bugpkg.DockData
+type fakeDockIssueStore struct {
+	fakeAppIssueStore
+	dock *issuepkg.DockData
 }
 
-func (f *fakeBugStore) CreateBug(title, reporter string, tags []string) (*bugpkg.Bug, error) {
-	return nil, nil
-}
-
-func (f *fakeBugStore) ListBugs(status string) ([]bugpkg.Bug, error) {
-	return nil, nil
-}
-
-func (f *fakeBugStore) GetBug(id int) (*bugpkg.Bug, error) {
-	return nil, nil
-}
-
-func (f *fakeBugStore) ClaimBug(id int, lead string) error {
-	return nil
-}
-
-func (f *fakeBugStore) CloseBug(id int) error {
-	return nil
-}
-
-func (f *fakeBugStore) AddNote(bugID int, author, content string) (*bugpkg.Note, error) {
-	return nil, nil
-}
-
-func (f *fakeBugStore) ListActivity(bugID int) ([]bugpkg.Activity, error) {
-	return nil, nil
-}
-
-func (f *fakeBugStore) DockSummary() (*bugpkg.DockData, error) {
+func (f *fakeDockIssueStore) DockSummary() (*issuepkg.DockData, error) {
 	return f.dock, nil
 }
 
 func TestCmdDockStreamsRawANSI(t *testing.T) {
-	store := &fakeBugStore{
-		dock: &bugpkg.DockData{
+	store := &fakeDockIssueStore{
+		dock: &issuepkg.DockData{
 			OpenCount:   21,
 			OnlineCount: 5,
-			ReadyBugs: []bugpkg.Bug{
-				{ID: 43, Title: "abnormal display for contents of /project", Status: "open"},
+			ReadyIssues: []issuepkg.Issue{
+				{ID: 43, Key: "ISSUE-43", Title: "abnormal display for contents of /project", Kind: issuepkg.KindBug, Status: "ready"},
 			},
-			RecentFeed: []bugpkg.Activity{
+			RecentFeed: []issuepkg.Activity{
 				{
 					Actor:     "xinwen",
-					Text:      "reported bug: abnormal display for contents of /dock",
+					Text:      "reported issue: abnormal display for contents of /now",
 					CreatedAt: time.Date(2026, 4, 3, 3, 22, 0, 0, time.FixedZone("CST", 8*3600)),
 				},
 			},
@@ -64,25 +37,25 @@ func TestCmdDockStreamsRawANSI(t *testing.T) {
 	}
 
 	app := &Application{
-		EventCh:    make(chan model.Event, 4),
-		bugService: bugpkg.NewService(store),
+		EventCh:      make(chan model.Event, 4),
+		issueService: issuepkg.NewService(store),
 	}
 
-	app.cmdDock()
+	app.cmdNow()
 
 	ev := drainUntilEventType(t, app, model.AgentReply)
 	if !ev.RawANSI {
-		t.Fatal("expected /dock output to be marked RawANSI")
+		t.Fatal("expected /now output to be marked RawANSI")
 	}
 	for _, want := range []string{
-		"DOCK",
-		"open bugs",
+		"DASHBOARD",
+		"open issues",
 		"online (24h)",
 		"abnormal display for contents of /project",
-		"reported bug: abnormal display for contents of /dock",
+		"reported issue: abnormal display for contents of /now",
 	} {
 		if !strings.Contains(ev.Message, want) {
-			t.Fatalf("expected /dock output to contain %q, got:\n%s", want, ev.Message)
+			t.Fatalf("expected /now output to contain %q, got:\n%s", want, ev.Message)
 		}
 	}
 }

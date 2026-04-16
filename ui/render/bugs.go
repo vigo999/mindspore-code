@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/mindspore-lab/mindspore-cli/internal/bugs"
+	"github.com/mindspore-lab/mindspore-cli/internal/issues"
 )
 
 func visPad(s string, w int) string {
@@ -31,77 +31,27 @@ func visTruncate(s string, w int) string {
 	return "..."
 }
 
-func BugList(bugs []bugs.Bug) string {
-	idW, titleW, statusW, leadW, reporterW := 2, 12, 6, 4, 8
-	for _, b := range bugs {
-		if l := len(fmt.Sprintf("%d", b.ID)); l > idW {
-			idW = l
-		}
-		if w := lipgloss.Width(b.Title); w > titleW {
-			titleW = w
-		}
-		if w := lipgloss.Width(b.Status); w > statusW {
-			statusW = w
-		}
-		lead := b.Lead
-		if lead == "" {
-			lead = "-"
-		}
-		if w := lipgloss.Width(lead); w > leadW {
-			leadW = w
-		}
-		if w := lipgloss.Width(b.Reporter); w > reporterW {
-			reporterW = w
-		}
-	}
-	if titleW > 50 {
-		titleW = 50
-	}
-
-	var lines []string
-	header := visPad("  "+visPad("id", idW)+"  "+visPad("title", titleW)+"  "+visPad("status", statusW)+"  "+visPad("lead", leadW)+"  "+visPad("reporter", reporterW), 0)
-	lines = append(lines, TitleStyle.Render("BUG LIST"))
-	lines = append(lines, TitleStyle.Render(header))
-
-	for _, b := range bugs {
-		title := visTruncate(b.Title, titleW)
-		lead := b.Lead
-		if lead == "" {
-			lead = "-"
-		}
-		statusStyle := StatusOpenStyle
-		if b.Status == "doing" {
-			statusStyle = StatusDoingStyle
-		}
-
-		line := "  " +
-			visPad(fmt.Sprintf("%d", b.ID), idW) + "  " +
-			visPad(title, titleW) + "  " +
-			statusStyle.Render(visPad(b.Status, statusW)) + "  " +
-			visPad(lead, leadW) + "  " +
-			visPad(b.Reporter, reporterW)
-		lines = append(lines, line)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func Dock(data *bugs.DockData) string {
+func Dock(data *issues.DockData) string {
 	lines := []string{
-		TitleStyle.Render("DOCK"),
+		TitleStyle.Render("DASHBOARD"),
 		"",
 		fmt.Sprintf("  %s %s    %s %s",
-			LabelStyle.Render("open bugs"),
+			LabelStyle.Render("open issues"),
 			ValueStyle.Render(fmt.Sprintf("%d", data.OpenCount)),
 			LabelStyle.Render("online (24h)"),
 			ValueStyle.Render(fmt.Sprintf("%d", data.OnlineCount)),
 		),
 	}
 
-	if len(data.ReadyBugs) > 0 {
+	if len(data.ReadyIssues) > 0 {
 		lines = append(lines, "", LabelStyle.Render("  ready (unassigned)"))
-		for _, b := range data.ReadyBugs {
-			lines = append(lines, fmt.Sprintf("    %d  %s  %s",
-				b.ID, b.Title, StatusOpenStyle.Render(b.Status)))
+		for _, issue := range data.ReadyIssues {
+			kindLabel := ""
+			if issue.Kind != "" {
+				kindLabel = " [" + string(issue.Kind) + "]"
+			}
+			lines = append(lines, fmt.Sprintf("    %s%s  %s  %s",
+				issue.Key, kindLabel, issue.Title, StatusOpenStyle.Render(issue.Status)))
 		}
 	}
 

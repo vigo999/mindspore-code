@@ -9,4 +9,5 @@ type Store interface {
 	ListActivity(issueID int) ([]Activity, error)
 	ClaimIssue(id int, lead string) (*Issue, error)
 	UpdateStatus(id int, status string, actor string) (*Issue, error)
+	DockSummary() (*DockData, error)
 }

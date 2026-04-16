@@ -2,14 +2,13 @@ package server
 
 import (
 	"database/sql"
-	"reflect"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 )
 
-func TestStoreCreateBugPersistsTags(t *testing.T) {
+func TestStoreCreateBugKindIssue(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
@@ -21,23 +20,26 @@ func TestStoreCreateBugPersistsTags(t *testing.T) {
 		t.Fatalf("new store: %v", err)
 	}
 
-	bug, err := store.CreateBug("prompt overlaps bug detail", "travis", []string{"ui", " train ", "ui"})
+	issue, err := store.CreateIssue("prompt overlaps bug detail", issuepkg.KindBug, "travis")
 	if err != nil {
-		t.Fatalf("create bug: %v", err)
+		t.Fatalf("create bug issue: %v", err)
 	}
-	if got, want := bug.Tags, []string{"ui", "train"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("create bug tags = %#v, want %#v", got, want)
+	if got, want := issue.Kind, issuepkg.KindBug; got != want {
+		t.Fatalf("issue kind = %q, want %q", got, want)
+	}
+	if got, want := issue.Status, "ready"; got != want {
+		t.Fatalf("issue status = %q, want %q", got, want)
 	}
 
-	listed, err := store.ListBugs("")
+	listed, err := store.ListIssues("")
 	if err != nil {
-		t.Fatalf("list bugs: %v", err)
+		t.Fatalf("list issues: %v", err)
 	}
 	if got, want := len(listed), 1; got != want {
-		t.Fatalf("bug count = %d, want %d", got, want)
+		t.Fatalf("issue count = %d, want %d", got, want)
 	}
-	if got, want := listed[0].Tags, []string{"ui", "train"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("listed bug tags = %#v, want %#v", got, want)
+	if got, want := listed[0].Kind, issuepkg.KindBug; got != want {
+		t.Fatalf("listed issue kind = %q, want %q", got, want)
 	}
 }
 

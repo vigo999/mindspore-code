@@ -12,6 +12,7 @@ import (
 	"time"
 
 	agentctx "github.com/mindspore-lab/mindspore-cli/agent/context"
+	"github.com/mindspore-lab/mindspore-cli/agent/loop"
 	"github.com/mindspore-lab/mindspore-cli/integrations/llm"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	projectpkg "github.com/mindspore-lab/mindspore-cli/internal/project"
@@ -456,6 +457,10 @@ func (a *Application) cmdCompact() {
 			Message: "Context compaction is not available.",
 		}
 		return
+	}
+	a.EventCh <- model.Event{
+		Type:    model.ContextNotice,
+		Message: loop.ContextCompactStartMessage,
 	}
 
 	compactCtx := context.Background()

@@ -165,6 +165,8 @@ type contextCompactionNotice struct {
 	AfterTokens  int
 }
 
+const ContextCompactStartMessage = "compacting context..."
+
 func (ex *executor) run(ctx context.Context) ([]Event, error) {
 	notice, err := ex.addContextMessage(ctx, llm.NewUserMessage(ex.task.Description))
 	if err != nil {
@@ -684,6 +686,9 @@ func (ex *executor) persistSnapshot() error {
 }
 
 func (ex *executor) addContextMessage(ctx context.Context, msg llm.Message) (*contextCompactionNotice, error) {
+	if strings.TrimSpace(msg.Role) != "user" && ex.engine.ctxManager.ShouldCompactAfterAdding(msg) {
+		ex.addEvent(NewEvent(EventContextCompactStart, ContextCompactStartMessage))
+	}
 	beforeUsage := ex.engine.ctxManager.TokenUsage()
 	beforeCompactCount := ex.engine.ctxManager.CompactCount()
 	if err := ex.engine.ctxManager.AddMessageWithContext(ctx, msg); err != nil {

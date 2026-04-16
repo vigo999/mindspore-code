@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	ctxmanager "github.com/mindspore-lab/mindspore-cli/agent/context"
 	"github.com/mindspore-lab/mindspore-cli/agent/loop"
 	"github.com/mindspore-lab/mindspore-cli/integrations/llm"
 	"github.com/mindspore-lab/mindspore-cli/tools"
@@ -100,6 +101,62 @@ func TestInterruptTokenCancelsActiveTask(t *testing.T) {
 		case <-deadline:
 			return
 		}
+	}
+}
+
+func TestProcessInputShowsAutoCompactNoticeAfterUserInput(t *testing.T) {
+	provider := &singleReplyProvider{content: "ok"}
+	engine := loop.NewEngine(loop.EngineConfig{
+		MaxIterations: 1,
+		ContextWindow: 100,
+	}, provider, tools.NewRegistry())
+
+	ctxManager := ctxmanager.NewManager(ctxmanager.ManagerConfig{
+		ContextWindow:       100,
+		ReserveTokens:       10,
+		CompactionThreshold: 0.9,
+		EnableSmartCompact:  false,
+	})
+	for i := 0; i < 3; i++ {
+		if err := ctxManager.AddMessage(llm.NewUserMessage(strings.Repeat("x", 80))); err != nil {
+			t.Fatalf("AddMessage #%d failed: %v", i+1, err)
+		}
+	}
+	engine.SetContextManager(ctxManager)
+
+	app := &Application{
+		Engine:     engine,
+		EventCh:    make(chan model.Event, 32),
+		llmReady:   true,
+		ctxManager: ctxManager,
+	}
+
+	app.processInput(strings.Repeat("y", 40))
+
+	first := drainNextEvent(t, app)
+	if got, want := first.Type, model.UserInput; got != want {
+		t.Fatalf("first event type = %q, want %q", got, want)
+	}
+	second := drainNextEvent(t, app)
+	if got, want := second.Type, model.ContextNotice; got != want {
+		t.Fatalf("second event type = %q, want %q", got, want)
+	}
+	if got, want := second.Message, loop.ContextCompactStartMessage; got != want {
+		t.Fatalf("second event message = %q, want %q", got, want)
+	}
+}
+
+func drainNextEvent(t *testing.T, app *Application) model.Event {
+	t.Helper()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case ev := <-app.EventCh:
+		return ev
+	case <-timer.C:
+		t.Fatal("timed out waiting for next event")
+		return model.Event{}
 	}
 }
 
@@ -251,6 +308,24 @@ func TestConvertLoopEvent_ContextCompactedUsesContextNotice(t *testing.T) {
 	got := convertLoopEvent(ev)
 	if got == nil {
 		t.Fatal("convertLoopEvent(ContextCompacted) = nil, want non-nil")
+	}
+	if got.Type != model.ContextNotice {
+		t.Fatalf("convertLoopEvent type = %v, want %v", got.Type, model.ContextNotice)
+	}
+	if got.Message != ev.Message {
+		t.Fatalf("convertLoopEvent message = %q, want %q", got.Message, ev.Message)
+	}
+}
+
+func TestConvertLoopEvent_ContextCompactStartedUsesContextNotice(t *testing.T) {
+	ev := loop.Event{
+		Type:    loop.EventContextCompactStart,
+		Message: "compacting context...",
+	}
+
+	got := convertLoopEvent(ev)
+	if got == nil {
+		t.Fatal("convertLoopEvent(ContextCompactStarted) = nil, want non-nil")
 	}
 	if got.Type != model.ContextNotice {
 		t.Fatalf("convertLoopEvent type = %v, want %v", got.Type, model.ContextNotice)

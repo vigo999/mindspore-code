@@ -64,6 +64,7 @@ const (
 	EventAgentReplyDelta     = "AgentReplyDelta"
 	EventAgentBackgroundWork = "AgentBackgroundWork"
 	EventAgentThinking       = "AgentThinking"
+	EventContextCompactStart = "ContextCompactStarted"
 	EventContextCompacted    = "ContextCompacted"
 	EventTokenUpdate         = "TokenUpdate"
 	EventToolRead            = "ToolRead"

@@ -304,6 +304,12 @@ func (a *Application) runTask(description string) {
 		ID:          generateTaskID(),
 		Description: description,
 	}
+	if a.ctxManager != nil && a.ctxManager.ShouldCompactAfterAdding(llm.NewUserMessage(description)) {
+		emit(model.Event{
+			Type:    model.ContextNotice,
+			Message: loop.ContextCompactStartMessage,
+		})
+	}
 	ctx, runID := a.beginTaskRun()
 	defer a.finishTaskRun(runID)
 
@@ -886,26 +892,27 @@ func parseReplaySpeed(raw string) (float64, bool) {
 }
 
 var loopEventTypeMap = map[string]model.EventType{
-	"ToolCallStart":       model.ToolCallStart,
-	"AgentReply":          model.AgentReply,
-	"AgentReplyDelta":     model.AgentReplyDelta,
-	"AgentBackgroundWork": model.AgentBackgroundWork,
-	"AgentThinking":       model.AgentThinking,
-	"ContextCompacted":    model.ContextNotice,
-	"ToolRead":            model.ToolRead,
-	"ToolGrep":            model.ToolGrep,
-	"ToolGlob":            model.ToolGlob,
-	"ToolEdit":            model.ToolEdit,
-	"ToolWrite":           model.ToolWrite,
-	"ToolSkill":           model.ToolSkill,
-	"ToolError":           model.ToolError,
-	"ToolInterrupted":     model.ToolInterrupted,
-	"CmdStarted":          model.CmdStarted,
-	"CmdOutput":           model.CmdOutput,
-	"CmdFinished":         model.CmdFinished,
-	"AnalysisReady":       model.AnalysisReady,
-	"TokenUpdate":         model.TokenUpdate,
-	"TaskFailed":          model.ToolError,
+	"ToolCallStart":         model.ToolCallStart,
+	"AgentReply":            model.AgentReply,
+	"AgentReplyDelta":       model.AgentReplyDelta,
+	"AgentBackgroundWork":   model.AgentBackgroundWork,
+	"AgentThinking":         model.AgentThinking,
+	"ContextCompactStarted": model.ContextNotice,
+	"ContextCompacted":      model.ContextNotice,
+	"ToolRead":              model.ToolRead,
+	"ToolGrep":              model.ToolGrep,
+	"ToolGlob":              model.ToolGlob,
+	"ToolEdit":              model.ToolEdit,
+	"ToolWrite":             model.ToolWrite,
+	"ToolSkill":             model.ToolSkill,
+	"ToolError":             model.ToolError,
+	"ToolInterrupted":       model.ToolInterrupted,
+	"CmdStarted":            model.CmdStarted,
+	"CmdOutput":             model.CmdOutput,
+	"CmdFinished":           model.CmdFinished,
+	"AnalysisReady":         model.AnalysisReady,
+	"TokenUpdate":           model.TokenUpdate,
+	"TaskFailed":            model.ToolError,
 }
 
 // convertLoopEvent maps loop.Event -> UI model.Event.

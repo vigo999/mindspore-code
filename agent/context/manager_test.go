@@ -515,6 +515,27 @@ func TestAddMessageCompactsToTargetAfterThresholdExceeded(t *testing.T) {
 	}
 }
 
+func TestShouldCompactAfterAddingPredictsAutoCompact(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 100
+	cfg.ReserveTokens = 10
+	cfg.EnableSmartCompact = false
+	mgr := NewManager(cfg)
+
+	for i := 0; i < 3; i++ {
+		if err := mgr.AddMessage(llm.NewUserMessage(strings.Repeat("x", 80))); err != nil {
+			t.Fatalf("AddMessage #%d failed: %v", i+1, err)
+		}
+	}
+
+	if !mgr.ShouldCompactAfterAdding(llm.NewUserMessage(strings.Repeat("x", 80))) {
+		t.Fatal("ShouldCompactAfterAdding = false, want true")
+	}
+	if mgr.ShouldCompactAfterAdding(llm.NewToolMessage("call_1", strings.Repeat("x", 1000))) {
+		t.Fatal("ShouldCompactAfterAdding oversized message = true, want false")
+	}
+}
+
 func TestSetCompactStrategy(t *testing.T) {
 	mgr := NewManager(DefaultManagerConfig())
 

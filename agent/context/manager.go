@@ -495,6 +495,18 @@ func (m *Manager) IsWithinBudget(msg llm.Message) bool {
 	return estimated <= m.maxUsableTokensLocked()
 }
 
+// ShouldCompactAfterAdding reports whether appending msg would trigger auto compaction.
+func (m *Manager) ShouldCompactAfterAdding(msg llm.Message) bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	msgTokens := m.tokenizer.EstimateMessage(msg)
+	if msgTokens > m.maxUsableTokensLocked() {
+		return false
+	}
+	return m.shouldCompactLocked(msgTokens)
+}
+
 // GetStats returns context statistics.
 func (m *Manager) GetStats() map[string]any {
 	m.mu.RLock()

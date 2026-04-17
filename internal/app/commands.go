@@ -13,7 +13,6 @@ import (
 
 	agentctx "github.com/mindspore-lab/mindspore-cli/agent/context"
 	"github.com/mindspore-lab/mindspore-cli/integrations/llm"
-	"github.com/mindspore-lab/mindspore-cli/internal/bugs"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	projectpkg "github.com/mindspore-lab/mindspore-cli/internal/project"
 	"github.com/mindspore-lab/mindspore-cli/permission"
@@ -59,7 +58,7 @@ func (a *Application) handleCommand(input string) {
 			a.emitInputExpansionError(err)
 			return
 		}
-		a.cmdUnifiedReport(expanded)
+		a.cmdFeedback(expanded)
 	case "/issues":
 		a.cmdIssues(args)
 	case "/__issue_detail":
@@ -89,16 +88,17 @@ func (a *Application) handleCommand(input string) {
 			return
 		}
 		a.cmdMigrate(expanded)
-	case "/bugs":
-		a.cmdBugs(args)
-	case "/__bug_detail":
-		a.cmdBugDetail(args)
-	case "/claim":
-		a.cmdClaim(args)
-	case "/close":
-		a.cmdClose(args)
+	case "/integrate":
+		expanded, err := a.expandIssueCommandInput(cmd.Remainder)
+		if err != nil {
+			a.emitInputExpansionError(err)
+			return
+		}
+		a.cmdIntegrate(expanded)
+	case "/preflight":
+		a.cmdPreflight(cmd.Remainder)
 	case "/now":
-		a.cmdDock()
+		a.cmdNow()
 	case "/skill":
 		if err := a.handleRawSkillCommand(cmd.Remainder); err != nil {
 			a.emitInputExpansionError(err)
@@ -352,7 +352,6 @@ func (a *Application) cmdModelSetup(args []string) {
 	if err := saveCredentials(cred); err != nil {
 		a.emitToolError("config", "login ok but failed to save credentials: %v", err)
 	}
-	a.bugService = bugs.NewService(bugs.NewRemoteStore(serverURL, token))
 	a.issueService = issuepkg.NewService(issuepkg.NewRemoteStore(serverURL, token))
 	a.projectService = projectpkg.NewService(projectpkg.NewRemoteStore(serverURL, token))
 	a.issueUser = userName

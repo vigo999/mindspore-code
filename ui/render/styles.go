@@ -18,11 +18,8 @@ func InitStyles() {
 	StatusDoingStyle = lipgloss.NewStyle().Foreground(t.Warning)
 	ActivityStyle = lipgloss.NewStyle().Foreground(t.TextSecondary)
 
-	// bug_index.go
-	statusClosedStyle = lipgloss.NewStyle().Foreground(t.TextSecondary)
-	bugRowSelectedStyle = lipgloss.NewStyle().Background(t.SelectionBG)
-	bugHeaderStyle = lipgloss.NewStyle().Foreground(t.TextPrimary)
-
 	// issues.go
+	statusClosedStyle = lipgloss.NewStyle().Foreground(t.TextSecondary)
 	issueRowSelectedStyle = lipgloss.NewStyle().Background(t.SelectionBG)
+	issueHeaderStyle = lipgloss.NewStyle().Foreground(t.TextPrimary)
 }

@@ -18,8 +18,27 @@ func buildSystemPrompt(summaries []skills.SkillSummary) string {
 		skills.FormatSummaries(summaries)
 }
 
+// builtinCommandSkills lists skill names that are already registered as
+// built-in slash commands (e.g., /diagnose, /fix). These are not re-registered
+// from the skill catalog to avoid duplicates. Backend agent skills (e.g.,
+// failure-agent, accuracy-agent) are also excluded — they are invoked
+// internally by the built-in commands, not by the user directly.
+var hiddenSkills = map[string]bool{
+	"failure-agent":     true,
+	"accuracy-agent":    true,
+	"performance-agent": true,
+	"migrate-agent":     true,
+	"algorithm-agent":   true,
+	"operator-agent":    true,
+	"readiness-agent":   true,
+	"api-helper":        true,
+}
+
 func registerSkillCommands(summaries []skills.SkillSummary) {
 	for _, s := range summaries {
+		if hiddenSkills[s.Name] {
+			continue
+		}
 		slash.Register(slash.Command{
 			Name:        "/" + s.Name,
 			Description: s.Description,

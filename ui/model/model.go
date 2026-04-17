@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mindspore-lab/mindspore-cli/internal/bugs"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 )
 
@@ -113,29 +112,27 @@ const (
 // Event is sent from the agent loop to the TUI.
 // Implements tea.Msg so Bubble Tea can route it.
 type Event struct {
-	Type          EventType
-	Task          string
-	Message       string
-	RawANSI       bool
-	ToolName      string
-	ToolCallID    string
-	Summary       string
-	Meta          map[string]any
-	ReplayWait    *ReplayWaitData
-	CtxUsed       int
-	CtxMax        int
-	TokensUsed    int
-	Train         *TrainEventData // non-nil for train events only
-	Project       *ProjectStatusView
-	Permission    *PermissionPromptData
-	Permissions   *PermissionsViewData
-	Popup         *SelectionPopup // non-nil for popup events only
-	SetupPopup    *SetupPopup     // non-nil for model setup popup events
+	Type        EventType
+	Task        string
+	Message     string
+	RawANSI     bool
+	ToolName    string
+	ToolCallID  string
+	Summary     string
+	Meta        map[string]any
+	ReplayWait  *ReplayWaitData
+	CtxUsed     int
+	CtxMax      int
+	TokensUsed  int
+	Train       *TrainEventData // non-nil for train events only
+	Project     *ProjectStatusView
+	Permission  *PermissionPromptData
+	Permissions *PermissionsViewData
+	Popup       *SelectionPopup // non-nil for popup events only
+	SetupPopup  *SetupPopup     // non-nil for model setup popup events
 	SessionPicker *SessionPicker
-	BugView       *BugEventData   // non-nil for bug view events only
-	IssueView     *IssueEventData // non-nil for issue view events only
-	Bug           *bugs.Bug       // reserved for lightweight bug payloads
-	Issue         *issuepkg.Issue // reserved for lightweight issue payloads
+	IssueView   *IssueEventData // non-nil for issue view events only
+	Issue       *issuepkg.Issue // reserved for lightweight issue payloads
 }
 
 // ReplayWaitData lets replay fast-forward the UI timer while using shorter real delays.

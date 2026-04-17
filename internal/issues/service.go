@@ -39,3 +39,7 @@ func (s *Service) ClaimIssue(id int, lead string) (*Issue, error) {
 func (s *Service) UpdateStatus(id int, status string, actor string) (*Issue, error) {
 	return s.store.UpdateStatus(id, status, actor)
 }
+
+func (s *Service) DockSummary() (*DockData, error) {
+	return s.store.DockSummary()
+}

@@ -126,46 +126,6 @@ func RenderTrainHUDHintBar(width int) string {
 	return divider + "\n" + line + indicator
 }
 
-func RenderBugHintBar(width int, mode model.BugMode) string {
-	divider := hintDividerStyle.Render(repeatChar("─", width))
-
-	bugHints := []hint{{"esc", "back"}, {"ctrl+c", "quit"}}
-	switch mode {
-	case model.BugModeIndex:
-		bugHints = []hint{
-			{"↑/↓", "move"},
-			{"j/k", "move"},
-			{"enter", "open"},
-			{"c", "claim"},
-			{"esc", "back"},
-			{"ctrl+c", "quit"},
-		}
-	case model.BugModeDetail:
-		bugHints = []hint{
-			{"c", "claim"},
-			{"C", "close"},
-			{"esc", "back"},
-			{"ctrl+c", "quit"},
-		}
-	}
-
-	parts := make([]string, len(bugHints))
-	for i, h := range bugHints {
-		parts[i] = hintKeyStyle.Render(h.key) + " " + hintDescStyle.Render(h.desc)
-	}
-
-	sep := hintSepStyle.Render(" • ")
-	line := hintTextStyle.Render("")
-	for i, p := range parts {
-		if i > 0 {
-			line += sep
-		}
-		line += p
-	}
-
-	return divider + "\n" + line + hintDescStyle.Render("  [bugs]")
-}
-
 func RenderIssueHintBar(width int, mode model.IssueMode) string {
 	divider := hintDividerStyle.Render(repeatChar("─", width))
 

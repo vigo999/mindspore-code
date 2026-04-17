@@ -42,7 +42,7 @@ func TestCmdIssueReportInputCreatesIssue(t *testing.T) {
 		issueUser:    "alice",
 	}
 
-	app.cmdIssueReportInput("accuracy acc failure in migrate")
+	app.cmdFeedbackIssue("accuracy acc failure in migrate")
 
 	ev := <-app.EventCh
 	if ev.Type != model.AgentReply {
@@ -257,4 +257,8 @@ func (f *fakeAppIssueStore) ClaimIssue(id int, lead string) (*issuepkg.Issue, er
 
 func (f *fakeAppIssueStore) UpdateStatus(id int, status string, actor string) (*issuepkg.Issue, error) {
 	return f.issue, nil
+}
+
+func (f *fakeAppIssueStore) DockSummary() (*issuepkg.DockData, error) {
+	return &issuepkg.DockData{}, nil
 }

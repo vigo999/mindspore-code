@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mindspore-lab/mindspore-cli/internal/bugs"
 	issuepkg "github.com/mindspore-lab/mindspore-cli/internal/issues"
 	"github.com/mindspore-lab/mindspore-cli/internal/project"
 )
@@ -115,184 +114,80 @@ func (s *Store) migrate() error {
 	if _, err := s.db.Exec(`ALTER TABLE project_tasks ADD COLUMN tags TEXT NOT NULL DEFAULT ''`); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column name") {
 		return fmt.Errorf("ensure project_tasks.tags column: %w", err)
 	}
+
+	// Add indexes for issues queries.
+	indexStmts := []string{
+		`CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_issues_updated_at ON issues(updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_issue_activities_created_at ON issue_activities(created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_issue_notes_issue_id ON issue_notes(issue_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_issue_activities_issue_id ON issue_activities(issue_id)`,
+	}
+	for _, stmt := range indexStmts {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return fmt.Errorf("create index: %w", err)
+		}
+	}
+
+	// Migrate bugs → issues: compute offset once via CTE, insert bugs as
+	// issues with kind='bug'. Only runs if unmigrated bugs exist.
+	var bugCount int
+	_ = s.db.QueryRow(`SELECT COUNT(*) FROM bugs WHERE NOT EXISTS (SELECT 1 FROM issues WHERE issues.title = bugs.title AND issues.kind = 'bug')`).Scan(&bugCount)
+	if bugCount > 0 {
+		migrateBugsSQL := []string{
+			`WITH offset(v) AS (SELECT COALESCE(MAX(id), 0) FROM issues)
+			 INSERT OR IGNORE INTO issues (id, title, kind, status, lead, reporter, summary, created_at, updated_at)
+			 SELECT b.id + offset.v, b.title, 'bug',
+			        CASE b.status WHEN 'open' THEN 'ready' ELSE b.status END,
+			        b.lead, b.reporter, '', b.created_at, b.updated_at
+			 FROM bugs b, offset
+			 WHERE NOT EXISTS (SELECT 1 FROM issues WHERE issues.title = b.title AND issues.kind = 'bug')`,
+
+			`WITH offset(v) AS (SELECT COALESCE(MAX(id), 0) FROM issues WHERE kind != 'bug')
+			 INSERT OR IGNORE INTO issue_notes (issue_id, author, content, created_at)
+			 SELECT n.bug_id + offset.v, n.author, n.content, n.created_at
+			 FROM notes n, offset
+			 WHERE EXISTS (SELECT 1 FROM issues WHERE issues.id = n.bug_id + offset.v)
+			   AND NOT EXISTS (SELECT 1 FROM issue_notes WHERE issue_notes.content = n.content AND issue_notes.created_at = n.created_at)`,
+
+			`WITH offset(v) AS (SELECT COALESCE(MAX(id), 0) FROM issues WHERE kind != 'bug')
+			 INSERT OR IGNORE INTO issue_activities (issue_id, actor, type, text, created_at)
+			 SELECT a.bug_id + offset.v, a.actor, a.type, a.text, a.created_at
+			 FROM activities a, offset
+			 WHERE EXISTS (SELECT 1 FROM issues WHERE issues.id = a.bug_id + offset.v)
+			   AND NOT EXISTS (SELECT 1 FROM issue_activities WHERE issue_activities.text = a.text AND issue_activities.created_at = a.created_at)`,
+		}
+		for _, stmt := range migrateBugsSQL {
+			if _, err := s.db.Exec(stmt); err != nil {
+				return fmt.Errorf("migrate bugs to issues: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
-func (s *Store) CreateBug(title, reporter string, tags []string) (*bugs.Bug, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	tagValue := encodeBugTags(tags)
-	res, err := s.db.Exec(
-		`INSERT INTO bugs (title, tags, status, reporter, created_at, updated_at) VALUES (?, ?, 'open', ?, ?, ?)`,
-		title, tagValue, reporter, now, now,
-	)
-	if err != nil {
-		return nil, err
-	}
-	id, _ := res.LastInsertId()
-	if _, err := s.db.Exec(
-		`INSERT INTO activities (bug_id, actor, type, text, created_at) VALUES (?, ?, 'report', ?, ?)`,
-		id, reporter, fmt.Sprintf("reported bug: %s", title), now,
-	); err != nil {
-		return nil, err
-	}
-	return s.GetBug(int(id))
-}
-
-func (s *Store) ListBugs(status string) ([]bugs.Bug, error) {
-	query := `SELECT id, title, tags, status, lead, reporter, created_at, updated_at FROM bugs`
-	var args []any
-	if status != "" {
-		query += ` WHERE status = ?`
-		args = append(args, status)
-	}
-	query += ` ORDER BY updated_at DESC`
-	rows, err := s.db.Query(query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var bugList []bugs.Bug
-	for rows.Next() {
-		var b bugs.Bug
-		var createdAt, updatedAt, tags string
-		if err := rows.Scan(&b.ID, &b.Title, &tags, &b.Status, &b.Lead, &b.Reporter, &createdAt, &updatedAt); err != nil {
-			return nil, err
-		}
-		b.Tags = decodeBugTags(tags)
-		b.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		b.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-		bugList = append(bugList, b)
-	}
-	return bugList, rows.Err()
-}
-
-func (s *Store) GetBug(id int) (*bugs.Bug, error) {
-	var b bugs.Bug
-	var createdAt, updatedAt, tags string
-	err := s.db.QueryRow(
-		`SELECT id, title, tags, status, lead, reporter, created_at, updated_at FROM bugs WHERE id = ?`, id,
-	).Scan(&b.ID, &b.Title, &tags, &b.Status, &b.Lead, &b.Reporter, &createdAt, &updatedAt)
-	if err != nil {
-		return nil, err
-	}
-	b.Tags = decodeBugTags(tags)
-	b.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	b.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
-	return &b, nil
-}
-
-func (s *Store) ClaimBug(id int, lead string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(
-		`UPDATE bugs SET lead = ?, status = 'doing', updated_at = ? WHERE id = ?`,
-		lead, now, id,
-	)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("bug %d not found", id)
-	}
-	_, err = s.db.Exec(
-		`INSERT INTO activities (bug_id, actor, type, text, created_at) VALUES (?, ?, 'claim', ?, ?)`,
-		id, lead, fmt.Sprintf("%s claimed bug", lead), now,
-	)
-	return err
-}
-
-func (s *Store) CloseBug(id int, user string) error {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(
-		`UPDATE bugs SET status = 'closed', updated_at = ? WHERE id = ?`,
-		now, id,
-	)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return fmt.Errorf("bug %d not found", id)
-	}
-	_, err = s.db.Exec(
-		`INSERT INTO activities (bug_id, actor, type, text, created_at) VALUES (?, ?, 'close', ?, ?)`,
-		id, user, fmt.Sprintf("%s closed bug", user), now,
-	)
-	return err
-}
-
-func (s *Store) AddNote(bugID int, author, content string) (*bugs.Note, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
-	res, err := s.db.Exec(
-		`INSERT INTO notes (bug_id, author, content, created_at) VALUES (?, ?, ?, ?)`,
-		bugID, author, content, now,
-	)
-	if err != nil {
-		return nil, err
-	}
-	noteID, _ := res.LastInsertId()
-	if _, err := s.db.Exec(
-		`INSERT INTO activities (bug_id, actor, type, text, created_at) VALUES (?, ?, 'note', ?, ?)`,
-		bugID, author, fmt.Sprintf("added note: %s", content), now,
-	); err != nil {
-		return nil, err
-	}
-	if _, err := s.db.Exec(`UPDATE bugs SET updated_at = ? WHERE id = ?`, now, bugID); err != nil {
-		return nil, err
-	}
-	createdAt, _ := time.Parse(time.RFC3339, now)
-	return &bugs.Note{
-		ID:        int(noteID),
-		BugID:     bugID,
-		Author:    author,
-		Content:   content,
-		CreatedAt: createdAt,
-	}, nil
-}
-
-func (s *Store) ListActivity(bugID int) ([]bugs.Activity, error) {
-	rows, err := s.db.Query(
-		`SELECT id, bug_id, actor, type, text, created_at FROM activities WHERE bug_id = ? ORDER BY created_at ASC`,
-		bugID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var acts []bugs.Activity
-	for rows.Next() {
-		var a bugs.Activity
-		var createdAt string
-		if err := rows.Scan(&a.ID, &a.BugID, &a.Actor, &a.Type, &a.Text, &createdAt); err != nil {
-			return nil, err
-		}
-		a.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		acts = append(acts, a)
-	}
-	return acts, rows.Err()
-}
-
-func (s *Store) DockSummary() (*bugs.DockData, error) {
+func (s *Store) DockSummary() (*issuepkg.DockData, error) {
 	var openCount int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM bugs WHERE status IN ('open','doing')`).Scan(&openCount); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM issues WHERE status IN ('ready','doing')`).Scan(&openCount); err != nil {
 		return nil, err
 	}
-	readyBugs, err := s.ListBugs("open")
+	readyIssues, err := s.ListIssues("ready")
 	if err != nil {
 		return nil, err
 	}
 	rows, err := s.db.Query(
-		`SELECT id, bug_id, actor, type, text, created_at FROM activities ORDER BY created_at DESC LIMIT 10`,
+		`SELECT id, issue_id, actor, type, text, created_at FROM issue_activities ORDER BY created_at DESC LIMIT 10`,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var feed []bugs.Activity
+	var feed []issuepkg.Activity
 	for rows.Next() {
-		var a bugs.Activity
+		var a issuepkg.Activity
 		var createdAt string
-		if err := rows.Scan(&a.ID, &a.BugID, &a.Actor, &a.Type, &a.Text, &createdAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.IssueID, &a.Actor, &a.Type, &a.Text, &createdAt); err != nil {
 			return nil, err
 		}
 		a.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
@@ -303,10 +198,10 @@ func (s *Store) DockSummary() (*bugs.DockData, error) {
 	}
 	onlineCount, _ := s.RecentUserCount(24 * time.Hour)
 
-	return &bugs.DockData{
+	return &issuepkg.DockData{
 		OpenCount:   openCount,
 		OnlineCount: onlineCount,
-		ReadyBugs:   readyBugs,
+		ReadyIssues: readyIssues,
 		RecentFeed:  feed,
 	}, nil
 }
@@ -485,14 +380,6 @@ func (s *Store) UpdateIssueStatus(id int, status string, actor string) (*issuepk
 		return nil, err
 	}
 	return s.GetIssue(id)
-}
-
-func encodeBugTags(tags []string) string {
-	return strings.Join(bugs.NormalizeTags(tags), ",")
-}
-
-func decodeBugTags(raw string) []string {
-	return bugs.NormalizeTags(strings.Split(raw, ","))
 }
 
 type issueScanner interface {

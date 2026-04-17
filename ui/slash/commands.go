@@ -263,26 +263,20 @@ func (r *Registry) registerDefaults() {
 	})
 
 	r.Register(Command{
-		Name:        "/bugs",
-		Description: "List bugs",
-		Usage:       "/bugs [status]",
+		Name:        "/integrate",
+		Description: "Integrate an algorithm or operator into model code",
+		Usage:       "/integrate <description>",
 	})
 
 	r.Register(Command{
-		Name:        "/claim",
-		Description: "Claim a bug as your lead",
-		Usage:       "/claim <id>",
-	})
-
-	r.Register(Command{
-		Name:        "/close",
-		Description: "Close a resolved bug",
-		Usage:       "/close <id>",
+		Name:        "/preflight",
+		Description: "Check workspace readiness for training or inference",
+		Usage:       "/preflight [description]",
 	})
 
 	r.Register(Command{
 		Name:        "/now",
-		Description: "Show bug dashboard",
+		Description: "Show issue dashboard",
 		Usage:       "/now",
 	})
 }

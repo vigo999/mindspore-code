@@ -22,10 +22,10 @@ func RenderIssueDetail(width, height int, st model.IssueDetailState) string {
 			render.ValueStyle.Render("failed to load issue"),
 			render.ValueStyle.Render(st.Err),
 		}
-		return padBugBody(padLeft.Render(strings.Join(lines, "\n")), height)
+		return trimPanelHeight(padLeft.Render(strings.Join(lines, "\n")), height)
 	}
 	if st.Issue == nil {
-		return padBugBody(padLeft.Render(render.TitleStyle.Render("ISSUE")), height)
+		return trimPanelHeight(padLeft.Render(render.TitleStyle.Render("ISSUE")), height)
 	}
-	return padBugBody(padLeft.Render(render.IssueDetail(*st.Issue, st.Notes, st.Activity, bodyWidth, height)), height)
+	return trimPanelHeight(padLeft.Render(render.IssueDetail(*st.Issue, st.Notes, st.Activity, bodyWidth, height)), height)
 }

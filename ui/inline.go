@@ -310,7 +310,7 @@ func (a App) renderTranscriptHistory(expanded, includeLive bool) string {
 }
 
 func (a App) reprintHistoryOnResize() tea.Cmd {
-	if a.bootActive || a.modalAltScreen || a.startupBannerSuppressed || a.issueView.Active() || a.bugView.Active() {
+	if a.bootActive || a.modalAltScreen || a.startupBannerSuppressed || a.issueView.Active() {
 		return nil
 	}
 

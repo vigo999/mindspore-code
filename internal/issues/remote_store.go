@@ -171,6 +171,21 @@ func (r *RemoteStore) ClaimIssue(id int, lead string) (*Issue, error) {
 	return &issue, nil
 }
 
+func (r *RemoteStore) DockSummary() (*DockData, error) {
+	body, status, err := r.do("GET", "/dock", nil)
+	if err != nil {
+		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("dock summary: server returned %d: %s", status, body)
+	}
+	var data DockData
+	if err := json.Unmarshal(body, &data); err != nil {
+		return nil, err
+	}
+	return &data, nil
+}
+
 func (r *RemoteStore) UpdateStatus(id int, statusValue string, actor string) (*Issue, error) {
 	_ = actor
 	body, status, err := r.do("PATCH", fmt.Sprintf("/issues/%d/status", id), updateIssueStatusPayload{Status: statusValue})

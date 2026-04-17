@@ -12,6 +12,7 @@ const (
 	KindFailure     Kind = "failure"
 	KindAccuracy    Kind = "accuracy"
 	KindPerformance Kind = "performance"
+	KindBug         Kind = "bug"
 )
 
 type Issue struct {
@@ -44,6 +45,13 @@ type Activity struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type DockData struct {
+	OpenCount   int        `json:"open_count"`
+	OnlineCount int        `json:"online_count"`
+	ReadyIssues []Issue    `json:"ready_issues"`
+	RecentFeed  []Activity `json:"recent_feed"`
+}
+
 func NormalizeKind(kind string) (Kind, error) {
 	switch strings.ToLower(strings.TrimSpace(kind)) {
 	case string(KindFailure), "fail":
@@ -52,6 +60,8 @@ func NormalizeKind(kind string) (Kind, error) {
 		return KindAccuracy, nil
 	case string(KindPerformance), "perf":
 		return KindPerformance, nil
+	case string(KindBug):
+		return KindBug, nil
 	default:
 		return "", fmt.Errorf("invalid issue kind: %s", kind)
 	}

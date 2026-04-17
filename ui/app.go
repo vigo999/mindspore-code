@@ -216,15 +216,13 @@ type App struct {
 	sessionPicker    *model.SessionPicker
 	appendHistoryFn  func(string)
 
-	// Tool output viewer (alt-screen overlay, toggled via Ctrl+O)
-	toolOutputView *toolOutputViewState
+	// Transcript viewer (alt-screen overlay, toggled via Ctrl+O)
+	transcriptView *transcriptViewState
 }
 
-// toolOutputViewState holds state for the alt-screen tool output viewer.
-type toolOutputViewState struct {
-	toolCallID string
-	msg        model.Message
-	scrollOff  int // vertical scroll offset (line index)
+// transcriptViewState holds state for the alt-screen transcript viewer.
+type transcriptViewState struct {
+	scrollOff int // vertical scroll offset (line index)
 }
 
 // New creates a new App driven by the given event channel.
@@ -383,7 +381,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.resizeActiveLayout()
-		return a, nil
+		return a, a.reprintHistoryOnResize()
 
 	case bootTickMsg:
 		if !a.bootActive {
@@ -469,7 +467,7 @@ func (a *App) wantsModalAltScreen() bool {
 	if a == nil {
 		return false
 	}
-	return a.modelPicker != nil || a.setupPopup != nil || a.sessionPicker != nil || a.toolOutputView != nil
+	return a.modelPicker != nil || a.setupPopup != nil || a.sessionPicker != nil || a.transcriptView != nil
 }
 
 func (a *App) syncModalAltScreen() tea.Cmd {
@@ -515,9 +513,9 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return a, a.printMessage(interruptMsg)
 	}
 
-	// Tool output viewer intercepts all keys when active.
-	if a.toolOutputView != nil {
-		return a.handleToolOutputViewKey(msg)
+	// Transcript viewer intercepts all keys when active.
+	if a.transcriptView != nil {
+		return a.handleTranscriptViewKey(msg)
 	}
 
 	if a.issueView.Active() {
@@ -525,16 +523,7 @@ func (a App) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.String() == "ctrl+o" {
-		if a.toolOutputView != nil {
-			a.toolOutputView = nil
-		} else {
-			if toolMsg, ok := a.latestToolMessage(); ok {
-				a.toolOutputView = &toolOutputViewState{
-					toolCallID: toolMsg.ToolCallID,
-					msg:        toolMsg,
-				}
-			}
-		}
+		a.openTranscriptView()
 		return a, a.syncModalAltScreen()
 	}
 
@@ -2963,39 +2952,55 @@ func collapsedPreviewLines(toolName string) int {
 	}
 }
 
-// ── Tool output viewer (alt-screen overlay) ────────────────────────
+// ── Transcript viewer (alt-screen overlay) ─────────────────────────
 
 var (
-	toolViewTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
-	toolViewHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
-	toolViewLineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	transcriptViewTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	transcriptViewHintStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("244")).Italic(true)
+	transcriptViewLineStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 )
 
-// handleToolOutputViewKey handles keys while the tool output viewer is open.
-func (a App) handleToolOutputViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	v := a.toolOutputView
-	contentHeight := a.toolOutputContentHeight()
+func (a *App) openTranscriptView() {
+	a.transcriptView = &transcriptViewState{}
+	a.scrollTranscriptToBottom()
+}
+
+func (a *App) scrollTranscriptToBottom() {
+	if a == nil || a.transcriptView == nil {
+		return
+	}
+	max := a.transcriptContentHeight() - a.transcriptViewportHeight()
+	if max < 0 {
+		max = 0
+	}
+	a.transcriptView.scrollOff = max
+}
+
+// handleTranscriptViewKey handles keys while the transcript viewer is open.
+func (a App) handleTranscriptViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	v := a.transcriptView
+	contentHeight := a.transcriptContentHeight()
 
 	switch msg.String() {
 	case "ctrl+o", "q", "esc":
-		a.toolOutputView = nil
+		a.transcriptView = nil
 		return a, a.syncModalAltScreen()
 	case "up", "k":
 		if v.scrollOff > 0 {
 			v.scrollOff--
 		}
 	case "down", "j":
-		if v.scrollOff < contentHeight-a.toolOutputViewportHeight() {
+		if v.scrollOff < contentHeight-a.transcriptViewportHeight() {
 			v.scrollOff++
 		}
 	case "pgup", "b":
-		v.scrollOff -= a.toolOutputViewportHeight()
+		v.scrollOff -= a.transcriptViewportHeight()
 		if v.scrollOff < 0 {
 			v.scrollOff = 0
 		}
 	case "pgdown", "f", " ":
-		v.scrollOff += a.toolOutputViewportHeight()
-		max := contentHeight - a.toolOutputViewportHeight()
+		v.scrollOff += a.transcriptViewportHeight()
+		max := contentHeight - a.transcriptViewportHeight()
 		if max < 0 {
 			max = 0
 		}
@@ -3005,7 +3010,7 @@ func (a App) handleToolOutputViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "home", "g":
 		v.scrollOff = 0
 	case "end", "G":
-		max := contentHeight - a.toolOutputViewportHeight()
+		max := contentHeight - a.transcriptViewportHeight()
 		if max < 0 {
 			max = 0
 		}
@@ -3014,7 +3019,7 @@ func (a App) handleToolOutputViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-func (a App) toolOutputViewportHeight() int {
+func (a App) transcriptViewportHeight() int {
 	// 3 lines reserved: title bar, bottom divider, hint bar
 	h := a.height - 3
 	if h < 1 {
@@ -3023,66 +3028,45 @@ func (a App) toolOutputViewportHeight() int {
 	return h
 }
 
-func (a App) latestToolMessage() (model.Message, bool) {
-	for i := len(a.state.Messages) - 1; i >= 0; i-- {
-		msg := a.state.Messages[i]
-		if msg.Kind == model.MsgTool {
-			return msg, true
-		}
-	}
-	return model.Message{}, false
-}
-
-func (a App) toolOutputMessage() model.Message {
-	if a.toolOutputView == nil {
-		return model.Message{}
-	}
-	if toolCallID := strings.TrimSpace(a.toolOutputView.toolCallID); toolCallID != "" {
-		if msg, ok := findToolMessage(a.state.Messages, toolCallID); ok {
-			return msg
-		}
-	}
-	return a.toolOutputView.msg
-}
-
-func (a App) toolOutputContentLines() []string {
-	if a.toolOutputView == nil {
+func (a App) transcriptContentLines() []string {
+	if a.transcriptView == nil {
 		return nil
 	}
-	content := strings.TrimSpace(a.toolOutputMessage().Content)
+	content := strings.TrimSpace(a.renderTranscriptHistory(true, true))
 	if content == "" {
-		return []string{"(no output)"}
+		return []string{"(no history)"}
 	}
 	return strings.Split(content, "\n")
 }
 
-func (a App) toolOutputContentHeight() int {
-	return len(a.toolOutputContentLines())
+func (a App) transcriptContentHeight() int {
+	return len(a.transcriptContentLines())
 }
 
-// renderToolOutputView renders the full-screen tool output viewer.
-func (a App) renderToolOutputView() string {
-	v := a.toolOutputView
+// renderTranscriptView renders the full-screen transcript viewer.
+func (a App) renderTranscriptView() string {
+	v := a.transcriptView
 	if v == nil {
 		return ""
 	}
-	msg := a.toolOutputMessage()
 	w := a.width
 	if w < 10 {
 		w = 10
 	}
-	vpHeight := a.toolOutputViewportHeight()
-	allLines := a.toolOutputContentLines()
+	vpHeight := a.transcriptViewportHeight()
+	allLines := a.transcriptContentLines()
 	totalLines := len(allLines)
+	maxScroll := totalLines - vpHeight
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if v.scrollOff > maxScroll {
+		v.scrollOff = maxScroll
+	}
 
 	// Title bar
-	toolName := strings.TrimSpace(msg.ToolName)
-	toolArgs := strings.TrimSpace(msg.ToolArgs)
-	if toolArgs == "" {
-		toolArgs = strings.TrimSpace(msg.Summary)
-	}
-	title := toolViewTitleStyle.Render(fmt.Sprintf(" %s(%s)", toolName, toolArgs))
-	lineInfo := toolViewHintStyle.Render(fmt.Sprintf(" %d/%d ", v.scrollOff+1, totalLines))
+	title := transcriptViewTitleStyle.Render(fmt.Sprintf(" Transcript (%d messages)", len(a.state.Messages)))
+	lineInfo := transcriptViewHintStyle.Render(fmt.Sprintf(" %d/%d ", v.scrollOff+1, totalLines))
 	titlePad := w - lipgloss.Width(title) - lipgloss.Width(lineInfo)
 	if titlePad < 0 {
 		titlePad = 0
@@ -3106,8 +3090,8 @@ func (a App) renderToolOutputView() string {
 	}
 
 	// Bottom bar
-	divider := toolViewLineStyle.Render(strings.Repeat("─", w))
-	hint := toolViewHintStyle.Render(" ctrl+o/q/esc: close  j/k: scroll  pgup/pgdn: page  g/G: top/bottom")
+	divider := transcriptViewLineStyle.Render(strings.Repeat("─", w))
+	hint := transcriptViewHintStyle.Render(" ctrl+o/q/esc: close  j/k: scroll  pgup/pgdn: page  g/G: top/bottom")
 
 	parts := []string{titleBar, divider}
 	parts = append(parts, visible...)
@@ -3391,9 +3375,9 @@ func (a App) View() string {
 		return a.renderMainView()
 	}
 
-	// Tool output viewer — full-screen scrollable view of tool output.
-	if a.toolOutputView != nil {
-		return a.renderToolOutputView()
+	// Transcript viewer — full-screen scrollable view of the full UI history.
+	if a.transcriptView != nil {
+		return a.renderTranscriptView()
 	}
 
 	// Temporary alt screen for modal popups — render only the popup on a blank backdrop.

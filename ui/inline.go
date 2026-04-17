@@ -281,6 +281,52 @@ func (a App) printMessage(msg model.Message) tea.Cmd {
 	return tea.Println(rendered)
 }
 
+func (a App) historyMessagesForRender(expanded, includeLive bool) []model.Message {
+	messages := make([]model.Message, 0, len(a.state.Messages))
+	for _, msg := range a.state.Messages {
+		if !includeLive && (msg.Pending || msg.Streaming) {
+			continue
+		}
+		if msg.Kind == model.MsgTool && !expanded {
+			msg = a.truncateToolForPrint(msg)
+		}
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
+func (a App) renderTranscriptHistory(expanded, includeLive bool) string {
+	history := a.historyMessagesForRender(expanded, includeLive)
+	if len(history) == 0 {
+		return ""
+	}
+	state := a.state
+	state.Messages = history
+	if !includeLive {
+		state = state.WithThinking(false).ClearWait()
+	}
+	rendered := panels.RenderMessages(state, a.thinking.View(), a.thinking.FrameView(), a.renderWidth(), a.trainView.Active)
+	return strings.TrimRight(rendered, "\n")
+}
+
+func (a App) reprintHistoryOnResize() tea.Cmd {
+	if a.bootActive || a.modalAltScreen || a.startupBannerSuppressed || a.issueView.Active() || a.bugView.Active() {
+		return nil
+	}
+
+	cmds := []tea.Cmd{
+		tea.ClearScreen,
+		tea.Printf("\x1b[3J"),
+	}
+	for _, line := range a.clearHeadingLines("") {
+		cmds = append(cmds, tea.Println(line))
+	}
+	if history := a.renderTranscriptHistory(false, false); strings.TrimSpace(history) != "" {
+		cmds = append(cmds, tea.Println(""), tea.Println(history))
+	}
+	return tea.Sequence(cmds...)
+}
+
 func (a App) printAgentDelta(delta string) tea.Cmd {
 	// Buffer deltas silently. The live area shows a streaming indicator.
 	// The full glamour-rendered message prints when AgentReply arrives.
@@ -358,19 +404,6 @@ func (a App) truncateToolForPrint(msg model.Message) model.Message {
 	}
 	msg.Content = truncateToolContentForTool(msg.ToolName, msg.Content)
 	return msg
-}
-
-// reprintLastTool re-prints the most recent tool message with current
-// expand/collapse state. Called when the user presses Ctrl+O.
-func (a App) reprintLastTool() tea.Cmd {
-	for i := len(a.state.Messages) - 1; i >= 0; i-- {
-		msg := a.state.Messages[i]
-		if msg.Kind == model.MsgTool && !msg.Pending && !msg.Streaming {
-			msg = a.truncateToolForPrint(msg)
-			return a.printMessage(msg)
-		}
-	}
-	return nil
 }
 
 func (a App) printShellHeader(ev model.Event) tea.Cmd {

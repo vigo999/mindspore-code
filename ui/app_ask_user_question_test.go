@@ -190,6 +190,49 @@ func TestAskUserQuestionPrompt_OtherAnswerSubmitsCustomText(t *testing.T) {
 	}
 }
 
+func TestAskUserQuestionPrompt_TypingStartsChatInputImmediately(t *testing.T) {
+	userCh := make(chan string, 1)
+	app := New(nil, userCh, "test", ".", "", "demo-model", 4096)
+	app.bootActive = false
+
+	next, _ := app.handleEvent(model.Event{
+		Type: model.AskUserQuestionPrompt,
+		AskUserQuestion: &model.AskUserQuestionPromptData{
+			Title:        "Answer Questions",
+			SubmitPrefix: "ask:",
+			Questions: []model.AskUserQuestionView{{
+				Header:   "CANN Path",
+				Question: "Which CANN path should we use?",
+				Options: []model.AskUserQuestionOption{
+					{Label: "/usr/local/Ascend/ascend-toolkit/latest", Description: "Use the default toolkit path."},
+					{Label: "Skip for now", Description: "Continue without confirming this path."},
+				},
+			}},
+		},
+	})
+	app = next.(App)
+
+	if view := app.renderMainView(); !strings.Contains(view, askUserQuestionChatLabel) {
+		t.Fatalf("rendered view missing chat label:\n%s", view)
+	}
+
+	for _, r := range []rune("/custom/cann") {
+		keyType := tea.KeyRunes
+		if r == ' ' {
+			keyType = tea.KeySpace
+		}
+		nextModel, _ := app.handleKey(tea.KeyMsg{Type: keyType, Runes: []rune{r}})
+		app = nextModel.(App)
+	}
+	nextModel, _ := app.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	app = nextModel.(App)
+
+	token := readAskUserQuestionToken(t, userCh)
+	if !strings.Contains(token, `"answer":"/custom/cann"`) {
+		t.Fatalf("submitted token = %q, want direct typed custom answer", token)
+	}
+}
+
 func TestAskUserQuestionToolEvent_ResolvesPendingToolMessage(t *testing.T) {
 	app := New(nil, nil, "test", ".", "", "demo-model", 4096)
 	app.bootActive = false

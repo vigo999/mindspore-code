@@ -64,7 +64,7 @@ func (t *Tool) Name() string {
 
 // Description returns the tool description for the model.
 func (t *Tool) Description() string {
-	return "Ask the user one to four multiple-choice questions to clarify requirements, gather preferences, or choose between implementation options. Provide one to four concrete options per question and never add an explicit Other/manual-input option because the UI always provides Other for custom text."
+	return "Ask the user one to four multiple-choice questions to clarify requirements, gather preferences, or choose between implementation options. Provide one to four concrete options per question and never add an explicit Other/manual-input option because the UI always provides a built-in custom-input path."
 }
 
 // Schema returns the nested JSON schema used for tool calling.
@@ -97,7 +97,7 @@ func (t *Tool) Schema() llm.ToolSchema {
 			},
 			"options": {
 				Type:        "array",
-				Description: "One to four concrete options for the user to choose from. Do not include an explicit Other or manual-input option because the UI adds Other automatically.",
+				Description: "One to four concrete options for the user to choose from. Do not include an explicit Other or manual-input option because the UI already adds a built-in custom-input path.",
 				Items:       &optionSchema,
 			},
 			"multiSelect": {
@@ -191,33 +191,87 @@ func appendNormalizedQuestion(req PromptRequest, question Question) PromptReques
 func normalizeQuestionOptions(options []QuestionOption) []QuestionOption {
 	normalized := make([]QuestionOption, 0, len(options))
 	for _, option := range options {
-		label := strings.TrimSpace(option.Label)
-		description := strings.TrimSpace(option.Description)
-		if isBuiltInOtherOption(label, description) {
+		option, keep := normalizeQuestionOption(option)
+		if !keep {
 			continue
 		}
-		normalized = append(normalized, QuestionOption{
-			Label:       label,
-			Description: description,
-		})
+		normalized = append(normalized, option)
 	}
 	return normalized
 }
 
+func normalizeQuestionOption(option QuestionOption) (QuestionOption, bool) {
+	label := strings.TrimSpace(option.Label)
+	description := strings.TrimSpace(option.Description)
+	if isBuiltInOtherOption(label, description) {
+		return QuestionOption{}, false
+	}
+	return QuestionOption{
+		Label:       label,
+		Description: description,
+	}, true
+}
+
 func isBuiltInOtherOption(label, description string) bool {
-	normalizedLabel := normalizeOptionToken(label)
-	switch normalizedLabel {
-	case "other", "use manual input", "manual input", "manual entry", "enter a custom value manually", "custom input":
-		return true
+	normalizedCombined := normalizeOptionToken(strings.TrimSpace(label + " " + description))
+	for _, phrase := range []string{
+		"other",
+		"chat about this",
+		"use manual input",
+		"manual input",
+		"manual entry",
+		"enter a custom value manually",
+		"custom input",
+		"custom value",
+		"custom path",
+	} {
+		if containsOptionPhrase(normalizedCombined, phrase) {
+			return true
+		}
 	}
 
-	normalizedDescription := normalizeOptionToken(description)
-	return strings.HasPrefix(normalizedLabel, "other") && (strings.Contains(normalizedDescription, "custom") || strings.Contains(normalizedDescription, "manual"))
+	rawCombined := strings.TrimSpace(label + " " + description)
+	for _, phrase := range []string{
+		"\u81ea\u5b9a\u4e49",
+		"\u81ea\u5b9a\u4e49\u8def\u5f84",
+		"\u624b\u52a8\u8f93\u5165",
+		"\u624b\u52a8\u586b\u5199",
+		"\u624b\u52a8\u6307\u5b9a",
+		"\u624b\u52a8\u63d0\u4f9b",
+		"\u5176\u4ed6",
+	} {
+		if strings.Contains(rawCombined, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsOptionPhrase(value, phrase string) bool {
+	if value == phrase {
+		return true
+	}
+	return strings.HasPrefix(value, phrase+" ") ||
+		strings.Contains(value, " "+phrase+" ") ||
+		strings.HasSuffix(value, " "+phrase)
 }
 
 func normalizeOptionToken(value string) string {
 	value = strings.ToLower(strings.TrimSpace(value))
-	replacer := strings.NewReplacer("-", " ", "_", " ", "/", " ", "(", " ", ")", " ", ",", " ", ".", " ", ":", " ")
+	replacer := strings.NewReplacer(
+		"-", " ",
+		"_", " ",
+		"/", " ",
+		"(", " ",
+		")", " ",
+		"\uff08", " ",
+		"\uff09", " ",
+		",", " ",
+		"\uff0c", " ",
+		".", " ",
+		":", " ",
+		"\uff1a", " ",
+	)
 	value = replacer.Replace(value)
 	return strings.Join(strings.Fields(value), " ")
 }

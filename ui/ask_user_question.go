@@ -37,6 +37,11 @@ type askUserQuestionAnswerPayload struct {
 	Answer   string `json:"answer"`
 }
 
+const (
+	askUserQuestionChatLabel       = "Chat about this"
+	askUserQuestionChatDescription = "Type your own answer directly."
+)
+
 func toAskUserQuestionPromptState(ev model.Event) *askUserQuestionPromptState {
 	data := ev.AskUserQuestion
 	if data == nil {
@@ -111,6 +116,11 @@ func (a App) handleAskUserQuestionKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+	}
+
+	if seed, ok := askUserQuestionTextInputSeed(msg, p.currentQuestion().MultiSelect); ok {
+		p.beginCustomAnswerInput(seed)
+		return a, nil
 	}
 
 	switch msg.String() {
@@ -221,6 +231,16 @@ func (p *askUserQuestionPromptState) isOtherSelected() bool {
 	return p != nil && p.selectedOption == len(p.currentQuestion().Options)
 }
 
+func (p *askUserQuestionPromptState) beginCustomAnswerInput(seed string) {
+	if p == nil {
+		return
+	}
+	p.textInput = true
+	p.selectedOption = len(p.currentQuestion().Options)
+	p.textValue = p.answers[p.current].other
+	p.textValue += seed
+}
+
 func (p *askUserQuestionPromptState) hasAnswerForCurrentQuestion() bool {
 	if p == nil || p.current < 0 || p.current >= len(p.answers) {
 		return false
@@ -319,20 +339,20 @@ func renderAskUserQuestionPromptPopup(p *askUserQuestionPromptState) string {
 	for i, option := range question.Options {
 		lines = append(lines, renderAskUserQuestionOptionLine(question.MultiSelect, p.selectedOption == i, p.answers[p.current].selected[i], option.Label, option.Description, selectedStyle, normalStyle, descStyle)...)
 	}
-	lines = append(lines, renderAskUserQuestionOptionLine(question.MultiSelect, p.isOtherSelected(), strings.TrimSpace(p.answers[p.current].other) != "", "Other", "Type a custom answer.", selectedStyle, normalStyle, descStyle)...)
+	lines = append(lines, renderAskUserQuestionOptionLine(question.MultiSelect, p.isOtherSelected(), strings.TrimSpace(p.answers[p.current].other) != "", askUserQuestionChatLabel, askUserQuestionChatDescription, selectedStyle, normalStyle, descStyle)...)
 
 	if p.textInput {
 		lines = append(lines, "", subtitleStyle.Render("Type your custom answer and press Enter"))
 		lines = append(lines, inputStyle.Render(renderAskUserQuestionInputValue(p.textValue)))
 	} else if other := strings.TrimSpace(p.answers[p.current].other); other != "" {
-		lines = append(lines, "", subtitleStyle.Render("Other: "+other))
+		lines = append(lines, "", subtitleStyle.Render(askUserQuestionChatLabel+": "+other))
 	}
 
 	lines = append(lines, "")
 	if question.MultiSelect {
-		lines = append(lines, hintStyle.Render("up/down move | space toggle | enter continue | esc cancel"))
+		lines = append(lines, hintStyle.Render("up/down move | space toggle | enter continue | type to chat | esc cancel"))
 	} else {
-		lines = append(lines, hintStyle.Render("up/down move | enter confirm | esc cancel"))
+		lines = append(lines, hintStyle.Render("up/down move | enter confirm | type to chat | esc cancel"))
 	}
 
 	content := strings.Join(lines, "\n")
@@ -373,6 +393,16 @@ func renderAskUserQuestionInputValue(value string) string {
 		return " "
 	}
 	return value + "|"
+}
+
+func askUserQuestionTextInputSeed(msg tea.KeyMsg, multiSelect bool) (string, bool) {
+	if msg.Type == tea.KeyRunes && len(msg.Runes) > 0 {
+		return string(msg.Runes), true
+	}
+	if !multiSelect && msg.Type == tea.KeySpace {
+		return " ", true
+	}
+	return "", false
 }
 
 func itoa(v int) string {

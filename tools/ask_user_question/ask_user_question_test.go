@@ -171,6 +171,42 @@ func TestToolExecute_StripsExplicitOtherOptionAndKeepsCustomInputPath(t *testing
 	}
 }
 
+func TestToolExecute_StripsLocalizedManualOption(t *testing.T) {
+	ui := &stubPromptUI{
+		resp: PromptResponse{
+			Answers: []PromptAnswer{
+				{Question: "\u68c0\u6d4b\u5230\u591a\u4e2a CANN \u73af\u5883\uff0c\u8bf7\u786e\u8ba4\u60a8\u8981\u4f7f\u7528\u7684 CANN \u7248\u672c\uff1a", Answer: "Unknown / not sure"},
+			},
+		},
+	}
+	tool := NewTool(ui)
+	params := mustJSON(t, PromptRequest{
+		Questions: []Question{{
+			Header:   "CANN Path",
+			Question: "\u68c0\u6d4b\u5230\u591a\u4e2a CANN \u73af\u5883\uff0c\u8bf7\u786e\u8ba4\u60a8\u8981\u4f7f\u7528\u7684 CANN \u7248\u672c\uff1a",
+			Options: []QuestionOption{
+				{Label: "/home/cann_custom_path/8.5.0/ascend-toolkit/set_env.sh", Description: "\u63a8\u8350\u7248\u672c\u3002"},
+				{Label: "\u81ea\u5b9a\u4e49\u8def\u5f84\uff08\u624b\u52a8\u8f93\u5165\uff09", Description: "\u6211\u60f3\u81ea\u5df1\u8f93\u5165\u3002"},
+				{Label: "Unknown / not sure", Description: "\u6682\u65f6\u5148\u8df3\u8fc7\u3002"},
+			},
+		}},
+	})
+
+	result, err := tool.Execute(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Execute() err = %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("Execute() result.Error = %v", result.Error)
+	}
+	if got := len(ui.req.Questions[0].Options); got != 2 {
+		t.Fatalf("normalized option count = %d, want 2 after stripping localized manual option", got)
+	}
+	if got := ui.req.Questions[0].Options[1].Label; got != "Unknown / not sure" {
+		t.Fatalf("remaining skip label = %q, want %q", got, "Unknown / not sure")
+	}
+}
+
 func mustJSON(t *testing.T, v any) json.RawMessage {
 	t.Helper()
 	data, err := json.Marshal(v)

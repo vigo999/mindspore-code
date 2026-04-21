@@ -19,6 +19,7 @@ type ModelInfo struct {
 	CtxUsed    int
 	CtxMax     int
 	TokensUsed int
+	Debug      bool
 }
 
 // MessageKind distinguishes chat message types.
@@ -37,6 +38,7 @@ const (
 	WaitNone WaitKind = iota
 	WaitModel
 	WaitTool
+	WaitCompact
 )
 
 // DisplayMode controls how a tool message is rendered.
@@ -69,67 +71,70 @@ type Message struct {
 type EventType string
 
 const (
-	TaskUpdated          EventType = "TaskUpdated"
-	ToolCallStart        EventType = "ToolCallStart"
-	CmdStarted           EventType = "CmdStarted"
-	CmdOutput            EventType = "CmdOutput"
-	CmdFinished          EventType = "CmdFinished"
-	AnalysisReady        EventType = "AnalysisReady"
-	AgentReply           EventType = "AgentReply"
-	AgentReplyDelta      EventType = "AgentReplyDelta"
-	AgentBackgroundWork  EventType = "AgentBackgroundWork"
-	PermissionPrompt     EventType = "PermissionPrompt"
-	PermissionsView      EventType = "PermissionsView"
-	AgentThinking        EventType = "AgentThinking"
-	ContextNotice        EventType = "ContextNotice"
-	UserInput            EventType = "UserInput"
-	ToolReplay           EventType = "ToolReplay"
-	TokenUpdate          EventType = "TokenUpdate"
-	ToolRead             EventType = "ToolRead"
-	ToolGrep             EventType = "ToolGrep"
-	ToolGlob             EventType = "ToolGlob"
-	ToolEdit             EventType = "ToolEdit"
-	ToolWrite            EventType = "ToolWrite"
-	ToolSkill            EventType = "ToolSkill"
-	ToolInterrupted      EventType = "ToolInterrupted"
-	ToolWarning          EventType = "ToolWarning"
-	ToolError            EventType = "ToolError"
-	ClearScreen          EventType = "ClearScreen"
-	ModelUpdate          EventType = "ModelUpdate"
-	ModelPickerOpen      EventType = "ModelPickerOpen"
-	ModelSetupOpen       EventType = "ModelSetupOpen"
-	ModelSetupClose      EventType = "ModelSetupClose"
-	ModelSetupTokenError EventType = "ModelSetupTokenError"
-	MouseModeToggle      EventType = "MouseModeToggle"
-	IssueUserUpdate      EventType = "IssueUserUpdate"
-	SkillsNoteUpdate     EventType = "SkillsNoteUpdate"
-	TaskDone             EventType = "TaskDone"
-	Done                 EventType = "Done"
+	TaskUpdated           EventType = "TaskUpdated"
+	ToolCallStart         EventType = "ToolCallStart"
+	CmdStarted            EventType = "CmdStarted"
+	CmdOutput             EventType = "CmdOutput"
+	CmdFinished           EventType = "CmdFinished"
+	AnalysisReady         EventType = "AnalysisReady"
+	AgentReply            EventType = "AgentReply"
+	AgentReplyDelta       EventType = "AgentReplyDelta"
+	AgentBackgroundWork   EventType = "AgentBackgroundWork"
+	PermissionPrompt      EventType = "PermissionPrompt"
+	PermissionsView       EventType = "PermissionsView"
+	AgentThinking         EventType = "AgentThinking"
+	ContextCompactStarted EventType = "ContextCompactStarted"
+	ContextNotice         EventType = "ContextNotice"
+	UserInput             EventType = "UserInput"
+	ToolReplay            EventType = "ToolReplay"
+	TokenUpdate           EventType = "TokenUpdate"
+	ToolRead              EventType = "ToolRead"
+	ToolGrep              EventType = "ToolGrep"
+	ToolGlob              EventType = "ToolGlob"
+	ToolEdit              EventType = "ToolEdit"
+	ToolWrite             EventType = "ToolWrite"
+	ToolSkill             EventType = "ToolSkill"
+	ToolInterrupted       EventType = "ToolInterrupted"
+	ToolWarning           EventType = "ToolWarning"
+	ToolError             EventType = "ToolError"
+	ClearScreen           EventType = "ClearScreen"
+	ModelUpdate           EventType = "ModelUpdate"
+	ModelPickerOpen       EventType = "ModelPickerOpen"
+	ModelSetupOpen        EventType = "ModelSetupOpen"
+	ModelSetupClose       EventType = "ModelSetupClose"
+	SessionPickerOpen     EventType = "SessionPickerOpen"
+	ModelSetupTokenError  EventType = "ModelSetupTokenError"
+	MouseModeToggle       EventType = "MouseModeToggle"
+	IssueUserUpdate       EventType = "IssueUserUpdate"
+	SkillsNoteUpdate      EventType = "SkillsNoteUpdate"
+	TaskDone              EventType = "TaskDone"
+	Done                  EventType = "Done"
 )
 
 // Event is sent from the agent loop to the TUI.
 // Implements tea.Msg so Bubble Tea can route it.
 type Event struct {
-	Type        EventType
-	Task        string
-	Message     string
-	RawANSI     bool
-	ToolName    string
-	ToolCallID  string
-	Summary     string
-	Meta        map[string]any
-	ReplayWait  *ReplayWaitData
-	CtxUsed     int
-	CtxMax      int
-	TokensUsed  int
-	Train       *TrainEventData // non-nil for train events only
-	Project     *ProjectStatusView
-	Permission  *PermissionPromptData
-	Permissions *PermissionsViewData
-	Popup       *SelectionPopup // non-nil for popup events only
-	SetupPopup  *SetupPopup     // non-nil for model setup popup events
-	IssueView   *IssueEventData // non-nil for issue view events only
-	Issue       *issuepkg.Issue // reserved for lightweight issue payloads
+	Type          EventType
+	Task          string
+	Message       string
+	RawANSI       bool
+	ToolName      string
+	ToolCallID    string
+	Summary       string
+	Meta          map[string]any
+	ReplayWait    *ReplayWaitData
+	CtxUsed       int
+	CtxMax        int
+	TokensUsed    int
+	Train         *TrainEventData // non-nil for train events only
+	Project       *ProjectStatusView
+	Permission    *PermissionPromptData
+	Permissions   *PermissionsViewData
+	Popup         *SelectionPopup // non-nil for popup events only
+	SetupPopup    *SetupPopup     // non-nil for model setup popup events
+	SessionPicker *SessionPicker
+	IssueView     *IssueEventData // non-nil for issue view events only
+	Issue         *issuepkg.Issue // reserved for lightweight issue payloads
 }
 
 // ReplayWaitData lets replay fast-forward the UI timer while using shorter real delays.

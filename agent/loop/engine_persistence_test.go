@@ -161,6 +161,11 @@ func newPersistenceRecorder(log *[]string) *TrajectoryRecorder {
 			appendLog(last)
 			return nil
 		},
+		RecordContextCompaction: func(trigger string, _, _ int, _ string) error {
+			last = "compact:" + trigger
+			appendLog(last)
+			return nil
+		},
 		PersistSnapshot: func() error {
 			appendLog("snapshot:" + last)
 			return nil
@@ -490,7 +495,7 @@ func TestRunPersistsSnapshotBeforeContextCompactionNotice(t *testing.T) {
 		t.Fatalf("RunWithContextStream failed: %v", err)
 	}
 
-	requireOrder(t, log, "user", "snapshot:user", "ui:ContextCompacted", "ui:TaskStarted")
+	requireOrder(t, log, "user", "snapshot:user", "compact:auto", "ui:ContextCompacted", "ui:TaskStarted")
 	if !strings.Contains(compactMessage, "Context compacted automatically:") {
 		t.Fatalf("context compaction message = %q, want automatic compaction summary", compactMessage)
 	}

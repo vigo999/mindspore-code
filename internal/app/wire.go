@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -84,10 +85,11 @@ type Application struct {
 	taskMu       sync.Mutex
 
 	// Model preset runtime override state.
-	activeModelPresetID string
-	modelBeforePreset   *configs.ModelConfig
-	needsSetupPopup     bool
-	savedModelToken     string
+	activeModelPresetID  string
+	modelBeforePreset    *configs.ModelConfig
+	needsSetupPopup      bool
+	savedModelToken      string
+	startupSessionPicker *sessionPickerRequest
 
 	// Train mode state
 	trainMode       bool
@@ -127,6 +129,14 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	workDir, _ = filepath.Abs(workDir)
 
 	eventCh := make(chan model.Event, 64)
+
+	sessionRetentionDays := defaultSessionRetentionDays
+	if appCfg, err := loadAppConfig(); err == nil {
+		sessionRetentionDays = appCfg.sessionRetentionDays()
+	}
+	if _, err := session.CleanupExpired(time.Duration(sessionRetentionDays) * 24 * time.Hour); err != nil {
+		// Session cleanup is best-effort and should not block startup.
+	}
 
 	config, err := configs.LoadWithEnv()
 	if err != nil {
@@ -223,50 +233,87 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	managerCfg.ContextWindow = config.Context.Window
 	managerCfg.ReserveTokens = config.Context.ReserveTokens
 	managerCfg.CompactionThreshold = config.Context.CompactionThreshold
+	managerCfg.CompactProvider = provider
 	ctxManager := agentctx.NewManager(managerCfg)
 
 	// Build system prompt: base + skill summaries.
 	systemPrompt := buildSystemPrompt(skillLoader.List())
 
 	var (
-		runtimeSession *session.Session
-		replayBacklog  []model.Event
-		replayTimeline []session.ReplayFrame
+		runtimeSession       *session.Session
+		replayBacklog        []model.Event
+		replayTimeline       []session.ReplayFrame
+		startupSessionPicker *sessionPickerRequest
 	)
+	if cfg.Resume && strings.TrimSpace(cfg.ResumeSessionID) == "" {
+		startupSessionPicker = &sessionPickerRequest{Mode: model.SessionPickerResume}
+	}
+	if cfg.Replay && strings.TrimSpace(cfg.ReplaySessionID) == "" {
+		startupSessionPicker = &sessionPickerRequest{
+			Mode:        model.SessionPickerReplay,
+			ReplaySpeed: cfg.ReplaySpeed,
+		}
+	}
 	if cfg.Resume || cfg.Replay {
-		sessionID := cfg.ResumeSessionID
-		if cfg.Replay {
-			sessionID = cfg.ReplaySessionID
-		}
-		if strings.TrimSpace(sessionID) != "" {
-			targetLabel := "session"
-			if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
-				targetLabel = "trajectory"
+		if startupSessionPicker == nil {
+			sessionID := cfg.ResumeSessionID
+			if cfg.Replay {
+				sessionID = cfg.ReplaySessionID
 			}
-			if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
-				runtimeSession, err = session.LoadReplayPath(sessionID)
+			if strings.TrimSpace(sessionID) != "" {
+				targetLabel := "session"
+				if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
+					targetLabel = "trajectory"
+				}
+				if cfg.Replay && looksLikeTrajectoryPath(sessionID) {
+					sourceSession, loadErr := session.LoadReplayPath(sessionID)
+					if loadErr != nil {
+						return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, loadErr)
+					}
+					systemPrompt, restoredMessages := sourceSession.RestoreContext()
+					ctxManager.SetSystemPrompt(systemPrompt)
+					ctxManager.SetNonSystemMessages(restoredMessages)
+					restoreProviderUsageSnapshot(ctxManager, sourceSession.UsageSnapshot())
+					replayTimeline = sourceSession.PlaybackTimeline()
+					if metaWorkDir := strings.TrimSpace(sourceSession.Meta().WorkDir); metaWorkDir != "" {
+						workDir = metaWorkDir
+					}
+					runtimeSession, err = session.Create(workDir, systemPrompt)
+					if err != nil {
+						return nil, fmt.Errorf("create replay session: %w", err)
+					}
+				} else {
+					runtimeSession, err = session.LoadByID(workDir, sessionID)
+					if err != nil {
+						return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, err)
+					}
+					systemPrompt, restoredMessages := runtimeSession.RestoreContext()
+					ctxManager.SetSystemPrompt(systemPrompt)
+					ctxManager.SetNonSystemMessages(restoredMessages)
+					restoreProviderUsageSnapshot(ctxManager, runtimeSession.UsageSnapshot())
+					if cfg.Replay {
+						replayTimeline = runtimeSession.PlaybackTimeline()
+					} else {
+						replayBacklog = runtimeSession.ReplayEvents()
+					}
+				}
 			} else {
-				runtimeSession, err = session.LoadByID(workDir, sessionID)
-			}
-			if err != nil {
-				return nil, fmt.Errorf("load %s %s: %w", targetLabel, sessionID, err)
-			}
-		} else {
-			runtimeSession, err = session.LoadLatest(workDir)
-			if err != nil {
-				return nil, fmt.Errorf("load latest session: %w", err)
-			}
-		}
-		systemPrompt, restoredMessages := runtimeSession.RestoreContext()
-		ctxManager.SetSystemPrompt(systemPrompt)
-		ctxManager.SetNonSystemMessages(restoredMessages)
-		if cfg.Replay {
-			replayTimeline = runtimeSession.PlaybackTimeline()
-			if metaWorkDir := strings.TrimSpace(runtimeSession.Meta().WorkDir); metaWorkDir != "" {
-				workDir = metaWorkDir
+				runtimeSession, err = session.LoadLatest(workDir)
+				if err != nil {
+					return nil, fmt.Errorf("load latest session: %w", err)
+				}
+				systemPrompt, restoredMessages := runtimeSession.RestoreContext()
+				ctxManager.SetSystemPrompt(systemPrompt)
+				ctxManager.SetNonSystemMessages(restoredMessages)
+				restoreProviderUsageSnapshot(ctxManager, runtimeSession.UsageSnapshot())
+				replayBacklog = runtimeSession.ReplayEvents()
 			}
 		} else {
-			replayBacklog = runtimeSession.ReplayEvents()
+			runtimeSession, err = session.Create(workDir, systemPrompt)
+			if err != nil {
+				return nil, fmt.Errorf("create session: %w", err)
+			}
+			ctxManager.SetSystemPrompt(systemPrompt)
 		}
 	} else {
 		runtimeSession, err = session.Create(workDir, systemPrompt)
@@ -295,7 +342,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	if issue := preloadScopedPermissionRules(permService, workDir); issue != nil {
 		permSettingsIssue = issue
 	}
-	if cfg.Resume {
+	if cfg.Resume && startupSessionPicker == nil {
 		storeCfg := sessionPermissionStoreConfig(runtimeSession)
 		if store, err := permission.NewPermissionStore(storeCfg); err == nil {
 			permService.SetStore(store)
@@ -328,8 +375,8 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		session:                 runtimeSession,
 		replayBacklog:           replayBacklog,
 		replayTimeline:          replayTimeline,
-		deferHistoryReplay:      cfg.Resume && !cfg.Replay,
-		replayOnly:              cfg.Replay,
+		deferHistoryReplay:      cfg.Resume && !cfg.Replay && startupSessionPicker == nil,
+		replayOnly:              cfg.Replay && startupSessionPicker == nil,
 		replaySpeed:             replaySpeedOrDefault(cfg.ReplaySpeed),
 		llmReady:                llmReady,
 		skillLoader:             skillLoader,
@@ -337,6 +384,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 		activeModelPresetID:     activePresetID,
 		needsSetupPopup:         needsSetupPopup,
 		savedModelToken:         savedModelToken,
+		startupSessionPicker:    startupSessionPicker,
 	}
 	permissionUI.SetYOLOCallbacks(
 		func() bool {
@@ -360,7 +408,7 @@ func Wire(cfg BootstrapConfig) (*Application, error) {
 	if sessionStoreReady {
 		app.sessionStoreReady.Store(true)
 	}
-	engine.SetTrajectoryRecorder(newTrajectoryRecorder(runtimeSession, ctxManager, app.noteLiveLLMActivity))
+	app.refreshEngineSessionBindings()
 
 	return app, nil
 }
@@ -429,6 +477,109 @@ func (a *Application) ensureSessionPermissionStore() {
 	a.sessionStoreReady.Store(true)
 }
 
+func (a *Application) refreshEngineSessionBindings() {
+	if a == nil || a.Engine == nil {
+		return
+	}
+	if a.ctxManager != nil {
+		a.ctxManager.SetCompactProvider(a.provider)
+		a.ctxManager.SetDebugDumper(a.llmDebugDumper)
+		if a.llmDebugDumper != nil {
+			a.ctxManager.SetPreCompactSnapshotHook(a.dumpPreCompactSnapshot)
+		} else {
+			a.ctxManager.SetPreCompactSnapshotHook(nil)
+		}
+		trajectoryPath := ""
+		if a.session != nil {
+			trajectoryPath = a.session.Path()
+		}
+		a.ctxManager.SetTrajectoryPath(trajectoryPath)
+	}
+	a.Engine.SetLLMDebugDumper(a.llmDebugDumper)
+	a.Engine.SetTrajectoryRecorder(newTrajectoryRecorder(a.session, a.ctxManager, a.noteLiveLLMActivity))
+}
+
+func (a *Application) dumpPreCompactSnapshot(snapshot agentctx.CompactSnapshot) error {
+	if a == nil || a.llmDebugDumper == nil || a.session == nil {
+		return nil
+	}
+
+	sessionDir := filepath.Dir(a.session.Path())
+	if strings.TrimSpace(sessionDir) == "" || sessionDir == "." {
+		return nil
+	}
+
+	meta := a.session.Meta()
+	workDir := strings.TrimSpace(meta.WorkDir)
+	if workDir == "" {
+		workDir = a.WorkDir
+	}
+
+	messages := make([]llm.Message, len(snapshot.Messages))
+	copy(messages, snapshot.Messages)
+	payload := session.Snapshot{
+		SessionID:     a.session.ID(),
+		WorkDir:       workDir,
+		SystemPrompt:  snapshot.SystemPrompt,
+		UpdatedAt:     time.Now(),
+		Messages:      messages,
+		ProviderUsage: providerUsageSnapshotFromDetails(snapshot.Usage),
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal pre-compact snapshot: %w", err)
+	}
+	if err := os.MkdirAll(sessionDir, 0o755); err != nil {
+		return fmt.Errorf("create session directory: %w", err)
+	}
+
+	trigger := strings.TrimSpace(string(snapshot.Trigger))
+	if trigger == "" {
+		trigger = "compact"
+	}
+	stamp := time.Now().UTC().Format("20060102-150405-000000000")
+	path := filepath.Join(sessionDir, fmt.Sprintf("snapshot.compact-pre-%s-%s.json", trigger, stamp))
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write pre-compact snapshot: %w", err)
+	}
+	return nil
+}
+
+func (a *Application) rotateSession() error {
+	if a == nil || a.replayOnly {
+		return nil
+	}
+
+	systemPrompt := a.currentSystemPrompt()
+	nextSession, err := session.Create(a.WorkDir, systemPrompt)
+	if err != nil {
+		return fmt.Errorf("create session: %w", err)
+	}
+	if err := nextSession.Activate(); err != nil {
+		return fmt.Errorf("activate session: %w", err)
+	}
+
+	previous := a.session
+	a.session = nextSession
+	a.sessionLLMActivity.Store(false)
+	a.sessionStoreReady.Store(false)
+
+	if permSvc, ok := a.permService.(*permission.DefaultPermissionService); ok {
+		permSvc.ResetSessionState()
+	}
+
+	if a.llmDebugDumper != nil {
+		a.llmDebugDumper = llm.NewDebugDumper(filepath.Dir(nextSession.Path()))
+	}
+	a.refreshEngineSessionBindings()
+
+	if previous != nil {
+		_ = previous.Close()
+	}
+	return nil
+}
+
 // SetProvider updates model/key and reinitializes the engine.
 func (a *Application) SetProvider(providerName, modelName, apiKey string) error {
 	normalizedProvider := llm.NormalizeProvider(providerName)
@@ -478,14 +629,14 @@ func (a *Application) SetProvider(providerName, modelName, apiKey string) error 
 		if err := a.ctxManager.SetContextWindowLimits(a.Config.Context.Window, a.Config.Context.ReserveTokens); err != nil {
 			return fmt.Errorf("update context limits: %w", err)
 		}
+		a.ctxManager.SetCompactProvider(provider)
 	}
 	newEngine.SetContextManager(a.ctxManager)
-	newEngine.SetLLMDebugDumper(a.llmDebugDumper)
 	newEngine.SetPermissionService(a.permService)
-	newEngine.SetTrajectoryRecorder(newTrajectoryRecorder(a.session, a.ctxManager, a.noteLiveLLMActivity))
 
 	a.Engine = newEngine
 	a.provider = provider
+	a.refreshEngineSessionBindings()
 
 	return nil
 }
@@ -557,6 +708,15 @@ func newTrajectoryRecorder(s *session.Session, cm *agentctx.Manager, noteLiveLLM
 			}
 			return s.AppendSkillActivation(skillName)
 		},
+		RecordContextCompaction: func(trigger string, beforeTokens, afterTokens int, message string) error {
+			if s == nil {
+				return nil
+			}
+			if err := ensureSessionActive(); err != nil {
+				return err
+			}
+			return s.AppendContextCompaction(trigger, beforeTokens, afterTokens, message)
+		},
 		PersistSnapshot: func() error {
 			if s == nil || cm == nil {
 				return nil
@@ -565,7 +725,11 @@ func newTrajectoryRecorder(s *session.Session, cm *agentctx.Manager, noteLiveLLM
 			if msg := cm.GetSystemPrompt(); msg != nil {
 				systemPrompt = msg.Content
 			}
-			return s.SaveSnapshot(systemPrompt, cm.GetNonSystemMessages())
+			return s.SaveSnapshotWithUsage(
+				systemPrompt,
+				cm.GetNonSystemMessages(),
+				providerUsageSnapshotFromDetails(cm.TokenUsageDetails()),
+			)
 		},
 	}
 }
@@ -677,6 +841,11 @@ func initTools(cfg *configs.Config, workDir string) *tools.Registry {
 		AllowedCmds:    cfg.Permissions.AllowedTools,
 		BlockedCmds:    cfg.Permissions.BlockedTools,
 		RequireConfirm: []string{"rm", "mv", "cp"},
+		// Python switches to block buffering when stdout is piped, which
+		// prevents line-oriented command output from streaming live in the UI.
+		Env: map[string]string{
+			"PYTHONUNBUFFERED": "1",
+		},
 	})
 	registry.MustRegister(shell.NewShellTool(shellRunner))
 

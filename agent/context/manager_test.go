@@ -1,6 +1,7 @@
 package context
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -15,8 +16,12 @@ func TestNewManager(t *testing.T) {
 		t.Fatal("NewManager returned nil")
 	}
 
-	if mgr.config.ContextWindow != 24000 {
-		t.Errorf("Expected ContextWindow to be 24000, got %d", mgr.config.ContextWindow)
+	if mgr.config.ContextWindow != 200000 {
+		t.Errorf("Expected ContextWindow to be 200000, got %d", mgr.config.ContextWindow)
+	}
+
+	if mgr.config.ReserveTokens != 20000 {
+		t.Errorf("Expected ReserveTokens to be 20000, got %d", mgr.config.ReserveTokens)
 	}
 
 	if mgr.tokenizer == nil {
@@ -151,8 +156,18 @@ func TestTokenUsage(t *testing.T) {
 		t.Error("Token usage should increase after adding message")
 	}
 
-	if usage.ContextWindow != 24000 {
-		t.Errorf("Expected ContextWindow to be 24000, got %d", usage.ContextWindow)
+	if usage.ContextWindow != 200000 {
+		t.Errorf("Expected ContextWindow to be 200000, got %d", usage.ContextWindow)
+	}
+}
+
+func TestNewManagerDefaultsReserveTokensToTenPercentOfWindow(t *testing.T) {
+	mgr := NewManager(ManagerConfig{
+		ContextWindow: 16000,
+	})
+
+	if got, want := mgr.TokenUsage().Reserved, 1600; got != want {
+		t.Fatalf("TokenUsage().Reserved = %d, want %d", got, want)
 	}
 }
 
@@ -173,6 +188,162 @@ func TestSetContextWindowLimits(t *testing.T) {
 	}
 	if got, want := usage.Reserved, 4000; got != want {
 		t.Fatalf("usage.Reserved = %d, want %d", got, want)
+	}
+}
+
+func TestSetPromptTokenUsageUsesProviderTokensAndFallsBackToEstimate(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 1000
+	cfg.ReserveTokens = 100
+	mgr := NewManager(cfg)
+	mgr.SetSystemPrompt("system prompt")
+	if err := mgr.AddMessage(llm.NewUserMessage("hello world")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	estimated := mgr.TokenUsage().Current
+	mgr.SetPromptTokenUsage("openai-responses", 123)
+	if got := mgr.TokenUsage().Current; got != 123 {
+		t.Fatalf("TokenUsage().Current with provider tokens = %d, want 123", got)
+	}
+	details := mgr.TokenUsageDetails()
+	if got, want := details.Source, TokenUsageSourceProvider; got != want {
+		t.Fatalf("TokenUsageDetails().Source = %q, want %q", got, want)
+	}
+	if got, want := details.Provider, "openai-responses"; got != want {
+		t.Fatalf("TokenUsageDetails().Provider = %q, want %q", got, want)
+	}
+	if got, want := details.ProviderSnapshotTokens, 123; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderSnapshotTokens = %d, want %d", got, want)
+	}
+	if got, want := details.ProviderTokenScope, ProviderTokenScopePrompt; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderTokenScope = %q, want %q", got, want)
+	}
+
+	mgr.SetPromptTokenUsage("", 0)
+	if got := mgr.TokenUsage().Current; got != estimated {
+		t.Fatalf("TokenUsage().Current after clearing provider tokens = %d, want %d", got, estimated)
+	}
+	if got, want := mgr.TokenUsageDetails().Source, TokenUsageSourceLocalEstimate; got != want {
+		t.Fatalf("TokenUsageDetails().Source after clearing = %q, want %q", got, want)
+	}
+}
+
+func TestSetPromptTokenUsageTracksAppendedMessages(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 1000
+	cfg.ReserveTokens = 100
+	mgr := NewManager(cfg)
+	if err := mgr.AddMessage(llm.NewUserMessage("hello")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	mgr.SetPromptTokenUsage("anthropic", 120)
+	next := llm.NewAssistantMessage("ok")
+	delta := mgr.tokenizer.EstimateMessage(next)
+	if err := mgr.AddMessage(next); err != nil {
+		t.Fatalf("AddMessage assistant failed: %v", err)
+	}
+
+	if got, want := mgr.TokenUsage().Current, 120+delta; got != want {
+		t.Fatalf("TokenUsage().Current after append = %d, want %d", got, want)
+	}
+	details := mgr.TokenUsageDetails()
+	if got, want := details.LocalDelta, delta; got != want {
+		t.Fatalf("TokenUsageDetails().LocalDelta = %d, want %d", got, want)
+	}
+}
+
+func TestSetProviderTokenUsagePrefersTotalTokensAndTracksAppendedMessages(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 1000
+	cfg.ReserveTokens = 100
+	mgr := NewManager(cfg)
+	if err := mgr.AddMessage(llm.NewUserMessage("hello")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+	if err := mgr.AddMessage(llm.NewAssistantMessage("ok")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	mgr.SetProviderTokenUsage("anthropic", llm.Usage{
+		PromptTokens:     120,
+		CompletionTokens: 15,
+		TotalTokens:      135,
+	})
+	if got, want := mgr.TokenUsage().Current, 135; got != want {
+		t.Fatalf("TokenUsage().Current = %d, want %d", got, want)
+	}
+
+	next := llm.NewToolMessage("call_1", "done")
+	delta := mgr.tokenizer.EstimateMessage(next)
+	if err := mgr.AddMessage(next); err != nil {
+		t.Fatalf("AddMessage tool failed: %v", err)
+	}
+
+	if got, want := mgr.TokenUsage().Current, 135+delta; got != want {
+		t.Fatalf("TokenUsage().Current after append = %d, want %d", got, want)
+	}
+	details := mgr.TokenUsageDetails()
+	if got, want := details.ProviderSnapshotTokens, 135; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderSnapshotTokens = %d, want %d", got, want)
+	}
+	if got, want := details.ProviderTokenScope, ProviderTokenScopeTotal; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderTokenScope = %q, want %q", got, want)
+	}
+	if got, want := details.LocalDelta, delta; got != want {
+		t.Fatalf("TokenUsageDetails().LocalDelta = %d, want %d", got, want)
+	}
+}
+
+func TestRestoreProviderUsageSnapshotRestoresCurrentAndLocalDelta(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 1000
+	cfg.ReserveTokens = 100
+	mgr := NewManager(cfg)
+	if err := mgr.AddMessage(llm.NewUserMessage("hello")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+	if err := mgr.AddMessage(llm.NewAssistantMessage("ok")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+	if err := mgr.AddMessage(llm.NewToolMessage("call_1", "done")); err != nil {
+		t.Fatalf("AddMessage failed: %v", err)
+	}
+
+	localEstimatedTotal := mgr.totalTokensLocked()
+	if localEstimatedTotal <= 5 {
+		t.Fatalf("localEstimatedTotal = %d, want > 5", localEstimatedTotal)
+	}
+
+	mgr.RestoreProviderUsageSnapshot(ProviderUsageSnapshot{
+		Provider:   "anthropic",
+		TokenScope: ProviderTokenScopeTotal,
+		Tokens:     1809,
+		LocalDelta: 5,
+		Usage: llm.Usage{
+			PromptTokens:     1660,
+			CompletionTokens: 149,
+			TotalTokens:      1809,
+			Raw:              json.RawMessage(`{"prompt_tokens":1660,"completion_tokens":149,"total_tokens":1809,"cached_tokens":0}`),
+		},
+	})
+
+	if got, want := mgr.TokenUsage().Current, 1814; got != want {
+		t.Fatalf("TokenUsage().Current = %d, want %d", got, want)
+	}
+	details := mgr.TokenUsageDetails()
+	if got, want := details.ProviderSnapshotTokens, 1809; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderSnapshotTokens = %d, want %d", got, want)
+	}
+	if got, want := details.LocalDelta, 5; got != want {
+		t.Fatalf("TokenUsageDetails().LocalDelta = %d, want %d", got, want)
+	}
+	if got, want := details.ProviderUsage.CompletionTokens, 149; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderUsage.CompletionTokens = %d, want %d", got, want)
+	}
+	if got, want := string(details.ProviderUsage.Raw), `{"prompt_tokens":1660,"completion_tokens":149,"total_tokens":1809,"cached_tokens":0}`; got != want {
+		t.Fatalf("TokenUsageDetails().ProviderUsage.Raw = %s, want %s", got, want)
 	}
 }
 
@@ -210,6 +381,37 @@ func TestCompactionThresholdSupportsRatioAndPercent(t *testing.T) {
 		t.Fatalf("expected 85%% threshold for percent config, got %.2f", got)
 	}
 	mgrPercent.mu.Unlock()
+}
+
+func TestAutoCompactThresholdUsesClaudeStyleBufferByDefault(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 200000
+	cfg.ReserveTokens = 20000
+	cfg.CompactionThreshold = 0
+	mgr := NewManager(cfg)
+
+	mgr.mu.Lock()
+	got := mgr.autoCompactThresholdTokensLocked()
+	mgr.mu.Unlock()
+
+	if want := 167000; got != want {
+		t.Fatalf("auto compact threshold = %d, want %d", got, want)
+	}
+}
+
+func TestCompactionTargetUsesFortyThousandTokenCap(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 200000
+	cfg.ReserveTokens = 20000
+	mgr := NewManager(cfg)
+
+	mgr.mu.Lock()
+	got := mgr.compactionTargetTokensLocked()
+	mgr.mu.Unlock()
+
+	if want := 40000; got != want {
+		t.Fatalf("compact target = %d, want %d", got, want)
+	}
 }
 
 func TestAddMessageRejectsSingleOversizedMessage(t *testing.T) {
@@ -298,18 +500,47 @@ func TestAddMessageCompactsToTargetAfterThresholdExceeded(t *testing.T) {
 	}
 
 	if got := mgr.TokenUsage().Current; got >= 90 {
-		t.Fatalf("token usage before threshold test = %d, want below 90", got)
+		t.Fatalf("token usage before threshold test = %d, want below max usable tokens", got)
 	}
 
-	if err := mgr.AddMessage(llm.NewUserMessage(strings.Repeat("x", 80))); err != nil {
+	triggeringUser := strings.Repeat("x", 80)
+	if err := mgr.AddMessage(llm.NewUserMessage(triggeringUser)); err != nil {
 		t.Fatalf("AddMessage triggering compaction failed: %v", err)
 	}
 
-	if got := mgr.TokenUsage().Current; got > 50 {
-		t.Fatalf("token usage after compaction = %d, want <= 50", got)
+	mgr.mu.Lock()
+	threshold := mgr.autoCompactThresholdTokensLocked()
+	mgr.mu.Unlock()
+	if got := mgr.TokenUsage().Current; got >= threshold {
+		t.Fatalf("token usage after compaction = %d, want below auto compact threshold %d", got, threshold)
 	}
 	if got := len(mgr.GetNonSystemMessages()); got >= 4 {
 		t.Fatalf("message count after compaction = %d, want fewer than 4", got)
+	}
+	msgs := mgr.GetNonSystemMessages()
+	if got := msgs[len(msgs)-1].Content; got != triggeringUser {
+		t.Fatalf("last message after compaction = %q, want triggering user message", got)
+	}
+}
+
+func TestShouldCompactAfterAddingPredictsAutoCompact(t *testing.T) {
+	cfg := DefaultManagerConfig()
+	cfg.ContextWindow = 100
+	cfg.ReserveTokens = 10
+	cfg.EnableSmartCompact = false
+	mgr := NewManager(cfg)
+
+	for i := 0; i < 3; i++ {
+		if err := mgr.AddMessage(llm.NewUserMessage(strings.Repeat("x", 80))); err != nil {
+			t.Fatalf("AddMessage #%d failed: %v", i+1, err)
+		}
+	}
+
+	if !mgr.ShouldCompactAfterAdding(llm.NewUserMessage(strings.Repeat("x", 80))) {
+		t.Fatal("ShouldCompactAfterAdding = false, want true")
+	}
+	if mgr.ShouldCompactAfterAdding(llm.NewToolMessage("call_1", strings.Repeat("x", 1000))) {
+		t.Fatal("ShouldCompactAfterAdding oversized message = true, want false")
 	}
 }
 

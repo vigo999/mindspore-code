@@ -1,6 +1,7 @@
 package context
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -20,6 +21,8 @@ const (
 	CompactStrategyPriority
 	// CompactStrategyHybrid 混合策略：结合多种策略
 	CompactStrategyHybrid
+	// CompactStrategyLLM LLM 摘要策略：调用模型生成继续会话摘要
+	CompactStrategyLLM
 )
 
 // String 返回策略名称
@@ -33,6 +36,8 @@ func (s CompactStrategy) String() string {
 		return "priority"
 	case CompactStrategyHybrid:
 		return "hybrid"
+	case CompactStrategyLLM:
+		return "llm"
 	default:
 		return "unknown"
 	}
@@ -49,6 +54,8 @@ func ParseCompactStrategy(s string) CompactStrategy {
 		return CompactStrategyPriority
 	case "hybrid":
 		return CompactStrategyHybrid
+	case "llm":
+		return CompactStrategyLLM
 	default:
 		return CompactStrategySimple
 	}
@@ -594,6 +601,142 @@ func pinnedMessageGroups(groups []messageGroup) []messageGroup {
 		}
 	}
 	return result
+}
+
+const invokedSkillMessagePrefix = "[Invoked Skill: "
+
+func invokedSkillMessagesForCompact(messages []llm.Message) []llm.Message {
+	entries := make(map[string]llm.Message)
+	order := make([]string, 0)
+	add := func(name string, msg llm.Message) {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			return
+		}
+		if _, ok := entries[name]; !ok {
+			order = append(order, name)
+		}
+		entries[name] = msg
+	}
+
+	for _, msg := range messages {
+		if name := invokedSkillNameFromMessage(msg); name != "" {
+			add(name, msg)
+		}
+	}
+	for _, group := range pinnedMessageGroups(groupMessages(messages)) {
+		for _, entry := range invokedSkillEntriesFromGroup(group) {
+			add(entry.Name, invokedSkillMessage(entry.Name, entry.Content))
+		}
+	}
+
+	result := make([]llm.Message, 0, len(order))
+	for _, name := range order {
+		result = append(result, entries[name])
+	}
+	return result
+}
+
+type invokedSkillEntry struct {
+	Name    string
+	Content string
+}
+
+func invokedSkillEntriesFromGroup(group messageGroup) []invokedSkillEntry {
+	toolResults := make(map[string]string)
+	for _, msg := range group.Messages {
+		if strings.TrimSpace(msg.Role) != "tool" {
+			continue
+		}
+		if id := strings.TrimSpace(msg.ToolCallID); id != "" && strings.TrimSpace(msg.Content) != "" {
+			toolResults[id] = msg.Content
+		}
+	}
+
+	entries := make([]invokedSkillEntry, 0)
+	for _, msg := range group.Messages {
+		for _, tc := range msg.ToolCalls {
+			if tc.Function.Name != "load_skill" {
+				continue
+			}
+			name := skillNameFromLoadSkillToolCall(tc)
+			content := strings.TrimSpace(toolResults[strings.TrimSpace(tc.ID)])
+			if name == "" || content == "" {
+				continue
+			}
+			entries = append(entries, invokedSkillEntry{Name: name, Content: content})
+		}
+	}
+	return entries
+}
+
+func skillNameFromLoadSkillToolCall(tc llm.ToolCall) string {
+	if tc.Function.Name != "load_skill" {
+		return ""
+	}
+	var args struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(tc.Function.Arguments, &args); err == nil && strings.TrimSpace(args.Name) != "" {
+		return strings.TrimSpace(args.Name)
+	}
+	if id := strings.TrimSpace(tc.ID); strings.HasPrefix(id, "slash_skill_") {
+		return strings.TrimSpace(strings.TrimPrefix(id, "slash_skill_"))
+	}
+	return ""
+}
+
+func invokedSkillMessage(name, content string) llm.Message {
+	name = strings.TrimSpace(name)
+	content = strings.TrimSpace(content)
+	return llm.NewUserMessage(fmt.Sprintf(
+		"%s%s]\nThe %q skill was invoked in this session. Continue to follow these guidelines:\n\n%s",
+		invokedSkillMessagePrefix,
+		name,
+		name,
+		content,
+	))
+}
+
+func reinjectInvokedSkillMessages(messages []llm.Message, skillMessages []llm.Message) []llm.Message {
+	if len(skillMessages) == 0 {
+		return messages
+	}
+
+	result := make([]llm.Message, 0, len(messages)+len(skillMessages))
+	for _, group := range groupMessages(messages) {
+		if isPinnedMessageGroup(group) {
+			continue
+		}
+		skipGroup := false
+		for _, msg := range group.Messages {
+			if invokedSkillNameFromMessage(msg) != "" {
+				skipGroup = true
+				break
+			}
+		}
+		if skipGroup {
+			continue
+		}
+		result = append(result, group.Messages...)
+	}
+	result = append(result, skillMessages...)
+	return result
+}
+
+func invokedSkillNameFromMessage(msg llm.Message) string {
+	if strings.TrimSpace(msg.Role) != "user" {
+		return ""
+	}
+	content := strings.TrimSpace(msg.Content)
+	if !strings.HasPrefix(content, invokedSkillMessagePrefix) {
+		return ""
+	}
+	end := strings.Index(content[len(invokedSkillMessagePrefix):], "]")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(content[len(invokedSkillMessagePrefix) : len(invokedSkillMessagePrefix)+end])
 }
 
 func isPinnedMessageGroup(group messageGroup) bool {

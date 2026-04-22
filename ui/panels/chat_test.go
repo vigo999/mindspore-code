@@ -6,10 +6,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/mindspore-lab/mindspore-cli/ui/model"
+	"github.com/mindspore-lab/mindspore-cli/ui/theme"
 )
 
 var testANSIPattern = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func TestInitStyles_UserMessagesUseBlackTextInsideBoldBlock(t *testing.T) {
+	orig := theme.Current
+	t.Cleanup(func() {
+		theme.Current = orig
+		InitStyles()
+	})
+
+	theme.Current = theme.Dark
+	InitStyles()
+
+	if got := userStyle.GetForeground(); got != lipgloss.Color("#000000") {
+		t.Fatalf("userStyle foreground = %v, want %v", got, lipgloss.Color("#000000"))
+	}
+	if !userBlockStyle.GetBold() {
+		t.Fatal("userBlockStyle bold = false, want true")
+	}
+	if !userBlockStyle.GetColorWhitespace() {
+		t.Fatal("userBlockStyle ColorWhitespace = false, want true")
+	}
+}
 
 func TestRenderMessages_ToolPendingShowsOneCallLine(t *testing.T) {
 	state := model.State{

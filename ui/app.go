@@ -399,7 +399,9 @@ func (a App) ensureWaitForEvent(cmd tea.Cmd) tea.Cmd {
 	if cmd == nil {
 		return a.waitForEvent
 	}
-	return tea.Batch(cmd, a.waitForEvent)
+	// Sequence preserves local UI ordering: user echo/print commands created
+	// by key handling must complete before the next backend event can render.
+	return tea.Sequence(cmd, a.waitForEvent)
 }
 
 // chatWidth returns the width available for the chat area.

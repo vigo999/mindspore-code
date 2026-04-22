@@ -81,14 +81,13 @@ func renderUserMsg(content string, width int) string {
 	// Wrap plain text — no nested ANSI, so background fills the full line.
 	wrapped := lipgloss.NewStyle().Width(bodyWidth).Render(content)
 	lines := strings.Split(wrapped, "\n")
-	firstLineStyle := userBlockStyle.Copy().Bold(true).Width(width)
-	restLineStyle := userBlockStyle.Copy().Width(width)
+	blockStyle := userBlockStyle.Copy().Width(width)
 	for i, line := range lines {
+		prefix := "    "
 		if i == 0 {
-			lines[i] = firstLineStyle.Render("  ❯ " + line)
-		} else {
-			lines[i] = restLineStyle.Render("    " + line)
+			prefix = "  ❯ "
 		}
+		lines[i] = blockStyle.Render(userStyle.Render(prefix + line))
 	}
 	return strings.Join(lines, "\n")
 }

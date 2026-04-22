@@ -152,7 +152,7 @@ func (a *Application) emitAvailableSkills(includeUsage bool) {
 
 	msg := "Available skills:\n\n" + skills.FormatSummaries(summaries)
 	if includeUsage {
-		msg += "\nUsage: /skill <name> [request...] (omit request to start the skill immediately)"
+		msg += "\nUsage: /skill \\<name\\> [request...] (omit request to start the skill immediately)"
 	}
 	a.EventCh <- model.Event{Type: model.AgentReply, Message: msg}
 }
